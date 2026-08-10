@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 
 import '../domain/models/host.dart';
 import '../infrastructure/ssh/ssh_service.dart';
+import '../infrastructure/ssh/server_monitor_service.dart';
 import 'vault_controller.dart';
 
 class SessionState {
@@ -72,6 +73,7 @@ class SessionController extends StateNotifier<SessionState> {
       );
       _watchSession(session);
       unawaited(vaultController.markConnected(host));
+      unawaited(_detectSystem(session, host));
     } catch (error) {
       state = SessionState(
         sessions: state.sessions,
@@ -114,6 +116,7 @@ class SessionController extends StateNotifier<SessionState> {
           activeIndex: state.activeIndex.clamp(0, sessions.length - 1),
         );
         _watchSession(replacement);
+        unawaited(_detectSystem(replacement, old.host));
       } catch (error) {
         old.terminal.write('\r\n\x1b[31m恢复连接失败：$error\x1b[0m\r\n');
         state = SessionState(
@@ -136,6 +139,31 @@ class SessionController extends StateNotifier<SessionState> {
         activeIndex: state.activeIndex,
       );
     }));
+  }
+
+  Future<void> _detectSystem(
+    ActiveTerminalSession session,
+    HostProfile host,
+  ) async {
+    if (!session.isSsh) return;
+    try {
+      final info = await ServerMonitorService().detect(session);
+      session.systemInfo = info;
+      final updated = HostProfile({
+        ...host.data,
+        'os': info.platform,
+        'distro': info.distro,
+        'systemInfo': info.toJson(),
+      });
+      await vaultController.upsertHost(updated);
+      if (!mounted) return;
+      state = SessionState(
+        sessions: [...state.sessions],
+        activeIndex: state.activeIndex,
+      );
+    } on Object {
+      // Detection is best effort and must never interrupt an SSH session.
+    }
   }
 
   void activate(int index) {

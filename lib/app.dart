@@ -57,8 +57,8 @@ class _NetcattyAppState extends ConsumerState<NetcattyApp>
     return MaterialApp(
       title: 'Netcatty',
       debugShowCheckedModeBanner: false,
-      theme: NetcattyTheme.light,
-      darkTheme: NetcattyTheme.dark,
+      theme: NetcattyTheme.build(Brightness.light, settings.uiThemeId),
+      darkTheme: NetcattyTheme.build(Brightness.dark, settings.uiThemeId),
       themeMode: mode,
       supportedLocales: const [Locale('zh', 'CN'), Locale('en')],
       localizationsDelegates: const [

@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'server_stats.dart';
+
 enum HostProtocol { ssh, telnet, mosh }
 
 enum HostAuthMethod { auto, password, key }
@@ -121,6 +123,21 @@ class HostProfile {
   }
 
   String? get startupCommand => data['startupCommand']?.toString();
+  String get distro => normalizeDistroId(
+        data['distro']?.toString() ??
+            (data['systemInfo'] is Map
+                ? (data['systemInfo'] as Map)['distro']?.toString()
+                : null) ??
+            data['os']?.toString() ??
+            'linux',
+      );
+  ServerSystemInfo? get systemInfo {
+    final value = data['systemInfo'];
+    return value is Map
+        ? ServerSystemInfo.fromJson(Map<String, dynamic>.from(value))
+        : null;
+  }
+
   bool get pinned => data['pinned'] == true;
   int get lastConnectedAt => (data['lastConnectedAt'] as num?)?.toInt() ?? 0;
   List<String> get tags => (data['tags'] as List? ?? const [])

@@ -15,6 +15,7 @@ import '../../domain/models/vault.dart';
 import '../../infrastructure/storage/vault_repository.dart';
 import '../../infrastructure/sync/cloud_sync_service.dart';
 import '../../infrastructure/sync/github_auth_service.dart';
+import '../theme.dart';
 import '../widgets/keychain_sheet.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
@@ -35,6 +36,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   final aiKey = TextEditingController();
   var provider = SyncProviderType.webdav;
   var themeMode = 'dark';
+  var uiThemeId = 'tokyo-night';
   var terminalFontSize = 14.0;
   var _loaded = false;
   var _busy = false;
@@ -61,6 +63,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     aiEndpoint.text = settings.aiEndpoint;
     aiModel.text = settings.aiModel;
     themeMode = settings.themeMode;
+    uiThemeId = settings.uiThemeId;
     terminalFontSize = settings.terminalFontSize;
     aiKey.text = await repository.readAiApiKey() ?? '';
     _githubUser =
@@ -106,6 +109,33 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             setState(() => themeMode = value.first),
                       ),
                       const SizedBox(height: 12),
+                      Builder(
+                        builder: (context) {
+                          final brightness = themeMode == 'light'
+                              ? Brightness.light
+                              : themeMode == 'dark'
+                                  ? Brightness.dark
+                                  : MediaQuery.platformBrightnessOf(context);
+                          final selected =
+                              NetcattyTheme.resolve(brightness, uiThemeId);
+                          return ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: CircleAvatar(
+                              backgroundColor: selected.background,
+                              child: Icon(
+                                Icons.palette_outlined,
+                                color: selected.primary,
+                              ),
+                            ),
+                            title: const Text('界面主题'),
+                            subtitle: Text(
+                              '${selected.name} · ${NetcattyTheme.presets(brightness).length} 种可选',
+                            ),
+                            trailing: const Icon(Icons.chevron_right),
+                            onTap: () => _selectTheme(brightness),
+                          );
+                        },
+                      ),
                       Row(
                         children: [
                           const Text('终端字号'),
@@ -361,8 +391,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               const SizedBox(height: 20),
               const Center(
                 child: Text(
-                  'Netcatty Mobile 0.1.0 · GPL-3.0-or-later',
-                  style: TextStyle(color: Colors.white38),
+                  'Netcatty Mobile 1.0.0 · GPL-3.0-or-later',
                 ),
               ),
             ],
@@ -379,7 +408,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             if (subtitle != null)
               Text(
                 subtitle,
-                style: const TextStyle(color: Colors.white54, fontSize: 12),
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontSize: 12,
+                ),
               ),
           ],
         ),
@@ -485,10 +517,24 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     await ref.read(settingsControllerProvider.notifier).update(
           current.copyWith(
             themeMode: themeMode,
+            uiThemeId: uiThemeId,
             terminalFontSize: terminalFontSize,
           ),
         );
     _message('外观设置已保存');
+  }
+
+  Future<void> _selectTheme(Brightness brightness) async {
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      useSafeArea: true,
+      isScrollControlled: true,
+      builder: (_) => _ThemePicker(
+        brightness: brightness,
+        selectedId: uiThemeId,
+      ),
+    );
+    if (selected != null && mounted) setState(() => uiThemeId = selected);
   }
 
   Future<void> _import() async {
@@ -531,6 +577,124 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         context,
       ).showSnackBar(SnackBar(content: Text(value)));
     }
+  }
+}
+
+class _ThemePicker extends StatefulWidget {
+  const _ThemePicker({
+    required this.brightness,
+    required this.selectedId,
+  });
+
+  final Brightness brightness;
+  final String selectedId;
+
+  @override
+  State<_ThemePicker> createState() => _ThemePickerState();
+}
+
+class _ThemePickerState extends State<_ThemePicker> {
+  String query = '';
+
+  @override
+  Widget build(BuildContext context) {
+    final themes = NetcattyTheme.presets(widget.brightness)
+        .where(
+          (theme) =>
+              query.isEmpty ||
+              theme.name.toLowerCase().contains(query.toLowerCase()) ||
+              theme.id.contains(query.toLowerCase()),
+        )
+        .toList(growable: false);
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.8,
+      minChildSize: 0.45,
+      maxChildSize: 0.95,
+      builder: (context, controller) => Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  widget.brightness == Brightness.dark ? '选择深色主题' : '选择浅色主题',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  autofocus: false,
+                  decoration: const InputDecoration(
+                    prefixIcon: Icon(Icons.search),
+                    hintText: '搜索 62 种主题',
+                  ),
+                  onChanged: (value) => setState(() => query = value.trim()),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: GridView.builder(
+              controller: controller,
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                maxCrossAxisExtent: 210,
+                mainAxisExtent: 88,
+                crossAxisSpacing: 10,
+                mainAxisSpacing: 10,
+              ),
+              itemCount: themes.length,
+              itemBuilder: (context, index) {
+                final theme = themes[index];
+                final selected = theme.id == widget.selectedId;
+                return InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: () => Navigator.pop(context, theme.id),
+                  child: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: theme.background,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: selected ? theme.primary : theme.border,
+                        width: selected ? 2 : 1,
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 12,
+                          decoration: BoxDecoration(
+                            color: theme.primary,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            theme.name,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: theme.foreground,
+                              fontWeight:
+                                  selected ? FontWeight.bold : FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                        if (selected)
+                          Icon(Icons.check_circle, color: theme.primary),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
