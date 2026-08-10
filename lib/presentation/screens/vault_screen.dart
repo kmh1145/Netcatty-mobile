@@ -3,12 +3,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../application/session_controller.dart';
+import '../../application/settings_controller.dart';
 import '../../application/vault_controller.dart';
 import '../../domain/models/host.dart';
 import '../home_shell.dart';
-import '../theme.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/host_editor.dart';
+import '../widgets/host_system_icon.dart';
 
 class VaultScreen extends ConsumerStatefulWidget {
   const VaultScreen({super.key});
@@ -19,12 +20,13 @@ class VaultScreen extends ConsumerStatefulWidget {
 
 class _VaultScreenState extends ConsumerState<VaultScreen> {
   final _search = TextEditingController();
-  var _grid = true;
   String? _group;
 
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(vaultControllerProvider);
+    final settings = ref.watch(settingsControllerProvider);
+    final viewMode = settings.serverViewMode;
     final vault = state.data;
     final hosts = (vault?.hosts ?? const <HostProfile>[]).where((host) {
       final query = _search.text.toLowerCase();
@@ -46,7 +48,7 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
             padding: const EdgeInsets.fromLTRB(16, 10, 8, 8),
             child: Row(
               children: [
-                const Icon(Icons.pets, color: NetcattyTheme.accent),
+                Icon(Icons.pets, color: Theme.of(context).colorScheme.primary),
                 const SizedBox(width: 10),
                 Text(
                   'Netcatty',
@@ -55,12 +57,40 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
                   ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
                 ),
                 const Spacer(),
-                IconButton(
-                  tooltip: _grid ? '列表视图' : '网格视图',
-                  onPressed: () => setState(() => _grid = !_grid),
-                  icon: Icon(
-                    _grid ? Icons.view_list_outlined : Icons.grid_view_outlined,
-                  ),
+                PopupMenuButton<String>(
+                  tooltip: '服务器视图',
+                  initialValue: viewMode,
+                  onSelected: (value) => ref
+                      .read(settingsControllerProvider.notifier)
+                      .update(settings.copyWith(serverViewMode: value)),
+                  itemBuilder: (_) => const [
+                    PopupMenuItem(
+                      value: 'grid',
+                      child: ListTile(
+                        leading: Icon(Icons.grid_view_outlined),
+                        title: Text('网格视图'),
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: 'list',
+                      child: ListTile(
+                        leading: Icon(Icons.view_list_outlined),
+                        title: Text('列表视图'),
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: 'tree',
+                      child: ListTile(
+                        leading: Icon(Icons.account_tree_outlined),
+                        title: Text('树形视图'),
+                      ),
+                    ),
+                  ],
+                  icon: Icon(switch (viewMode) {
+                    'list' => Icons.view_list_outlined,
+                    'tree' => Icons.account_tree_outlined,
+                    _ => Icons.grid_view_outlined,
+                  }),
                 ),
                 IconButton(
                   tooltip: '添加主机',
@@ -126,36 +156,40 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
                     : RefreshIndicator(
                         onRefresh: () =>
                             ref.read(vaultControllerProvider.notifier).load(),
-                        child: _grid
-                            ? GridView.builder(
-                                padding: const EdgeInsets.all(12),
-                                gridDelegate:
-                                    const SliverGridDelegateWithMaxCrossAxisExtent(
-                                  maxCrossAxisExtent: 230,
-                                  mainAxisExtent: 148,
-                                  crossAxisSpacing: 10,
-                                  mainAxisSpacing: 10,
-                                ),
-                                itemCount: hosts.length,
-                                itemBuilder: (_, index) => _HostCard(
-                                  host: hosts[index],
-                                  onConnect: () =>
-                                      _showHostDetails(hosts[index]),
-                                  onEdit: () => _editHost(hosts[index]),
-                                ),
-                              )
-                            : ListView.separated(
-                                padding: const EdgeInsets.all(12),
-                                itemCount: hosts.length,
-                                separatorBuilder: (_, __) =>
-                                    const SizedBox(height: 8),
-                                itemBuilder: (_, index) => _HostTile(
-                                  host: hosts[index],
-                                  onConnect: () =>
-                                      _showHostDetails(hosts[index]),
-                                  onEdit: () => _editHost(hosts[index]),
-                                ),
+                        child: switch (viewMode) {
+                          'grid' => GridView.builder(
+                              padding: const EdgeInsets.all(12),
+                              gridDelegate:
+                                  const SliverGridDelegateWithMaxCrossAxisExtent(
+                                maxCrossAxisExtent: 230,
+                                mainAxisExtent: 148,
+                                crossAxisSpacing: 10,
+                                mainAxisSpacing: 10,
                               ),
+                              itemCount: hosts.length,
+                              itemBuilder: (_, index) => _HostCard(
+                                host: hosts[index],
+                                onConnect: () => _showHostDetails(hosts[index]),
+                                onEdit: () => _editHost(hosts[index]),
+                              ),
+                            ),
+                          'tree' => _HostTree(
+                              hosts: hosts,
+                              onConnect: _showHostDetails,
+                              onEdit: _editHost,
+                            ),
+                          _ => ListView.separated(
+                              padding: const EdgeInsets.all(12),
+                              itemCount: hosts.length,
+                              separatorBuilder: (_, __) =>
+                                  const SizedBox(height: 8),
+                              itemBuilder: (_, index) => _HostTile(
+                                host: hosts[index],
+                                onConnect: () => _showHostDetails(hosts[index]),
+                                onEdit: () => _editHost(hosts[index]),
+                              ),
+                            ),
+                        },
                       ),
           ),
         ],
@@ -206,7 +240,7 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
     final action = await showDialog<_HostAction>(
       context: context,
       builder: (context) => AlertDialog(
-        icon: const Icon(Icons.dns_outlined, color: NetcattyTheme.accent),
+        icon: HostSystemIcon(host: host, size: 52),
         title: Text(host.label),
         content: SizedBox(
           width: 440,
@@ -219,6 +253,18 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
                 value:
                     '${host.protocol.name.toUpperCase()}  ${host.username}@${host.hostname}:${host.port}',
               ),
+              if (host.systemInfo != null)
+                _DetailRow(
+                  icon: Icons.memory_outlined,
+                  label: '系统',
+                  value: [
+                    host.systemInfo!.prettyName,
+                    if (host.systemInfo!.kernel.isNotEmpty)
+                      host.systemInfo!.kernel,
+                    if (host.systemInfo!.cores > 0)
+                      '${host.systemInfo!.cores} 核',
+                  ].join(' · '),
+                ),
               _DetailRow(
                 icon: Icons.key_outlined,
                 label: '认证',
@@ -407,6 +453,77 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
   }
 }
 
+class _HostTree extends StatelessWidget {
+  const _HostTree({
+    required this.hosts,
+    required this.onConnect,
+    required this.onEdit,
+  });
+
+  final List<HostProfile> hosts;
+  final ValueChanged<HostProfile> onConnect;
+  final ValueChanged<HostProfile> onEdit;
+
+  @override
+  Widget build(BuildContext context) {
+    final grouped = <String, List<HostProfile>>{};
+    for (final host in hosts) {
+      grouped
+          .putIfAbsent(
+              host.group?.trim().isNotEmpty == true
+                  ? host.group!.trim()
+                  : '未分组',
+              () => <HostProfile>[])
+          .add(host);
+    }
+    final groups = grouped.keys.toList()
+      ..sort((a, b) {
+        if (a == '未分组') return 1;
+        if (b == '未分组') return -1;
+        return a.toLowerCase().compareTo(b.toLowerCase());
+      });
+    return ListView.builder(
+      padding: const EdgeInsets.all(12),
+      itemCount: groups.length,
+      itemBuilder: (context, index) {
+        final group = groups[index];
+        final children = grouped[group]!;
+        return Card(
+          margin: const EdgeInsets.only(bottom: 10),
+          clipBehavior: Clip.antiAlias,
+          child: ExpansionTile(
+            initiallyExpanded: true,
+            leading: Icon(
+              group == '未分组'
+                  ? Icons.folder_off_outlined
+                  : Icons.folder_outlined,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+            title: Text(group),
+            subtitle: Text('${children.length} 台服务器'),
+            children: [
+              for (final host in children)
+                ListTile(
+                  contentPadding: const EdgeInsets.only(left: 28, right: 8),
+                  onTap: () => onConnect(host),
+                  leading: HostSystemIcon(host: host, size: 38),
+                  title: Text(host.label),
+                  subtitle:
+                      Text('${host.username}@${host.hostname}:${host.port}'),
+                  trailing: IconButton(
+                    tooltip: '编辑',
+                    onPressed: () => onEdit(host),
+                    icon: const Icon(Icons.more_vert),
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
 class _HostCard extends StatelessWidget {
   const _HostCard({
     required this.host,
@@ -430,18 +547,7 @@ class _HostCard extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: const Color(0x22f97316),
-                        borderRadius: BorderRadius.circular(9),
-                      ),
-                      child: const Icon(
-                        Icons.terminal,
-                        size: 20,
-                        color: NetcattyTheme.accent,
-                      ),
-                    ),
+                    HostSystemIcon(host: host, size: 40),
                     const Spacer(),
                     if (host.pinned) const Icon(Icons.push_pin, size: 16),
                     IconButton(
@@ -469,8 +575,8 @@ class _HostCard extends StatelessWidget {
                 if (host.group?.isNotEmpty == true)
                   Text(
                     host.group!,
-                    style: const TextStyle(
-                      color: NetcattyTheme.accent,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.primary,
                       fontSize: 11,
                     ),
                   ),
@@ -494,10 +600,7 @@ class _HostTile extends StatelessWidget {
   Widget build(BuildContext context) => Card(
         child: ListTile(
           onTap: onConnect,
-          leading: const CircleAvatar(
-            backgroundColor: Color(0x22f97316),
-            child: Icon(Icons.terminal, color: NetcattyTheme.accent),
-          ),
+          leading: HostSystemIcon(host: host, size: 42),
           title: Text(host.label),
           subtitle: Text('${host.username}@${host.hostname}:${host.port}'),
           trailing: IconButton(
@@ -527,7 +630,7 @@ class _DetailRow extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(icon, size: 19, color: NetcattyTheme.accent),
+            Icon(icon, size: 19, color: Theme.of(context).colorScheme.primary),
             const SizedBox(width: 12),
             SizedBox(
               width: 62,

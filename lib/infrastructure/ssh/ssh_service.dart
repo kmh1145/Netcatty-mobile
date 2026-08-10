@@ -7,6 +7,7 @@ import 'package:dartssh2/dartssh2.dart';
 import 'package:xterm/xterm.dart';
 
 import '../../domain/models/host.dart';
+import '../../domain/models/server_stats.dart';
 
 typedef HostKeyVerifier = Future<bool> Function(
   HostProfile host,
@@ -42,6 +43,7 @@ class ActiveTerminalSession {
   final Socket? telnetSocket;
   bool connected = true;
   bool closedByUser = false;
+  ServerSystemInfo? systemInfo;
 
   SSHClient? get sshClient => sshClients.isEmpty ? null : sshClients.last;
   bool get isSsh => sshClient != null;

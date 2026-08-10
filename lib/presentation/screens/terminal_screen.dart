@@ -8,9 +8,9 @@ import '../../domain/models/settings.dart';
 import '../../infrastructure/ai/ai_service.dart';
 import '../../infrastructure/ssh/ssh_service.dart';
 import '../../infrastructure/storage/vault_repository.dart';
-import '../theme.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/port_forward_sheet.dart';
+import '../widgets/server_monitor_sheet.dart';
 
 class TerminalScreen extends ConsumerStatefulWidget {
   const TerminalScreen({super.key});
@@ -34,7 +34,10 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
             child: Row(
               children: [
                 const SizedBox(width: 12),
-                const Icon(Icons.terminal, color: NetcattyTheme.accent),
+                Icon(
+                  Icons.terminal,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: state.sessions.isEmpty
@@ -94,6 +97,20 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
                   ),
                 if (state.active != null)
                   IconButton(
+                    tooltip: '性能监控',
+                    onPressed: state.active!.isSsh
+                        ? () => showModalBottomSheet<void>(
+                              context: context,
+                              useSafeArea: true,
+                              isScrollControlled: true,
+                              builder: (_) =>
+                                  ServerMonitorSheet(session: state.active!),
+                            )
+                        : null,
+                    icon: const Icon(Icons.monitor_heart_outlined),
+                  ),
+                if (state.active != null)
+                  IconButton(
                     tooltip: '端口转发',
                     onPressed: () => showModalBottomSheet<void>(
                       context: context,
@@ -106,9 +123,9 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
                   IconButton(
                     tooltip: 'Catty AI',
                     onPressed: () => _openAi(state.active!),
-                    icon: const Icon(
+                    icon: Icon(
                       Icons.auto_awesome,
-                      color: NetcattyTheme.accent,
+                      color: Theme.of(context).colorScheme.primary,
                     ),
                   ),
               ],
@@ -289,15 +306,45 @@ class _TerminalPane extends StatelessWidget {
   final double fontSize;
 
   @override
-  Widget build(BuildContext context) => ColoredBox(
-        color: const Color(0xff050607),
-        child: TerminalView(
-          session.terminal,
-          autofocus: true,
-          padding: const EdgeInsets.all(8),
-          textStyle: TerminalStyle(fontSize: fontSize, fontFamily: 'monospace'),
-        ),
-      );
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final terminalTheme = TerminalTheme(
+      cursor: scheme.primary,
+      selection: scheme.primary.withValues(alpha: 0.35),
+      foreground: scheme.onSurface,
+      background: scheme.surface,
+      black: const Color(0xff1d1f21),
+      red: const Color(0xffcc6666),
+      green: const Color(0xffb5bd68),
+      yellow: const Color(0xfff0c674),
+      blue: const Color(0xff81a2be),
+      magenta: const Color(0xffb294bb),
+      cyan: const Color(0xff8abeb7),
+      white: const Color(0xffc5c8c6),
+      brightBlack: const Color(0xff666666),
+      brightRed: const Color(0xffd54e53),
+      brightGreen: const Color(0xffb9ca4a),
+      brightYellow: const Color(0xffe7c547),
+      brightBlue: const Color(0xff7aa6da),
+      brightMagenta: const Color(0xffc397d8),
+      brightCyan: const Color(0xff70c0b1),
+      brightWhite: const Color(0xffeaeaea),
+      searchHitBackground: scheme.tertiaryContainer,
+      searchHitBackgroundCurrent: scheme.primaryContainer,
+      searchHitForeground: scheme.onSurface,
+    );
+    return ColoredBox(
+      color: scheme.surface,
+      child: TerminalView(
+        session.terminal,
+        theme: terminalTheme,
+        keyboardAppearance: Theme.of(context).brightness,
+        autofocus: true,
+        padding: const EdgeInsets.all(8),
+        textStyle: TerminalStyle(fontSize: fontSize, fontFamily: 'monospace'),
+      ),
+    );
+  }
 }
 
 class _SpecialKeys extends ConsumerWidget {

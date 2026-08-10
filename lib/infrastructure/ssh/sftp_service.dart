@@ -80,6 +80,43 @@ class SftpService {
   Future<void> mkdir(String path) async => (await _sftp).mkdir(path);
   Future<void> rename(String from, String to) async =>
       (await _sftp).rename(from, to);
+
+  /// Copies a file or directory inside the remote server without buffering a
+  /// complete file in mobile memory.
+  Future<void> copyEntry(RemoteEntry entry, String targetDirectory) async {
+    final target = joinRemotePath(targetDirectory, entry.name);
+    if (target == entry.path || target.startsWith('${entry.path}/')) {
+      throw StateError('不能把目录复制到自身或其子目录');
+    }
+    if (entry.isDirectory) {
+      try {
+        await (await _sftp).mkdir(target);
+      } on SftpStatusError {
+        final existing = await (await _sftp).stat(target);
+        if (existing.mode?.type != SftpFileType.directory) rethrow;
+        // Existing folders are merged, matching desktop Netcatty behaviour.
+      }
+      for (final child in await list(entry.path)) {
+        await copyEntry(child, target);
+      }
+      return;
+    }
+    final client = await _sftp;
+    final source = await client.open(entry.path, mode: SftpFileOpenMode.read);
+    final destination = await client.open(
+      target,
+      mode: SftpFileOpenMode.create |
+          SftpFileOpenMode.write |
+          SftpFileOpenMode.truncate,
+    );
+    try {
+      await destination.write(source.read()).done;
+    } finally {
+      await source.close();
+      await destination.close();
+    }
+  }
+
   Future<void> delete(RemoteEntry entry) async => entry.isDirectory
       ? _deleteDirectory(entry.path)
       : (await _sftp).remove(entry.path);
@@ -91,3 +128,6 @@ class SftpService {
     await (await _sftp).rmdir(path);
   }
 }
+
+String joinRemotePath(String path, String name) =>
+    path == '/' ? '/$name' : '$path/$name';
