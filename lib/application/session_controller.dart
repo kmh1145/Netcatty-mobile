@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:uuid/uuid.dart';
 
 import '../domain/models/host.dart';
 import '../infrastructure/ssh/ssh_service.dart';
@@ -47,24 +48,20 @@ class SessionController extends StateNotifier<SessionState> {
     HostKeyVerifier verifyHostKey, {
     KeyboardInteractiveHandler? keyboardInteractive,
   }) async {
-    final existing = state.sessions.indexWhere(
-      (item) => item.host.id == host.id,
-    );
-    if (existing >= 0) {
-      state = SessionState(sessions: state.sessions, activeIndex: existing);
-      return;
-    }
     state = SessionState(
       sessions: state.sessions,
       activeIndex: state.activeIndex,
       connectingHostId: host.id,
     );
     try {
-      final keys = ref.read(vaultControllerProvider).data?.keys ??
-          const <SshKeyProfile>[];
+      final vault = ref.read(vaultControllerProvider).data;
+      final keys = vault?.keys ?? const <SshKeyProfile>[];
       final session = await service.connect(
+        sessionId: const Uuid().v4(),
         host: host,
+        hosts: vault?.hosts ?? const <HostProfile>[],
         keys: keys,
+        proxyProfiles: vault?.proxyProfiles ?? const <ProxyProfile>[],
         verifyHostKey: verifyHostKey,
         keyboardInteractive: keyboardInteractive,
       );
@@ -73,6 +70,7 @@ class SessionController extends StateNotifier<SessionState> {
         sessions: sessions,
         activeIndex: sessions.length - 1,
       );
+      _watchSession(session);
       unawaited(vaultController.markConnected(host));
     } catch (error) {
       state = SessionState(
@@ -82,6 +80,62 @@ class SessionController extends StateNotifier<SessionState> {
       );
       rethrow;
     }
+  }
+
+  Future<void> reconnectDisconnected() async {
+    if (state.connectingHostId != null) return;
+    for (final old in [...state.sessions]) {
+      if (old.connected || old.closedByUser) continue;
+      final index = state.sessions.indexWhere((value) => value.id == old.id);
+      if (index < 0) continue;
+      state = SessionState(
+        sessions: state.sessions,
+        activeIndex: state.activeIndex,
+        connectingHostId: old.host.id,
+      );
+      try {
+        final vault = ref.read(vaultControllerProvider).data;
+        old.terminal.write('\r\n\x1b[33m正在恢复连接…\x1b[0m\r\n');
+        final replacement = await service.connect(
+          sessionId: old.id,
+          host: old.host,
+          hosts: vault?.hosts ?? const <HostProfile>[],
+          keys: vault?.keys ?? const <SshKeyProfile>[],
+          proxyProfiles: vault?.proxyProfiles ?? const <ProxyProfile>[],
+          verifyHostKey: old.verifyHostKey,
+          keyboardInteractive: old.keyboardInteractive,
+          terminal: old.terminal,
+        );
+        final sessions = [...state.sessions];
+        final current = sessions.indexWhere((value) => value.id == old.id);
+        if (current >= 0) sessions[current] = replacement;
+        state = SessionState(
+          sessions: sessions,
+          activeIndex: state.activeIndex.clamp(0, sessions.length - 1),
+        );
+        _watchSession(replacement);
+      } catch (error) {
+        old.terminal.write('\r\n\x1b[31m恢复连接失败：$error\x1b[0m\r\n');
+        state = SessionState(
+          sessions: state.sessions,
+          activeIndex: state.activeIndex,
+          error: error,
+        );
+      }
+    }
+  }
+
+  void _watchSession(ActiveTerminalSession session) {
+    unawaited(session.done.then((_) {
+      if (session.closedByUser) return;
+      session.connected = false;
+      session.terminal.write('\r\n\x1b[33m连接已断开，返回前台后将自动重连。\x1b[0m\r\n');
+      if (!mounted) return;
+      state = SessionState(
+        sessions: [...state.sessions],
+        activeIndex: state.activeIndex,
+      );
+    }));
   }
 
   void activate(int index) {

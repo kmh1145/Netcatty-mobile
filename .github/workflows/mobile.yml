@@ -20,7 +20,7 @@ jobs:
       - run: flutter analyze
       - run: flutter test
       - name: Build Android release APK
-        run: flutter build apk --release
+        run: flutter build apk --release --dart-define=GITHUB_OAUTH_CLIENT_ID=Ov23lidR2u8OIkHW19nk
       - name: Prepare Android package
         shell: bash
         run: |
@@ -48,4 +48,23 @@ jobs:
           flutter-version: 3.44.4
           cache: true
       - run: flutter pub get
-      - run: flutter build ios --debug --no-codesign
+      - name: Build unsigned iOS release app
+        run: flutter build ios --release --no-codesign --dart-define=GITHUB_OAUTH_CLIENT_ID=Ov23lidR2u8OIkHW19nk
+      - name: Package re-signable IPA
+        shell: bash
+        run: |
+          mkdir -p dist build/ios/iphoneos/Payload
+          cp -R build/ios/iphoneos/Runner.app build/ios/iphoneos/Payload/
+          cd build/ios/iphoneos
+          ditto -c -k --sequesterRsrc --keepParent Payload ../../../dist/netcatty-mobile-ios-unsigned.ipa
+          cd ../../../dist
+          shasum -a 256 netcatty-mobile-ios-unsigned.ipa > netcatty-mobile-ios-unsigned.ipa.sha256
+      - name: Upload re-signable IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: netcatty-mobile-ios-unsigned-${{ github.run_number }}
+          path: |
+            dist/netcatty-mobile-ios-unsigned.ipa
+            dist/netcatty-mobile-ios-unsigned.ipa.sha256
+          if-no-files-found: error
+          retention-days: 30

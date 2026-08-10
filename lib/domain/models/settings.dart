@@ -7,6 +7,7 @@ class AppSettings {
     this.language = 'zh-CN',
     this.aiEndpoint = 'https://api.openai.com/v1',
     this.aiModel = 'gpt-4.1-mini',
+    this.terminalQuickKeys = defaultTerminalQuickKeys,
   });
 
   factory AppSettings.fromJson(Map<String, dynamic> json) => AppSettings(
@@ -16,6 +17,11 @@ class AppSettings {
         aiEndpoint:
             json['aiEndpoint']?.toString() ?? 'https://api.openai.com/v1',
         aiModel: json['aiModel']?.toString() ?? 'gpt-4.1-mini',
+        terminalQuickKeys:
+            (json['terminalQuickKeys'] as List? ?? defaultTerminalQuickKeys)
+                .map((value) => value.toString())
+                .where(defaultTerminalQuickKeys.contains)
+                .toList(),
       );
 
   final String themeMode;
@@ -23,6 +29,7 @@ class AppSettings {
   final String language;
   final String aiEndpoint;
   final String aiModel;
+  final List<String> terminalQuickKeys;
 
   AppSettings copyWith({
     String? themeMode,
@@ -30,6 +37,7 @@ class AppSettings {
     String? language,
     String? aiEndpoint,
     String? aiModel,
+    List<String>? terminalQuickKeys,
   }) =>
       AppSettings(
         themeMode: themeMode ?? this.themeMode,
@@ -37,6 +45,7 @@ class AppSettings {
         language: language ?? this.language,
         aiEndpoint: aiEndpoint ?? this.aiEndpoint,
         aiModel: aiModel ?? this.aiModel,
+        terminalQuickKeys: terminalQuickKeys ?? this.terminalQuickKeys,
       );
 
   Map<String, dynamic> toJson() => {
@@ -45,8 +54,25 @@ class AppSettings {
         'language': language,
         'aiEndpoint': aiEndpoint,
         'aiModel': aiModel,
+        'terminalQuickKeys': terminalQuickKeys,
       };
 }
+
+const defaultTerminalQuickKeys = <String>[
+  'escape',
+  'tab',
+  'ctrlC',
+  'ctrlD',
+  'ctrlZ',
+  'arrowUp',
+  'arrowDown',
+  'arrowLeft',
+  'arrowRight',
+  'pipe',
+  'slash',
+  'tilde',
+  'hideKeyboard',
+];
 
 class SyncConnection {
   const SyncConnection({
