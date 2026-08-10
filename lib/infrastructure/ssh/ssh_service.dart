@@ -9,7 +9,10 @@ import 'package:xterm/xterm.dart';
 import '../../domain/models/host.dart';
 
 typedef HostKeyVerifier = Future<bool> Function(
-    String algorithm, String fingerprint);
+  HostProfile host,
+  String algorithm,
+  String fingerprint,
+);
 
 typedef KeyboardInteractiveHandler = Future<List<String>?> Function(
   String name,
@@ -19,49 +22,138 @@ typedef KeyboardInteractiveHandler = Future<List<String>?> Function(
 
 class ActiveTerminalSession {
   ActiveTerminalSession({
+    required this.id,
     required this.host,
     required this.terminal,
-    this.sshClient,
+    required this.verifyHostKey,
+    required this.keyboardInteractive,
+    this.sshClients = const [],
     this.sshSession,
     this.telnetSocket,
   });
 
+  final String id;
   final HostProfile host;
   final Terminal terminal;
-  final SSHClient? sshClient;
+  final HostKeyVerifier verifyHostKey;
+  final KeyboardInteractiveHandler? keyboardInteractive;
+  final List<SSHClient> sshClients;
   final SSHSession? sshSession;
   final Socket? telnetSocket;
+  bool connected = true;
+  bool closedByUser = false;
 
+  SSHClient? get sshClient => sshClients.isEmpty ? null : sshClients.last;
   bool get isSsh => sshClient != null;
+  Future<void> get done =>
+      sshSession?.done ?? telnetSocket?.done ?? Future.value();
 
   Future<void> close() async {
+    closedByUser = true;
+    connected = false;
     sshSession?.close();
-    sshClient?.close();
+    for (final client in sshClients.reversed) {
+      client.close();
+    }
     await telnetSocket?.close();
   }
 }
 
 class SshService {
   Future<ActiveTerminalSession> connect({
+    required String sessionId,
     required HostProfile host,
+    required List<HostProfile> hosts,
     required List<SshKeyProfile> keys,
+    required List<ProxyProfile> proxyProfiles,
     required HostKeyVerifier verifyHostKey,
     KeyboardInteractiveHandler? keyboardInteractive,
+    Terminal? terminal,
   }) async {
     if (host.protocol == HostProtocol.telnet) {
-      return _connectTelnet(host);
+      return _connectTelnet(
+        sessionId,
+        host,
+        verifyHostKey,
+        keyboardInteractive,
+        terminal,
+      );
     }
     if (host.protocol == HostProtocol.mosh) {
-      throw UnsupportedError('Mosh 需要平台原生 UDP 运行时；当前构建请先使用 SSH。');
+      throw UnsupportedError('Mosh 需要平台原生 UDP 运行时，当前版本尚未启用。');
     }
-    final socket = await SSHSocket.connect(
-      host.hostname,
-      host.port,
-      timeout: Duration(
-        seconds:
-            (host.data['sshTcpConnectTimeoutSeconds'] as num?)?.toInt() ?? 15,
-      ),
-    );
+
+    final chain = _resolveHostChain(host, hosts);
+    final route = [...chain, host];
+    final clients = <SSHClient>[];
+    SSHSocket? transport;
+    try {
+      for (var index = 0; index < route.length; index++) {
+        final current = route[index];
+        transport ??= await _openTransport(
+          current,
+          proxyProfiles,
+          timeout: _connectTimeout(current),
+        );
+        final client = _createClient(
+          transport,
+          current,
+          keys,
+          verifyHostKey,
+          keyboardInteractive,
+        );
+        clients.add(client);
+        if (index < route.length - 1) {
+          final next = route[index + 1];
+          transport = await client.forwardLocal(next.hostname, next.port);
+        }
+      }
+
+      final client = clients.last;
+      final session = await client.shell(
+        pty: const SSHPtyConfig(type: 'xterm-256color', width: 80, height: 24),
+        environment: _environment(host),
+      );
+      final output = terminal ?? Terminal(maxLines: 10000);
+      output.onOutput =
+          (value) => session.write(Uint8List.fromList(utf8.encode(value)));
+      output.onResize = (width, height, pixelWidth, pixelHeight) {
+        session.resizeTerminal(width, height, pixelWidth, pixelHeight);
+      };
+      session.stdout.listen(
+        (data) => output.write(utf8.decode(data, allowMalformed: true)),
+      );
+      session.stderr.listen(
+        (data) => output.write(utf8.decode(data, allowMalformed: true)),
+      );
+      final startup = host.startupCommand;
+      if (startup != null && startup.isNotEmpty) {
+        session.write(Uint8List.fromList(utf8.encode('$startup\n')));
+      }
+      return ActiveTerminalSession(
+        id: sessionId,
+        host: host,
+        terminal: output,
+        verifyHostKey: verifyHostKey,
+        keyboardInteractive: keyboardInteractive,
+        sshClients: clients,
+        sshSession: session,
+      );
+    } catch (_) {
+      for (final client in clients.reversed) {
+        client.close();
+      }
+      rethrow;
+    }
+  }
+
+  SSHClient _createClient(
+    SSHSocket socket,
+    HostProfile host,
+    List<SshKeyProfile> keys,
+    HostKeyVerifier verifyHostKey,
+    KeyboardInteractiveHandler? keyboardInteractive,
+  ) {
     final identity = keys.cast<SshKeyProfile?>().firstWhere(
           (value) => value?.id == host.identityFileId,
           orElse: () => null,
@@ -69,11 +161,15 @@ class SshService {
     final identities = identity == null || identity.privateKey.isEmpty
         ? null
         : SSHKeyPair.fromPem(identity.privateKey, identity.passphrase);
-    final client = SSHClient(
+    return SSHClient(
       socket,
       username: host.username,
-      identities: identities,
-      onPasswordRequest: host.password == null ? null : () => host.password,
+      identities:
+          host.authMethod == HostAuthMethod.password ? null : identities,
+      onPasswordRequest:
+          host.authMethod == HostAuthMethod.key || host.password == null
+              ? null
+              : () => host.password,
       onUserInfoRequest: (request) async {
         if (keyboardInteractive != null) {
           return keyboardInteractive(
@@ -95,55 +191,179 @@ class SshService {
         seconds:
             (host.data['sshAuthReadyTimeoutSeconds'] as num?)?.toInt() ?? 30,
       ),
-      onVerifyHostKey: (type, fingerprint) =>
-          verifyHostKey(type, utf8.decode(fingerprint)),
-    );
-    final environment = <String, String>{};
-    for (final value
-        in host.data['environmentVariables'] as List? ?? const []) {
-      if (value is Map && value['name'] != null) {
-        environment[value['name'].toString()] =
-            value['value']?.toString() ?? '';
-      }
-    }
-    final session = await client.shell(
-      pty: const SSHPtyConfig(type: 'xterm-256color', width: 80, height: 24),
-      environment: environment,
-    );
-    final terminal = Terminal(maxLines: 10000);
-    terminal.onOutput =
-        (value) => session.write(Uint8List.fromList(utf8.encode(value)));
-    terminal.onResize = (width, height, pixelWidth, pixelHeight) {
-      session.resizeTerminal(width, height, pixelWidth, pixelHeight);
-    };
-    session.stdout.listen(
-      (data) => terminal.write(utf8.decode(data, allowMalformed: true)),
-    );
-    session.stderr.listen(
-      (data) => terminal.write(utf8.decode(data, allowMalformed: true)),
-    );
-    unawaited(
-      session.done.then((_) => terminal.write('\r\n\x1b[33m连接已关闭\x1b[0m\r\n')),
-    );
-    final startup = host.startupCommand;
-    if (startup != null && startup.isNotEmpty) {
-      session.write(Uint8List.fromList(utf8.encode('$startup\n')));
-    }
-    return ActiveTerminalSession(
-      host: host,
-      terminal: terminal,
-      sshClient: client,
-      sshSession: session,
+      onVerifyHostKey: (type, fingerprint) => verifyHostKey(
+        host,
+        type,
+        utf8.decode(fingerprint),
+      ),
     );
   }
 
-  Future<ActiveTerminalSession> _connectTelnet(HostProfile host) async {
+  List<HostProfile> _resolveHostChain(
+    HostProfile target,
+    List<HostProfile> hosts,
+  ) {
+    final byId = {for (final host in hosts) host.id: host};
+    final seen = <String>{target.id};
+    final result = <HostProfile>[];
+    for (final id in target.hostChainIds) {
+      final jump = byId[id];
+      if (jump == null) throw StateError('找不到跳板机：$id');
+      if (!seen.add(jump.id)) throw StateError('跳板机链路存在循环');
+      if (jump.protocol != HostProtocol.ssh) {
+        throw StateError('跳板机必须使用 SSH：${jump.label}');
+      }
+      result.add(jump);
+    }
+    return result;
+  }
+
+  Duration _connectTimeout(HostProfile host) => Duration(
+        seconds:
+            (host.data['sshTcpConnectTimeoutSeconds'] as num?)?.toInt() ?? 15,
+      );
+
+  Map<String, String> _environment(HostProfile host) {
+    final result = <String, String>{};
+    for (final value
+        in host.data['environmentVariables'] as List? ?? const []) {
+      if (value is Map && value['name'] != null) {
+        result[value['name'].toString()] = value['value']?.toString() ?? '';
+      }
+    }
+    return result;
+  }
+
+  ProxyConfig? _effectiveProxy(
+    HostProfile host,
+    List<ProxyProfile> profiles,
+  ) {
+    final profileId = host.proxyProfileId;
+    if (profileId != null && profileId.isNotEmpty) {
+      for (final profile in profiles) {
+        if (profile.id == profileId) return profile.config;
+      }
+      throw StateError('找不到代理配置：$profileId');
+    }
+    return host.proxyConfig;
+  }
+
+  Future<SSHSocket> _openTransport(
+    HostProfile host,
+    List<ProxyProfile> profiles, {
+    required Duration timeout,
+  }) async {
+    final proxy = _effectiveProxy(host, profiles);
+    if (proxy == null || proxy.host.isEmpty || proxy.port <= 0) {
+      return SSHSocket.connect(host.hostname, host.port, timeout: timeout);
+    }
+    final socket =
+        await Socket.connect(proxy.host, proxy.port, timeout: timeout);
+    final cursor = _SocketCursor(socket);
+    try {
+      switch (proxy.type) {
+        case ProxyType.http:
+          await _connectHttpProxy(socket, cursor, proxy, host);
+        case ProxyType.socks5:
+          await _connectSocksProxy(socket, cursor, proxy, host);
+      }
+      return _ProxySshSocket(socket, cursor);
+    } catch (_) {
+      socket.destroy();
+      rethrow;
+    }
+  }
+
+  Future<void> _connectHttpProxy(
+    Socket socket,
+    _SocketCursor cursor,
+    ProxyConfig proxy,
+    HostProfile target,
+  ) async {
+    final authority = '${target.hostname}:${target.port}';
+    final auth = proxy.username?.isNotEmpty == true
+        ? 'Proxy-Authorization: Basic ${base64Encode(utf8.encode('${proxy.username}:${proxy.password ?? ''}'))}\r\n'
+        : '';
+    socket.write(
+      'CONNECT $authority HTTP/1.1\r\nHost: $authority\r\n$auth'
+      'Proxy-Connection: keep-alive\r\n\r\n',
+    );
+    await socket.flush();
+    final header = utf8.decode(
+      await cursor.readUntil(const [13, 10, 13, 10], maxLength: 32768),
+      allowMalformed: true,
+    );
+    final match = RegExp(r'^HTTP/\d(?:\.\d)?\s+(\d{3})').firstMatch(header);
+    if (match == null || match.group(1) != '200') {
+      throw SocketException('HTTP 代理连接失败：${header.split('\r\n').first}');
+    }
+  }
+
+  Future<void> _connectSocksProxy(
+    Socket socket,
+    _SocketCursor cursor,
+    ProxyConfig proxy,
+    HostProfile target,
+  ) async {
+    final hasAuth = proxy.username?.isNotEmpty == true;
+    socket.add(hasAuth ? [5, 2, 0, 2] : [5, 1, 0]);
+    await socket.flush();
+    final greeting = await cursor.readExact(2);
+    if (greeting[0] != 5 || greeting[1] == 255) {
+      throw const SocketException('SOCKS5 代理拒绝认证方式');
+    }
+    if (greeting[1] == 2) {
+      final user = utf8.encode(proxy.username ?? '');
+      final pass = utf8.encode(proxy.password ?? '');
+      if (user.length > 255 || pass.length > 255) {
+        throw const SocketException('SOCKS5 代理用户名或密码过长');
+      }
+      socket.add([1, user.length, ...user, pass.length, ...pass]);
+      await socket.flush();
+      final auth = await cursor.readExact(2);
+      if (auth[1] != 0) throw const SocketException('SOCKS5 代理认证失败');
+    } else if (greeting[1] != 0) {
+      throw const SocketException('SOCKS5 代理认证方式不受支持');
+    }
+    final domain = utf8.encode(target.hostname);
+    if (domain.length > 255) throw const SocketException('目标主机名过长');
+    socket.add([
+      5,
+      1,
+      0,
+      3,
+      domain.length,
+      ...domain,
+      target.port >> 8,
+      target.port & 0xff,
+    ]);
+    await socket.flush();
+    final reply = await cursor.readExact(4);
+    if (reply[0] != 5 || reply[1] != 0) {
+      throw SocketException('SOCKS5 代理连接失败，状态码 ${reply[1]}');
+    }
+    final addressLength = switch (reply[3]) {
+      1 => 4,
+      3 => (await cursor.readExact(1)).first,
+      4 => 16,
+      _ => throw const SocketException('SOCKS5 返回了未知地址类型'),
+    };
+    await cursor.readExact(addressLength + 2);
+  }
+
+  Future<ActiveTerminalSession> _connectTelnet(
+    String sessionId,
+    HostProfile host,
+    HostKeyVerifier verifyHostKey,
+    KeyboardInteractiveHandler? keyboardInteractive,
+    Terminal? existingTerminal,
+  ) async {
     final socket = await Socket.connect(
       host.hostname,
       host.port,
       timeout: const Duration(seconds: 15),
     );
-    final terminal = Terminal(maxLines: 10000);
+    final terminal = existingTerminal ?? Terminal(maxLines: 10000);
     terminal.onOutput = (value) => socket.add(utf8.encode(value));
     socket.listen((bytes) {
       final visible = <int>[];
@@ -160,9 +380,106 @@ class SshService {
       terminal.write(utf8.decode(visible, allowMalformed: true));
     });
     return ActiveTerminalSession(
+      id: sessionId,
       host: host,
       terminal: terminal,
+      verifyHostKey: verifyHostKey,
+      keyboardInteractive: keyboardInteractive,
       telnetSocket: socket,
     );
   }
+}
+
+class _SocketCursor {
+  _SocketCursor(Socket socket) : _iterator = StreamIterator(socket);
+
+  final StreamIterator<Uint8List> _iterator;
+  final List<int> _buffer = [];
+
+  Future<List<int>> readExact(int length) async {
+    await _fill(length);
+    final result = _buffer.sublist(0, length);
+    _buffer.removeRange(0, length);
+    return result;
+  }
+
+  Future<List<int>> readUntil(
+    List<int> marker, {
+    required int maxLength,
+  }) async {
+    while (true) {
+      final index = _indexOf(_buffer, marker);
+      if (index >= 0) {
+        final end = index + marker.length;
+        final result = _buffer.sublist(0, end);
+        _buffer.removeRange(0, end);
+        return result;
+      }
+      if (_buffer.length >= maxLength) {
+        throw const SocketException('代理响应头过长');
+      }
+      if (!await _iterator.moveNext()) {
+        throw const SocketException('代理在握手完成前关闭了连接');
+      }
+      _buffer.addAll(_iterator.current);
+    }
+  }
+
+  Future<void> _fill(int length) async {
+    while (_buffer.length < length) {
+      if (!await _iterator.moveNext()) {
+        throw const SocketException('代理在握手完成前关闭了连接');
+      }
+      _buffer.addAll(_iterator.current);
+    }
+  }
+
+  Stream<Uint8List> remainingStream() async* {
+    if (_buffer.isNotEmpty) {
+      yield Uint8List.fromList(_buffer);
+      _buffer.clear();
+    }
+    while (await _iterator.moveNext()) {
+      yield _iterator.current;
+    }
+  }
+
+  static int _indexOf(List<int> source, List<int> marker) {
+    for (var index = 0; index <= source.length - marker.length; index++) {
+      var matches = true;
+      for (var offset = 0; offset < marker.length; offset++) {
+        if (source[index + offset] != marker[offset]) {
+          matches = false;
+          break;
+        }
+      }
+      if (matches) return index;
+    }
+    return -1;
+  }
+}
+
+class _ProxySshSocket implements SSHSocket {
+  _ProxySshSocket(this._socket, this._cursor);
+
+  final Socket _socket;
+  final _SocketCursor _cursor;
+
+  @override
+  Stream<Uint8List> get stream => _cursor.remainingStream();
+
+  @override
+  StreamSink<List<int>> get sink => _socket;
+
+  @override
+  Future<void> get done => _socket.done;
+
+  @override
+  Future<void> close() async => _socket.close();
+
+  @override
+  void destroy() => _socket.destroy();
+
+  @override
+  Future<void> flush() => _socket.flush();
 }

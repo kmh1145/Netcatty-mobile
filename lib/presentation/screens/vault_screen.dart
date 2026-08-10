@@ -5,8 +5,10 @@ import 'package:uuid/uuid.dart';
 import '../../application/session_controller.dart';
 import '../../application/vault_controller.dart';
 import '../../domain/models/host.dart';
+import '../home_shell.dart';
 import '../theme.dart';
 import '../widgets/empty_state.dart';
+import '../widgets/host_editor.dart';
 
 class VaultScreen extends ConsumerStatefulWidget {
   const VaultScreen({super.key});
@@ -137,7 +139,8 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
                                 itemCount: hosts.length,
                                 itemBuilder: (_, index) => _HostCard(
                                   host: hosts[index],
-                                  onConnect: () => _connect(hosts[index]),
+                                  onConnect: () =>
+                                      _showHostDetails(hosts[index]),
                                   onEdit: () => _editHost(hosts[index]),
                                 ),
                               )
@@ -148,7 +151,8 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
                                     const SizedBox(height: 8),
                                 itemBuilder: (_, index) => _HostTile(
                                   host: hosts[index],
-                                  onConnect: () => _connect(hosts[index]),
+                                  onConnect: () =>
+                                      _showHostDetails(hosts[index]),
                                   onEdit: () => _editHost(hosts[index]),
                                 ),
                               ),
@@ -163,11 +167,11 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
     try {
       await ref.read(sessionControllerProvider.notifier).connect(
             host,
-            (algorithm, fingerprint) =>
-                _verifyHostKey(host, algorithm, fingerprint),
+            _verifyHostKey,
             keyboardInteractive: _promptKeyboardInteractive,
           );
       if (mounted) {
+        ref.read(homeTabProvider.notifier).state = 1;
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text('已连接，请打开“终端”标签')));
@@ -178,6 +182,97 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
           context,
         ).showSnackBar(SnackBar(content: Text('连接失败：$error')));
       }
+    }
+  }
+
+  Future<void> _showHostDetails(HostProfile host) async {
+    final vault = ref.read(vaultControllerProvider).data;
+    final key = vault?.keys.cast<SshKeyProfile?>().firstWhere(
+          (value) => value?.id == host.identityFileId,
+          orElse: () => null,
+        );
+    final jumps = host.hostChainIds
+        .map((id) => vault?.hosts.cast<HostProfile?>().firstWhere(
+              (value) => value?.id == id,
+              orElse: () => null,
+            ))
+        .whereType<HostProfile>()
+        .toList();
+    final profile = vault?.proxyProfiles.cast<ProxyProfile?>().firstWhere(
+          (value) => value?.id == host.proxyProfileId,
+          orElse: () => null,
+        );
+    final proxy = profile?.config ?? host.proxyConfig;
+    final action = await showDialog<_HostAction>(
+      context: context,
+      builder: (context) => AlertDialog(
+        icon: const Icon(Icons.dns_outlined, color: NetcattyTheme.accent),
+        title: Text(host.label),
+        content: SizedBox(
+          width: 440,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _DetailRow(
+                icon: Icons.link,
+                label: '连接地址',
+                value:
+                    '${host.protocol.name.toUpperCase()}  ${host.username}@${host.hostname}:${host.port}',
+              ),
+              _DetailRow(
+                icon: Icons.key_outlined,
+                label: '认证',
+                value: key == null
+                    ? (host.password?.isNotEmpty == true ? '密码' : '自动 / 交互式')
+                    : '私钥 · ${key.label}',
+              ),
+              if (jumps.isNotEmpty)
+                _DetailRow(
+                  icon: Icons.alt_route,
+                  label: '跳板机',
+                  value: jumps.map((value) => value.label).join(' → '),
+                ),
+              if (proxy != null)
+                _DetailRow(
+                  icon: Icons.public,
+                  label: '代理',
+                  value:
+                      '${proxy.type.name.toUpperCase()} · ${proxy.host}:${proxy.port}',
+                ),
+              if (host.group?.isNotEmpty == true)
+                _DetailRow(
+                  icon: Icons.folder_outlined,
+                  label: '分组',
+                  value: host.group!,
+                ),
+              if (host.tags.isNotEmpty)
+                _DetailRow(
+                  icon: Icons.sell_outlined,
+                  label: '标签',
+                  value: host.tags.join('、'),
+                ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton.icon(
+            onPressed: () => Navigator.pop(context, _HostAction.edit),
+            icon: const Icon(Icons.edit_outlined),
+            label: const Text('编辑'),
+          ),
+          FilledButton.icon(
+            onPressed: () => Navigator.pop(context, _HostAction.connect),
+            icon: const Icon(Icons.terminal),
+            label: const Text('连接'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    if (action == _HostAction.edit) {
+      await _editHost(host);
+    } else if (action == _HostAction.connect) {
+      await _connect(host);
     }
   }
 
@@ -413,15 +508,49 @@ class _HostTile extends StatelessWidget {
       );
 }
 
-class HostEditor extends StatefulWidget {
-  const HostEditor({super.key, this.host});
+enum _HostAction { connect, edit }
+
+class _DetailRow extends StatelessWidget {
+  const _DetailRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 7),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, size: 19, color: NetcattyTheme.accent),
+            const SizedBox(width: 12),
+            SizedBox(
+              width: 62,
+              child: Text(
+                label,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
+            Expanded(child: SelectableText(value)),
+          ],
+        ),
+      );
+}
+
+class _LegacyHostEditor extends StatefulWidget {
+  const _LegacyHostEditor({required this.host});
   final HostProfile? host;
 
   @override
-  State<HostEditor> createState() => _HostEditorState();
+  State<_LegacyHostEditor> createState() => _LegacyHostEditorState();
 }
 
-class _HostEditorState extends State<HostEditor> {
+class _LegacyHostEditorState extends State<_LegacyHostEditor> {
   final _form = GlobalKey<FormState>();
   late final TextEditingController label;
   late final TextEditingController hostname;

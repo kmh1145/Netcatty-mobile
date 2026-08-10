@@ -50,6 +50,15 @@ class VaultRepository {
         key: 'host.${host.id}.telnetPassword',
       );
       if (telnet != null) host.data['telnetPassword'] = telnet;
+      final proxyPassword = await _secureStorage.read(
+        key: 'host.${host.id}.proxyPassword',
+      );
+      if (proxyPassword != null && host.data['proxyConfig'] is Map) {
+        host.data['proxyConfig'] = {
+          ...Map<String, dynamic>.from(host.data['proxyConfig'] as Map),
+          'password': proxyPassword,
+        };
+      }
     }
     for (final key in vault.keys) {
       final privateKey = await _secureStorage.read(
@@ -60,6 +69,17 @@ class VaultRepository {
       );
       if (privateKey != null) key.data['privateKey'] = privateKey;
       if (passphrase != null) key.data['passphrase'] = passphrase;
+    }
+    for (final profile in vault.proxyProfiles) {
+      final password = await _secureStorage.read(
+        key: 'proxy.${profile.id}.password',
+      );
+      if (password != null && profile.data['config'] is Map) {
+        profile.data['config'] = {
+          ...Map<String, dynamic>.from(profile.data['config'] as Map),
+          'password': password,
+        };
+      }
     }
     return vault;
   }
@@ -72,11 +92,18 @@ class VaultRepository {
       );
       final hostIds = vault.hosts.map((value) => value.id).toSet();
       final keyIds = vault.keys.map((value) => value.id).toSet();
+      final proxyIds = vault.proxyProfiles.map((value) => value.id).toSet();
       for (final host in previous.hosts.where(
         (value) => !hostIds.contains(value.id),
       )) {
         await _secureStorage.delete(key: 'host.${host.id}.password');
         await _secureStorage.delete(key: 'host.${host.id}.telnetPassword');
+        await _secureStorage.delete(key: 'host.${host.id}.proxyPassword');
+      }
+      for (final proxy in previous.proxyProfiles.where(
+        (value) => !proxyIds.contains(value.id),
+      )) {
+        await _secureStorage.delete(key: 'proxy.${proxy.id}.password');
       }
       for (final key in previous.keys.where(
         (value) => !keyIds.contains(value.id),
@@ -94,12 +121,28 @@ class VaultRepository {
       );
       host.data.remove('password');
       host.data.remove('telnetPassword');
+      final proxy = host.proxyConfig;
+      await _writeSecret('host.${host.id}.proxyPassword', proxy?.password);
+      if (host.data['proxyConfig'] is Map) {
+        host.data['proxyConfig'] =
+            Map<String, dynamic>.from(host.data['proxyConfig'] as Map)
+              ..remove('password');
+      }
     }
     for (final key in sanitized.keys) {
       await _writeSecret('key.${key.id}.private', key.privateKey);
       await _writeSecret('key.${key.id}.passphrase', key.passphrase);
       key.data['privateKey'] = '';
       key.data.remove('passphrase');
+    }
+    for (final profile in sanitized.proxyProfiles) {
+      final config = profile.config;
+      await _writeSecret('proxy.${profile.id}.password', config?.password);
+      if (profile.data['config'] is Map) {
+        profile.data['config'] =
+            Map<String, dynamic>.from(profile.data['config'] as Map)
+              ..remove('password');
+      }
     }
     await _preferences.setString(_vaultKey, jsonEncode(sanitized.toJson()));
     _changes.add(vault);

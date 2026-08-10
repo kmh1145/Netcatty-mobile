@@ -4,6 +4,60 @@ enum HostProtocol { ssh, telnet, mosh }
 
 enum HostAuthMethod { auto, password, key }
 
+enum ProxyType { http, socks5 }
+
+class ProxyConfig {
+  const ProxyConfig({
+    required this.type,
+    required this.host,
+    required this.port,
+    this.username,
+    this.password,
+  });
+
+  factory ProxyConfig.fromJson(Map<String, dynamic> json) => ProxyConfig(
+        type: ProxyType.values.firstWhere(
+          (value) => value.name == json['type'],
+          orElse: () => ProxyType.http,
+        ),
+        host: json['host']?.toString() ?? '',
+        port: (json['port'] as num?)?.toInt() ?? 0,
+        username: json['username']?.toString(),
+        password: json['password']?.toString(),
+      );
+
+  final ProxyType type;
+  final String host;
+  final int port;
+  final String? username;
+  final String? password;
+
+  Map<String, dynamic> toJson() => {
+        'type': type.name,
+        'host': host,
+        'port': port,
+        if (username?.isNotEmpty == true) 'username': username,
+        if (password?.isNotEmpty == true) 'password': password,
+      };
+}
+
+class ProxyProfile {
+  ProxyProfile(Map<String, dynamic> value)
+      : data = Map<String, dynamic>.from(value);
+
+  final Map<String, dynamic> data;
+  String get id => data['id']?.toString() ?? '';
+  String get label => data['label']?.toString() ?? 'Proxy';
+  ProxyConfig? get config {
+    final value = data['config'];
+    return value is Map
+        ? ProxyConfig.fromJson(Map<String, dynamic>.from(value))
+        : null;
+  }
+
+  Map<String, dynamic> toJson() => Map<String, dynamic>.from(data);
+}
+
 /// A lossless view over Netcatty's desktop Host JSON model.
 ///
 /// Unknown desktop/plugin fields remain in [data] and survive every save/sync.
@@ -45,6 +99,27 @@ class HostProfile {
   String? get group => data['group']?.toString();
   String? get password => data['password']?.toString();
   String? get identityFileId => data['identityFileId']?.toString();
+  HostAuthMethod get authMethod => HostAuthMethod.values.firstWhere(
+        (value) => value.name == data['authMethod'],
+        orElse: () => HostAuthMethod.auto,
+      );
+  List<String> get hostChainIds {
+    final chain = data['hostChain'];
+    if (chain is! Map) return const [];
+    return (chain['hostIds'] as List? ?? const [])
+        .map((value) => value.toString())
+        .where((value) => value.isNotEmpty)
+        .toList(growable: false);
+  }
+
+  String? get proxyProfileId => data['proxyProfileId']?.toString();
+  ProxyConfig? get proxyConfig {
+    final value = data['proxyConfig'];
+    return value is Map
+        ? ProxyConfig.fromJson(Map<String, dynamic>.from(value))
+        : null;
+  }
+
   String? get startupCommand => data['startupCommand']?.toString();
   bool get pinned => data['pinned'] == true;
   int get lastConnectedAt => (data['lastConnectedAt'] as num?)?.toInt() ?? 0;
@@ -64,6 +139,10 @@ class HostProfile {
     String? group,
     String? password,
     String? identityFileId,
+    HostAuthMethod? authMethod,
+    List<String>? hostChainIds,
+    String? proxyProfileId,
+    ProxyConfig? proxyConfig,
     List<String>? tags,
     HostProtocol? protocol,
     bool? pinned,
@@ -87,6 +166,14 @@ class HostProfile {
     if (identityFileId != null) {
       set('identityFileId', identityFileId.isEmpty ? null : identityFileId);
     }
+    if (authMethod != null) set('authMethod', authMethod.name);
+    if (hostChainIds != null) {
+      set('hostChain', hostChainIds.isEmpty ? null : {'hostIds': hostChainIds});
+    }
+    if (proxyProfileId != null) {
+      set('proxyProfileId', proxyProfileId.isEmpty ? null : proxyProfileId);
+    }
+    if (proxyConfig != null) set('proxyConfig', proxyConfig.toJson());
     if (tags != null) set('tags', tags);
     if (protocol != null) set('protocol', protocol.name);
     if (pinned != null) set('pinned', pinned);

@@ -43,6 +43,16 @@ flutter build apk --release
 flutter build appbundle --release
 ```
 
+## 下载自动构建的 Android 安装包
+
+打开仓库的 **Actions** 页面，进入最新一个成功的 **Mobile CI** 任务，在页面底部的 **Artifacts** 区域下载
+`netcatty-mobile-android-<运行编号>`。解压后包含：
+
+- `netcatty-mobile-android.apk`：可直接安装的 Android Release APK
+- `netcatty-mobile-android.apk.sha256`：安装包完整性校验值
+
+自动构建产物保留 30 天。当前 APK 使用调试密钥签名，适合测试与自行安装；正式上架前请配置专用发布密钥。
+
 iOS 构建（需先在 Xcode 设置开发团队和签名）：
 
 ```bash
@@ -50,7 +60,7 @@ flutter build ios --release
 open ios/Runner.xcworkspace
 ```
 
-发布前请把 `android/app/build.gradle` 的 debug signingConfig 替换成正式签名，并在 Xcode 设置唯一 Bundle ID、Team、App Store 图标和隐私清单。
+发布前请把 `android/app/build.gradle.kts` 的 debug signingConfig 替换成正式签名，并在 Xcode 设置唯一 Bundle ID、Team、App Store 图标和隐私清单。
 
 ## 与桌面端同步
 
@@ -72,4 +82,3 @@ test                加密兼容与模型无损测试
 ## License
 
 GPL-3.0-or-later，延续上游 [binaricat/Netcatty](https://github.com/binaricat/Netcatty) 的许可证。
-

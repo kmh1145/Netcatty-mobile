@@ -1,9 +1,12 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../application/settings_controller.dart';
 import '../../application/vault_controller.dart';
@@ -11,6 +14,7 @@ import '../../domain/models/settings.dart';
 import '../../domain/models/vault.dart';
 import '../../infrastructure/storage/vault_repository.dart';
 import '../../infrastructure/sync/cloud_sync_service.dart';
+import '../../infrastructure/sync/github_auth_service.dart';
 import '../widgets/keychain_sheet.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
@@ -34,6 +38,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   var terminalFontSize = 14.0;
   var _loaded = false;
   var _busy = false;
+  String? _githubUser;
 
   @override
   void didChangeDependencies() {
@@ -58,6 +63,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     themeMode = settings.themeMode;
     terminalFontSize = settings.terminalFontSize;
     aiKey.text = await repository.readAiApiKey() ?? '';
+    _githubUser =
+        sync?.type == SyncProviderType.githubGist ? sync?.username : null;
     if (mounted) {
       setState(() => provider = sync?.type ?? SyncProviderType.webdav);
     }
@@ -173,19 +180,61 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               const InputDecoration(labelText: '密码 / 应用密码'),
                         ),
                       ] else ...[
-                        TextField(
-                          controller: resourceId,
-                          decoration: const InputDecoration(
-                            labelText: 'Gist ID（首次可留空）',
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: CircleAvatar(
+                            child: Icon(
+                              providerSecret.text.isEmpty
+                                  ? Icons.login
+                                  : Icons.check,
+                            ),
+                          ),
+                          title: Text(
+                            providerSecret.text.isEmpty
+                                ? '尚未登录 GitHub'
+                                : '已连接 GitHub',
+                          ),
+                          subtitle: Text(
+                            _githubUser == null
+                                ? '登录后自动查找或创建 Netcatty Gist'
+                                : '@$_githubUser · 自动同步私有 Gist',
                           ),
                         ),
-                        const SizedBox(height: 10),
-                        TextField(
-                          controller: providerSecret,
-                          obscureText: true,
-                          decoration: const InputDecoration(
-                            labelText: 'GitHub Token（gist 权限）',
-                          ),
+                        SizedBox(
+                          width: double.infinity,
+                          child: providerSecret.text.isEmpty
+                              ? FilledButton.icon(
+                                  onPressed: _busy ? null : _connectGitHub,
+                                  icon: const Icon(Icons.login),
+                                  label: const Text('登录 GitHub'),
+                                )
+                              : OutlinedButton.icon(
+                                  onPressed: _busy ? null : _logoutGitHub,
+                                  icon: const Icon(Icons.logout),
+                                  label: const Text('退出 GitHub'),
+                                ),
+                        ),
+                        ExpansionTile(
+                          tilePadding: EdgeInsets.zero,
+                          title: const Text('高级 / 手动配置'),
+                          subtitle: const Text('仅用于迁移或登录故障排查'),
+                          children: [
+                            TextField(
+                              controller: resourceId,
+                              decoration: const InputDecoration(
+                                labelText: 'Gist ID（通常自动识别）',
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            TextField(
+                              controller: providerSecret,
+                              obscureText: true,
+                              onChanged: (_) => setState(() {}),
+                              decoration: const InputDecoration(
+                                labelText: 'GitHub Token（备用）',
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                       const SizedBox(height: 10),
@@ -340,13 +389,54 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final connection = SyncConnection(
       type: provider,
       endpoint: endpoint.text.trim(),
-      username: username.text.trim(),
+      // GitHub 用户名仅用于展示，不参与 API 认证。
+      username: provider == SyncProviderType.githubGist
+          ? _githubUser
+          : username.text.trim(),
       secret: providerSecret.text,
       resourceId: resourceId.text.trim(),
     );
     final repository = ref.read(vaultRepositoryProvider);
     await repository.saveSyncConnection(connection);
     await repository.saveMasterPassword(masterPassword.text);
+  }
+
+  Future<void> _connectGitHub() async {
+    setState(() => _busy = true);
+    try {
+      final auth = GitHubAuthService();
+      final authorization = await auth.start();
+      if (!mounted) return;
+      final token = await showDialog<String>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => _GitHubDeviceFlowDialog(
+          authorization: authorization,
+          tokenFuture: auth.poll(authorization),
+        ),
+      );
+      if (token == null || !mounted) return;
+      final user = await auth.currentUser(token);
+      providerSecret.text = token;
+      resourceId.clear();
+      _githubUser = user['login']?.toString();
+      await _saveSync();
+      if (mounted) setState(() {});
+      _message('GitHub 登录成功，将自动查找 Netcatty Gist');
+    } catch (error) {
+      _message('$error');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _logoutGitHub() async {
+    providerSecret.clear();
+    resourceId.clear();
+    _githubUser = null;
+    await _saveSync();
+    if (mounted) setState(() {});
+    _message('已退出 GitHub');
   }
 
   Future<void> _sync({required bool push}) async {
@@ -437,4 +527,89 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       ).showSnackBar(SnackBar(content: Text(value)));
     }
   }
+}
+
+class _GitHubDeviceFlowDialog extends StatefulWidget {
+  const _GitHubDeviceFlowDialog({
+    required this.authorization,
+    required this.tokenFuture,
+  });
+
+  final GitHubDeviceAuthorization authorization;
+  final Future<String> tokenFuture;
+
+  @override
+  State<_GitHubDeviceFlowDialog> createState() =>
+      _GitHubDeviceFlowDialogState();
+}
+
+class _GitHubDeviceFlowDialogState extends State<_GitHubDeviceFlowDialog> {
+  Object? error;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(Clipboard.setData(
+      ClipboardData(text: widget.authorization.userCode),
+    ));
+    unawaited(_openGitHub());
+    widget.tokenFuture.then((token) {
+      if (mounted) Navigator.pop(context, token);
+    }).catchError((Object value) {
+      if (mounted) setState(() => error = value);
+    });
+  }
+
+  Future<void> _openGitHub() => launchUrl(
+        widget.authorization.verificationUri,
+        mode: LaunchMode.externalApplication,
+      );
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        icon: const Icon(Icons.code, size: 34),
+        title: const Text('登录 GitHub'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('验证码已复制。请在浏览器中登录 GitHub 并确认授权。'),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: SelectableText(
+                widget.authorization.userCode,
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      letterSpacing: 3,
+                      fontWeight: FontWeight.bold,
+                    ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            if (error == null) ...[
+              const LinearProgressIndicator(),
+              const SizedBox(height: 8),
+              const Text('正在等待 GitHub 授权…'),
+            ] else
+              Text(
+                '$error',
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          OutlinedButton.icon(
+            onPressed: _openGitHub,
+            icon: const Icon(Icons.open_in_browser),
+            label: const Text('打开 GitHub'),
+          ),
+        ],
+      );
 }

@@ -6,6 +6,7 @@ class VaultData {
     required this.keys,
     required this.snippets,
     required this.customGroups,
+    this.proxyProfiles = const [],
     Map<String, dynamic>? extras,
   }) : extras = extras ?? <String, dynamic>{};
 
@@ -18,6 +19,7 @@ class VaultData {
       ..remove('keys')
       ..remove('snippets')
       ..remove('customGroups');
+    extras.remove('proxyProfiles');
     return VaultData(
       hosts: (json['hosts'] as List? ?? const [])
           .whereType<Map>()
@@ -34,6 +36,10 @@ class VaultData {
       customGroups: (json['customGroups'] as List? ?? const [])
           .map((value) => value.toString())
           .toList(),
+      proxyProfiles: (json['proxyProfiles'] as List? ?? const [])
+          .whereType<Map>()
+          .map((value) => ProxyProfile(Map<String, dynamic>.from(value)))
+          .toList(),
       extras: extras,
     );
   }
@@ -42,6 +48,7 @@ class VaultData {
   final List<SshKeyProfile> keys;
   final List<CommandSnippet> snippets;
   final List<String> customGroups;
+  final List<ProxyProfile> proxyProfiles;
   final Map<String, dynamic> extras;
 
   VaultData copyWith({
@@ -49,6 +56,7 @@ class VaultData {
     List<SshKeyProfile>? keys,
     List<CommandSnippet>? snippets,
     List<String>? customGroups,
+    List<ProxyProfile>? proxyProfiles,
     Map<String, dynamic>? extras,
   }) =>
       VaultData(
@@ -56,6 +64,7 @@ class VaultData {
         keys: keys ?? this.keys,
         snippets: snippets ?? this.snippets,
         customGroups: customGroups ?? this.customGroups,
+        proxyProfiles: proxyProfiles ?? this.proxyProfiles,
         extras: extras ?? this.extras,
       );
 
@@ -66,6 +75,8 @@ class VaultData {
       ..['hosts'] = hosts.map((value) => value.toJson()).toList()
       ..['keys'] = keys.map((value) => value.toJson()).toList()
       ..['snippets'] = snippets.map((value) => value.toJson()).toList()
-      ..['customGroups'] = customGroups;
+      ..['customGroups'] = customGroups
+      ..['proxyProfiles'] =
+          proxyProfiles.map((value) => value.toJson()).toList();
   }
 }
