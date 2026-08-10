@@ -12,8 +12,7 @@ void main() {
         jsonDecode(r'''{
       "meta":{"version":1,"updatedAt":0,"deviceId":"node","appVersion":"test","iv":"ICEiIyQlJicoKSor","salt":"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=","algorithm":"AES-256-GCM","kdf":"PBKDF2","kdfIterations":600000},
       "payload":"XpWQHpkTt3OcfxHaMbVyXd8zinKKSiF+/EojLtOyM3oboVr9W+1yayvyE3TEfDtaFwJL8aowFuYX/NtNNwhNOlFImWuL6IdPaylpSU8bz860qTpv3pak0VnT6xqVzmKYEoIoUMuZVpKdcNji1O2MFL/6fO1TVJ2HWSbCMxJMlcvjQvPLJDe/z3pQIZJMNTFGeJ0MilIY0qwyBVnh+QavMQJD"
-    }''')
-            as Map<String, dynamic>,
+    }''') as Map<String, dynamic>,
       );
 
       final vault = await NetcattyCrypto.decrypt(fixture, 'netcatty-test');

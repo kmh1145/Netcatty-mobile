@@ -26,14 +26,14 @@ class VaultRepository {
   final _changes = StreamController<VaultData>.broadcast();
 
   static Future<VaultRepository> open() async => VaultRepository._(
-    await SharedPreferences.getInstance(),
-    const FlutterSecureStorage(
-      aOptions: AndroidOptions(encryptedSharedPreferences: true),
-      iOptions: IOSOptions(
-        accessibility: KeychainAccessibility.first_unlock_this_device,
-      ),
-    ),
-  );
+        await SharedPreferences.getInstance(),
+        const FlutterSecureStorage(
+          aOptions: AndroidOptions(encryptedSharedPreferences: true),
+          iOptions: IOSOptions(
+            accessibility: KeychainAccessibility.first_unlock_this_device,
+          ),
+        ),
+      );
 
   Stream<VaultData> get changes => _changes.stream;
 

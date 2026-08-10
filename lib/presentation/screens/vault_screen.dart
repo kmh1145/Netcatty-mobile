@@ -24,19 +24,18 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
   Widget build(BuildContext context) {
     final state = ref.watch(vaultControllerProvider);
     final vault = state.data;
-    final hosts =
-        (vault?.hosts ?? const <HostProfile>[]).where((host) {
-          final query = _search.text.toLowerCase();
-          final matchesQuery =
-              query.isEmpty ||
-              host.label.toLowerCase().contains(query) ||
-              host.hostname.toLowerCase().contains(query) ||
-              host.tags.any((tag) => tag.toLowerCase().contains(query));
-          return matchesQuery && (_group == null || host.group == _group);
-        }).toList()..sort((a, b) {
-          if (a.pinned != b.pinned) return a.pinned ? -1 : 1;
-          return a.label.toLowerCase().compareTo(b.label.toLowerCase());
-        });
+    final hosts = (vault?.hosts ?? const <HostProfile>[]).where((host) {
+      final query = _search.text.toLowerCase();
+      final matchesQuery = query.isEmpty ||
+          host.label.toLowerCase().contains(query) ||
+          host.hostname.toLowerCase().contains(query) ||
+          host.tags.any((tag) => tag.toLowerCase().contains(query));
+      return matchesQuery && (_group == null || host.group == _group);
+    }).toList()
+      ..sort((a, b) {
+        if (a.pinned != b.pinned) return a.pinned ? -1 : 1;
+        return a.label.toLowerCase().compareTo(b.label.toLowerCase());
+      });
 
     return SafeArea(
       child: Column(
@@ -112,48 +111,48 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
             child: state.loading && vault == null
                 ? const Center(child: CircularProgressIndicator())
                 : hosts.isEmpty
-                ? EmptyState(
-                    icon: Icons.dns_outlined,
-                    title: '还没有服务器',
-                    subtitle: '添加 SSH 或 Telnet 连接，云同步后也会出现在这里。',
-                    action: FilledButton.icon(
-                      onPressed: () => _editHost(),
-                      icon: const Icon(Icons.add),
-                      label: const Text('添加主机'),
-                    ),
-                  )
-                : RefreshIndicator(
-                    onRefresh: () =>
-                        ref.read(vaultControllerProvider.notifier).load(),
-                    child: _grid
-                        ? GridView.builder(
-                            padding: const EdgeInsets.all(12),
-                            gridDelegate:
-                                const SliverGridDelegateWithMaxCrossAxisExtent(
+                    ? EmptyState(
+                        icon: Icons.dns_outlined,
+                        title: '还没有服务器',
+                        subtitle: '添加 SSH 或 Telnet 连接，云同步后也会出现在这里。',
+                        action: FilledButton.icon(
+                          onPressed: () => _editHost(),
+                          icon: const Icon(Icons.add),
+                          label: const Text('添加主机'),
+                        ),
+                      )
+                    : RefreshIndicator(
+                        onRefresh: () =>
+                            ref.read(vaultControllerProvider.notifier).load(),
+                        child: _grid
+                            ? GridView.builder(
+                                padding: const EdgeInsets.all(12),
+                                gridDelegate:
+                                    const SliverGridDelegateWithMaxCrossAxisExtent(
                                   maxCrossAxisExtent: 230,
                                   mainAxisExtent: 148,
                                   crossAxisSpacing: 10,
                                   mainAxisSpacing: 10,
                                 ),
-                            itemCount: hosts.length,
-                            itemBuilder: (_, index) => _HostCard(
-                              host: hosts[index],
-                              onConnect: () => _connect(hosts[index]),
-                              onEdit: () => _editHost(hosts[index]),
-                            ),
-                          )
-                        : ListView.separated(
-                            padding: const EdgeInsets.all(12),
-                            itemCount: hosts.length,
-                            separatorBuilder: (_, __) =>
-                                const SizedBox(height: 8),
-                            itemBuilder: (_, index) => _HostTile(
-                              host: hosts[index],
-                              onConnect: () => _connect(hosts[index]),
-                              onEdit: () => _editHost(hosts[index]),
-                            ),
-                          ),
-                  ),
+                                itemCount: hosts.length,
+                                itemBuilder: (_, index) => _HostCard(
+                                  host: hosts[index],
+                                  onConnect: () => _connect(hosts[index]),
+                                  onEdit: () => _editHost(hosts[index]),
+                                ),
+                              )
+                            : ListView.separated(
+                                padding: const EdgeInsets.all(12),
+                                itemCount: hosts.length,
+                                separatorBuilder: (_, __) =>
+                                    const SizedBox(height: 8),
+                                itemBuilder: (_, index) => _HostTile(
+                                  host: hosts[index],
+                                  onConnect: () => _connect(hosts[index]),
+                                  onEdit: () => _editHost(hosts[index]),
+                                ),
+                              ),
+                      ),
           ),
         ],
       ),
@@ -162,9 +161,7 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
 
   Future<void> _connect(HostProfile host) async {
     try {
-      await ref
-          .read(sessionControllerProvider.notifier)
-          .connect(
+      await ref.read(sessionControllerProvider.notifier).connect(
             host,
             (algorithm, fingerprint) =>
                 _verifyHostKey(host, algorithm, fingerprint),
@@ -207,8 +204,7 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
     }
     if (!mounted) return false;
     final changed = existing != null;
-    final accepted =
-        await showDialog<bool>(
+    final accepted = await showDialog<bool>(
           context: context,
           barrierDismissible: false,
           builder: (context) => AlertDialog(
@@ -247,9 +243,7 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
     } else {
       entries[index] = record;
     }
-    await ref
-        .read(vaultControllerProvider.notifier)
-        .replace(
+    await ref.read(vaultControllerProvider.notifier).replace(
           vault.copyWith(extras: {...vault.extras, 'knownHosts': entries}),
         );
     return true;
@@ -330,65 +324,66 @@ class _HostCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Card(
-    clipBehavior: Clip.antiAlias,
-    child: InkWell(
-      onTap: onConnect,
-      onLongPress: onEdit,
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onConnect,
+          onLongPress: onEdit,
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: const Color(0x22f97316),
-                    borderRadius: BorderRadius.circular(9),
-                  ),
-                  child: const Icon(
-                    Icons.terminal,
-                    size: 20,
-                    color: NetcattyTheme.accent,
-                  ),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: const Color(0x22f97316),
+                        borderRadius: BorderRadius.circular(9),
+                      ),
+                      child: const Icon(
+                        Icons.terminal,
+                        size: 20,
+                        color: NetcattyTheme.accent,
+                      ),
+                    ),
+                    const Spacer(),
+                    if (host.pinned) const Icon(Icons.push_pin, size: 16),
+                    IconButton(
+                      onPressed: onEdit,
+                      visualDensity: VisualDensity.compact,
+                      icon: const Icon(Icons.more_horiz),
+                    ),
+                  ],
                 ),
                 const Spacer(),
-                if (host.pinned) const Icon(Icons.push_pin, size: 16),
-                IconButton(
-                  onPressed: onEdit,
-                  visualDensity: VisualDensity.compact,
-                  icon: const Icon(Icons.more_horiz),
+                Text(
+                  host.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w600, fontSize: 16),
                 ),
+                const SizedBox(height: 4),
+                Text(
+                  '${host.username}@${host.hostname}:${host.port}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                if (host.group?.isNotEmpty == true)
+                  Text(
+                    host.group!,
+                    style: const TextStyle(
+                      color: NetcattyTheme.accent,
+                      fontSize: 11,
+                    ),
+                  ),
               ],
             ),
-            const Spacer(),
-            Text(
-              host.label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              '${host.username}@${host.hostname}:${host.port}',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            if (host.group?.isNotEmpty == true)
-              Text(
-                host.group!,
-                style: const TextStyle(
-                  color: NetcattyTheme.accent,
-                  fontSize: 11,
-                ),
-              ),
-          ],
+          ),
         ),
-      ),
-    ),
-  );
+      );
 }
 
 class _HostTile extends StatelessWidget {
@@ -402,20 +397,20 @@ class _HostTile extends StatelessWidget {
   final VoidCallback onEdit;
   @override
   Widget build(BuildContext context) => Card(
-    child: ListTile(
-      onTap: onConnect,
-      leading: const CircleAvatar(
-        backgroundColor: Color(0x22f97316),
-        child: Icon(Icons.terminal, color: NetcattyTheme.accent),
-      ),
-      title: Text(host.label),
-      subtitle: Text('${host.username}@${host.hostname}:${host.port}'),
-      trailing: IconButton(
-        onPressed: onEdit,
-        icon: const Icon(Icons.more_vert),
-      ),
-    ),
-  );
+        child: ListTile(
+          onTap: onConnect,
+          leading: const CircleAvatar(
+            backgroundColor: Color(0x22f97316),
+            child: Icon(Icons.terminal, color: NetcattyTheme.accent),
+          ),
+          title: Text(host.label),
+          subtitle: Text('${host.username}@${host.hostname}:${host.port}'),
+          trailing: IconButton(
+            onPressed: onEdit,
+            icon: const Icon(Icons.more_vert),
+          ),
+        ),
+      );
 }
 
 class HostEditor extends StatefulWidget {
@@ -452,113 +447,114 @@ class _HostEditorState extends State<HostEditor> {
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
-    child: Scaffold(
-      appBar: AppBar(
-        leading: IconButton(
-          onPressed: () => Navigator.pop(context),
-          icon: const Icon(Icons.close),
-        ),
-        title: Text(widget.host == null ? '新建连接' : '编辑连接'),
-        actions: [TextButton(onPressed: _save, child: const Text('保存'))],
-      ),
-      body: Form(
-        key: _form,
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            SegmentedButton<HostProtocol>(
-              segments: const [
-                ButtonSegment(
-                  value: HostProtocol.ssh,
-                  label: Text('SSH'),
-                  icon: Icon(Icons.lock_outline),
-                ),
-                ButtonSegment(
-                  value: HostProtocol.telnet,
-                  label: Text('Telnet'),
-                  icon: Icon(Icons.cable),
-                ),
-                ButtonSegment(
-                  value: HostProtocol.mosh,
-                  label: Text('Mosh'),
-                  icon: Icon(Icons.wifi_tethering),
-                ),
-              ],
-              selected: {protocol},
-              onSelectionChanged: (value) =>
-                  setState(() => protocol = value.first),
+        padding:
+            EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+        child: Scaffold(
+          appBar: AppBar(
+            leading: IconButton(
+              onPressed: () => Navigator.pop(context),
+              icon: const Icon(Icons.close),
             ),
-            const SizedBox(height: 20),
-            TextFormField(
-              controller: label,
-              decoration: const InputDecoration(labelText: '名称'),
-              validator: _required,
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: hostname,
-              decoration: const InputDecoration(labelText: '主机名 / IP'),
-              keyboardType: TextInputType.url,
-              validator: _required,
-            ),
-            const SizedBox(height: 12),
-            Row(
+            title: Text(widget.host == null ? '新建连接' : '编辑连接'),
+            actions: [TextButton(onPressed: _save, child: const Text('保存'))],
+          ),
+          body: Form(
+            key: _form,
+            child: ListView(
+              padding: const EdgeInsets.all(16),
               children: [
-                Expanded(
-                  flex: 2,
-                  child: TextFormField(
-                    controller: username,
-                    decoration: const InputDecoration(labelText: '用户名'),
-                    validator: _required,
+                SegmentedButton<HostProtocol>(
+                  segments: const [
+                    ButtonSegment(
+                      value: HostProtocol.ssh,
+                      label: Text('SSH'),
+                      icon: Icon(Icons.lock_outline),
+                    ),
+                    ButtonSegment(
+                      value: HostProtocol.telnet,
+                      label: Text('Telnet'),
+                      icon: Icon(Icons.cable),
+                    ),
+                    ButtonSegment(
+                      value: HostProtocol.mosh,
+                      label: Text('Mosh'),
+                      icon: Icon(Icons.wifi_tethering),
+                    ),
+                  ],
+                  selected: {protocol},
+                  onSelectionChanged: (value) =>
+                      setState(() => protocol = value.first),
+                ),
+                const SizedBox(height: 20),
+                TextFormField(
+                  controller: label,
+                  decoration: const InputDecoration(labelText: '名称'),
+                  validator: _required,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: hostname,
+                  decoration: const InputDecoration(labelText: '主机名 / IP'),
+                  keyboardType: TextInputType.url,
+                  validator: _required,
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      flex: 2,
+                      child: TextFormField(
+                        controller: username,
+                        decoration: const InputDecoration(labelText: '用户名'),
+                        validator: _required,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: TextFormField(
+                        controller: port,
+                        decoration: const InputDecoration(labelText: '端口'),
+                        keyboardType: TextInputType.number,
+                        validator: _required,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: password,
+                  obscureText: obscure,
+                  decoration: InputDecoration(
+                    labelText: '密码（可选）',
+                    suffixIcon: IconButton(
+                      onPressed: () => setState(() => obscure = !obscure),
+                      icon: Icon(
+                          obscure ? Icons.visibility : Icons.visibility_off),
+                    ),
                   ),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: TextFormField(
-                    controller: port,
-                    decoration: const InputDecoration(labelText: '端口'),
-                    keyboardType: TextInputType.number,
-                    validator: _required,
-                  ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: group,
+                  decoration: const InputDecoration(labelText: '分组（可选）'),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  '私钥、跳板机、代理、环境变量和高级算法参数可由桌面端同步导入，移动端会完整保留。',
+                  style: TextStyle(fontSize: 12, color: Colors.white54),
                 ),
               ],
             ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: password,
-              obscureText: obscure,
-              decoration: InputDecoration(
-                labelText: '密码（可选）',
-                suffixIcon: IconButton(
-                  onPressed: () => setState(() => obscure = !obscure),
-                  icon: Icon(obscure ? Icons.visibility : Icons.visibility_off),
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: group,
-              decoration: const InputDecoration(labelText: '分组（可选）'),
-            ),
-            const SizedBox(height: 12),
-            const Text(
-              '私钥、跳板机、代理、环境变量和高级算法参数可由桌面端同步导入，移动端会完整保留。',
-              style: TextStyle(fontSize: 12, color: Colors.white54),
-            ),
-          ],
+          ),
         ),
-      ),
-    ),
-  );
+      );
 
   String? _required(String? value) =>
       value == null || value.trim().isEmpty ? '必填' : null;
 
   void _save() {
     if (!(_form.currentState?.validate() ?? false)) return;
-    final base =
-        widget.host ??
+    final base = widget.host ??
         HostProfile.create(
           id: const Uuid().v4(),
           label: label.text.trim(),
@@ -571,8 +567,7 @@ class _HostEditorState extends State<HostEditor> {
         label: label.text.trim(),
         hostname: hostname.text.trim(),
         username: username.text.trim(),
-        port:
-            int.tryParse(port.text) ??
+        port: int.tryParse(port.text) ??
             (protocol == HostProtocol.telnet ? 23 : 22),
         password: password.text,
         group: group.text,

@@ -38,21 +38,19 @@ class SftpService {
     return entries
         .where((item) => item.filename != '.' && item.filename != '..')
         .map((item) {
-          final fullPath = path == '/'
-              ? '/${item.filename}'
-              : '$path/${item.filename}';
-          final modified = item.attr.modifyTime;
-          return RemoteEntry(
-            name: item.filename,
-            path: fullPath,
-            isDirectory: item.attr.mode?.type == SftpFileType.directory,
-            size: item.attr.size ?? 0,
-            modifiedAt: modified == null
-                ? null
-                : DateTime.fromMillisecondsSinceEpoch(modified * 1000),
-          );
-        })
-        .toList()
+      final fullPath =
+          path == '/' ? '/${item.filename}' : '$path/${item.filename}';
+      final modified = item.attr.modifyTime;
+      return RemoteEntry(
+        name: item.filename,
+        path: fullPath,
+        isDirectory: item.attr.mode?.type == SftpFileType.directory,
+        size: item.attr.size ?? 0,
+        modifiedAt: modified == null
+            ? null
+            : DateTime.fromMillisecondsSinceEpoch(modified * 1000),
+      );
+    }).toList()
       ..sort((a, b) {
         if (a.isDirectory != b.isDirectory) return a.isDirectory ? -1 : 1;
         return a.name.toLowerCase().compareTo(b.name.toLowerCase());
@@ -68,8 +66,7 @@ class SftpService {
   Future<void> writeBytes(String path, Uint8List data) async {
     final file = await (await _sftp).open(
       path,
-      mode:
-          SftpFileOpenMode.create |
+      mode: SftpFileOpenMode.create |
           SftpFileOpenMode.write |
           SftpFileOpenMode.truncate,
     );

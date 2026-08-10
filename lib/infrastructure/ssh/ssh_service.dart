@@ -8,15 +8,14 @@ import 'package:xterm/xterm.dart';
 
 import '../../domain/models/host.dart';
 
-typedef HostKeyVerifier =
-    Future<bool> Function(String algorithm, String fingerprint);
+typedef HostKeyVerifier = Future<bool> Function(
+    String algorithm, String fingerprint);
 
-typedef KeyboardInteractiveHandler =
-    Future<List<String>?> Function(
-      String name,
-      String instruction,
-      List<({String text, bool echo})> prompts,
-    );
+typedef KeyboardInteractiveHandler = Future<List<String>?> Function(
+  String name,
+  String instruction,
+  List<({String text, bool echo})> prompts,
+);
 
 class ActiveTerminalSession {
   ActiveTerminalSession({
@@ -64,9 +63,9 @@ class SshService {
       ),
     );
     final identity = keys.cast<SshKeyProfile?>().firstWhere(
-      (value) => value?.id == host.identityFileId,
-      orElse: () => null,
-    );
+          (value) => value?.id == host.identityFileId,
+          orElse: () => null,
+        );
     final identities = identity == null || identity.privateKey.isEmpty
         ? null
         : SSHKeyPair.fromPem(identity.privateKey, identity.passphrase);
@@ -112,8 +111,8 @@ class SshService {
       environment: environment,
     );
     final terminal = Terminal(maxLines: 10000);
-    terminal.onOutput = (value) =>
-        session.write(Uint8List.fromList(utf8.encode(value)));
+    terminal.onOutput =
+        (value) => session.write(Uint8List.fromList(utf8.encode(value)));
     terminal.onResize = (width, height, pixelWidth, pixelHeight) {
       session.resizeTerminal(width, height, pixelWidth, pixelHeight);
     };

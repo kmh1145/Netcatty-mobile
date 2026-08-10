@@ -9,7 +9,7 @@ enum HostAuthMethod { auto, password, key }
 /// Unknown desktop/plugin fields remain in [data] and survive every save/sync.
 class HostProfile {
   HostProfile(Map<String, dynamic> value)
-    : data = Map<String, dynamic>.from(value);
+      : data = Map<String, dynamic>.from(value);
 
   factory HostProfile.create({
     required String id,
@@ -52,9 +52,9 @@ class HostProfile {
       .map((value) => value.toString())
       .toList(growable: false);
   HostProtocol get protocol => HostProtocol.values.firstWhere(
-    (value) => value.name == data['protocol'],
-    orElse: () => HostProtocol.ssh,
-  );
+        (value) => value.name == data['protocol'],
+        orElse: () => HostProtocol.ssh,
+      );
 
   HostProfile copyWith({
     String? label,
@@ -102,7 +102,7 @@ class HostProfile {
 
 class SshKeyProfile {
   SshKeyProfile(Map<String, dynamic> value)
-    : data = Map<String, dynamic>.from(value);
+      : data = Map<String, dynamic>.from(value);
 
   final Map<String, dynamic> data;
   String get id => data['id']?.toString() ?? '';
@@ -114,7 +114,7 @@ class SshKeyProfile {
 
 class CommandSnippet {
   CommandSnippet(Map<String, dynamic> value)
-    : data = Map<String, dynamic>.from(value);
+      : data = Map<String, dynamic>.from(value);
 
   final Map<String, dynamic> data;
   String get id => data['id']?.toString() ?? '';

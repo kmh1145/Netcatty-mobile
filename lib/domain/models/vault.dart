@@ -50,13 +50,14 @@ class VaultData {
     List<CommandSnippet>? snippets,
     List<String>? customGroups,
     Map<String, dynamic>? extras,
-  }) => VaultData(
-    hosts: hosts ?? this.hosts,
-    keys: keys ?? this.keys,
-    snippets: snippets ?? this.snippets,
-    customGroups: customGroups ?? this.customGroups,
-    extras: extras ?? this.extras,
-  );
+  }) =>
+      VaultData(
+        hosts: hosts ?? this.hosts,
+        keys: keys ?? this.keys,
+        snippets: snippets ?? this.snippets,
+        customGroups: customGroups ?? this.customGroups,
+        extras: extras ?? this.extras,
+      );
 
   Map<String, dynamic> toJson({bool legacySyncSnapshot = false}) {
     final result = Map<String, dynamic>.from(extras);

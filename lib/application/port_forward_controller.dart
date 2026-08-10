@@ -34,8 +34,8 @@ class ActivePortForward {
 
 final portForwardControllerProvider =
     StateNotifierProvider<PortForwardController, List<ActivePortForward>>(
-      (ref) => PortForwardController(),
-    );
+  (ref) => PortForwardController(),
+);
 
 class PortForwardController extends StateNotifier<List<ActivePortForward>> {
   PortForwardController() : super(const []);
@@ -55,8 +55,8 @@ class PortForwardController extends StateNotifier<List<ActivePortForward>> {
     server.listen((socket) async {
       try {
         final channel = await client.forwardLocal(remoteHost, remotePort);
-        unawaited(socket.pipe(channel.sink));
-        unawaited(channel.stream.pipe(socket));
+        unawaited(socket.cast<List<int>>().pipe(channel.sink));
+        unawaited(channel.stream.cast<List<int>>().pipe(socket));
       } catch (_) {
         socket.destroy();
       }
