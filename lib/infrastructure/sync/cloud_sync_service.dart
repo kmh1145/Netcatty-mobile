@@ -17,7 +17,7 @@ class CloudSyncResult {
 
 class CloudSyncService {
   CloudSyncService(this.repository, {http.Client? client})
-    : _client = client ?? http.Client();
+      : _client = client ?? http.Client();
 
   final VaultRepository repository;
   final http.Client _client;
@@ -35,7 +35,7 @@ class CloudSyncService {
     if (jsonEncode(merged.toJson()) != jsonEncode(downloaded.toJson())) {
       await _upload(
         setup.connection,
-        await NetcattyCrypto.encrypt(
+        NetcattyCrypto.encrypt(
           vault: merged,
           password: setup.password,
           deviceId: const Uuid().v4(),
@@ -53,7 +53,7 @@ class CloudSyncService {
     final current = await _download(setup.connection);
     await _upload(
       setup.connection,
-      await NetcattyCrypto.encrypt(
+      NetcattyCrypto.encrypt(
         vault: vault,
         password: setup.password,
         deviceId: const Uuid().v4(),
@@ -81,16 +81,17 @@ class CloudSyncService {
     SyncConnection connection,
     VaultData vault,
     String password,
-  ) => _upload(
-    connection,
-    NetcattyCrypto.encrypt(
-      vault: vault,
-      password: password,
-      deviceId: const Uuid().v4(),
-      deviceName: 'Netcatty Mobile',
-      appVersion: '0.1.0',
-    ),
-  );
+  ) =>
+      _upload(
+        connection,
+        NetcattyCrypto.encrypt(
+          vault: vault,
+          password: password,
+          deviceId: const Uuid().v4(),
+          deviceName: 'Netcatty Mobile',
+          appVersion: '0.1.0',
+        ),
+      );
 
   Future<SyncedVaultFile?> _download(SyncConnection connection) async {
     if (connection.type == SyncProviderType.githubGist &&
@@ -186,17 +187,17 @@ class CloudSyncService {
   }
 
   Map<String, String> _webdavHeaders(SyncConnection connection) => {
-    if (connection.username?.isNotEmpty == true)
-      'authorization':
-          'Basic ${base64Encode(utf8.encode('${connection.username}:${connection.secret ?? ''}'))}',
-  };
+        if (connection.username?.isNotEmpty == true)
+          'authorization':
+              'Basic ${base64Encode(utf8.encode('${connection.username}:${connection.secret ?? ''}'))}',
+      };
 
   Map<String, String> _githubHeaders(SyncConnection connection) => {
-    'accept': 'application/vnd.github+json',
-    'content-type': 'application/json',
-    'authorization': 'Bearer ${connection.secret ?? ''}',
-    'x-github-api-version': '2022-11-28',
-  };
+        'accept': 'application/vnd.github+json',
+        'content-type': 'application/json',
+        'authorization': 'Bearer ${connection.secret ?? ''}',
+        'x-github-api-version': '2022-11-28',
+      };
 
   Map<String, dynamic> _decodeJsonObject(String input) {
     final raw = input.trim();
@@ -245,8 +246,8 @@ class CloudSyncService {
       hosts[item.id] = other == null
           ? item
           : hostTimestamp(item) > hostTimestamp(other)
-          ? item
-          : other;
+              ? item
+              : other;
     }
     final keys = <String, SshKeyProfile>{
       for (final item in remote.keys) item.id: item,

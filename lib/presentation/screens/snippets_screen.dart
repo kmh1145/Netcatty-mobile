@@ -53,9 +53,8 @@ class SnippetsScreen extends ConsumerWidget {
                         style: const TextStyle(fontFamily: 'monospace'),
                       ),
                       onTap: () {
-                        final active = ref
-                            .read(sessionControllerProvider)
-                            .active;
+                        final active =
+                            ref.read(sessionControllerProvider).active;
                         if (active == null) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(content: Text('请先建立终端会话')),
@@ -133,8 +132,9 @@ class SnippetsScreen extends ConsumerWidget {
                 child: FilledButton(
                   onPressed: () {
                     if (label.text.trim().isEmpty ||
-                        command.text.trim().isEmpty)
+                        command.text.trim().isEmpty) {
                       return;
+                    }
                     Navigator.pop(
                       context,
                       CommandSnippet({

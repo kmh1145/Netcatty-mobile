@@ -27,16 +27,16 @@ final sshServiceProvider = Provider((ref) => SshService());
 
 final sessionControllerProvider =
     StateNotifierProvider<SessionController, SessionState>(
-      (ref) => SessionController(
-        ref.watch(sshServiceProvider),
-        ref.watch(vaultControllerProvider.notifier),
-        ref,
-      ),
-    );
+  (ref) => SessionController(
+    ref.watch(sshServiceProvider),
+    ref.watch(vaultControllerProvider.notifier),
+    ref,
+  ),
+);
 
 class SessionController extends StateNotifier<SessionState> {
   SessionController(this.service, this.vaultController, this.ref)
-    : super(const SessionState());
+      : super(const SessionState());
 
   final SshService service;
   final VaultController vaultController;
@@ -60,8 +60,7 @@ class SessionController extends StateNotifier<SessionState> {
       connectingHostId: host.id,
     );
     try {
-      final keys =
-          ref.read(vaultControllerProvider).data?.keys ??
+      final keys = ref.read(vaultControllerProvider).data?.keys ??
           const <SshKeyProfile>[];
       final session = await service.connect(
         host: host,

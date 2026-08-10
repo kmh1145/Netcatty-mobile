@@ -65,274 +65,276 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) => SafeArea(
-    child: Scaffold(
-      appBar: AppBar(title: const Text('设置')),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-        children: [
-          _header('外观与终端', '移动端偏好不会覆盖桌面端专属布局字段'),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Column(
-                children: [
-                  SegmentedButton<String>(
-                    segments: const [
-                      ButtonSegment(
-                        value: 'dark',
-                        label: Text('深色'),
-                        icon: Icon(Icons.dark_mode_outlined),
-                      ),
-                      ButtonSegment(
-                        value: 'light',
-                        label: Text('浅色'),
-                        icon: Icon(Icons.light_mode_outlined),
-                      ),
-                      ButtonSegment(
-                        value: 'system',
-                        label: Text('系统'),
-                        icon: Icon(Icons.brightness_auto_outlined),
-                      ),
-                    ],
-                    selected: {themeMode},
-                    onSelectionChanged: (value) =>
-                        setState(() => themeMode = value.first),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
+        child: Scaffold(
+          appBar: AppBar(title: const Text('设置')),
+          body: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+            children: [
+              _header('外观与终端', '移动端偏好不会覆盖桌面端专属布局字段'),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
                     children: [
-                      const Text('终端字号'),
-                      Expanded(
-                        child: Slider(
-                          value: terminalFontSize,
-                          min: 10,
-                          max: 24,
-                          divisions: 14,
-                          label: terminalFontSize.toStringAsFixed(0),
-                          onChanged: (value) =>
-                              setState(() => terminalFontSize = value),
+                      SegmentedButton<String>(
+                        segments: const [
+                          ButtonSegment(
+                            value: 'dark',
+                            label: Text('深色'),
+                            icon: Icon(Icons.dark_mode_outlined),
+                          ),
+                          ButtonSegment(
+                            value: 'light',
+                            label: Text('浅色'),
+                            icon: Icon(Icons.light_mode_outlined),
+                          ),
+                          ButtonSegment(
+                            value: 'system',
+                            label: Text('系统'),
+                            icon: Icon(Icons.brightness_auto_outlined),
+                          ),
+                        ],
+                        selected: {themeMode},
+                        onSelectionChanged: (value) =>
+                            setState(() => themeMode = value.first),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          const Text('终端字号'),
+                          Expanded(
+                            child: Slider(
+                              value: terminalFontSize,
+                              min: 10,
+                              max: 24,
+                              divisions: 14,
+                              label: terminalFontSize.toStringAsFixed(0),
+                              onChanged: (value) =>
+                                  setState(() => terminalFontSize = value),
+                            ),
+                          ),
+                          Text(terminalFontSize.toStringAsFixed(0)),
+                        ],
+                      ),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton(
+                          onPressed: _saveAppearance,
+                          child: const Text('保存外观设置'),
                         ),
                       ),
-                      Text(terminalFontSize.toStringAsFixed(0)),
                     ],
                   ),
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton(
-                      onPressed: _saveAppearance,
-                      child: const Text('保存外观设置'),
-                    ),
-                  ),
-                ],
+                ),
               ),
-            ),
-          ),
-          _header('云同步', '兼容桌面端 netcatty-vault.json 加密格式'),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Column(
-                children: [
-                  SegmentedButton<SyncProviderType>(
-                    segments: const [
-                      ButtonSegment(
-                        value: SyncProviderType.webdav,
-                        label: Text('WebDAV'),
-                        icon: Icon(Icons.cloud_outlined),
+              _header('云同步', '兼容桌面端 netcatty-vault.json 加密格式'),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    children: [
+                      SegmentedButton<SyncProviderType>(
+                        segments: const [
+                          ButtonSegment(
+                            value: SyncProviderType.webdav,
+                            label: Text('WebDAV'),
+                            icon: Icon(Icons.cloud_outlined),
+                          ),
+                          ButtonSegment(
+                            value: SyncProviderType.githubGist,
+                            label: Text('GitHub Gist'),
+                            icon: Icon(Icons.code),
+                          ),
+                        ],
+                        selected: {provider},
+                        onSelectionChanged: (value) =>
+                            setState(() => provider = value.first),
                       ),
-                      ButtonSegment(
-                        value: SyncProviderType.githubGist,
-                        label: Text('GitHub Gist'),
-                        icon: Icon(Icons.code),
+                      const SizedBox(height: 14),
+                      if (provider == SyncProviderType.webdav) ...[
+                        TextField(
+                          controller: endpoint,
+                          keyboardType: TextInputType.url,
+                          decoration: const InputDecoration(
+                            labelText: 'WebDAV 地址',
+                            hintText: 'https://dav.example.com/netcatty',
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        TextField(
+                          controller: username,
+                          decoration: const InputDecoration(labelText: '用户名'),
+                        ),
+                        const SizedBox(height: 10),
+                        TextField(
+                          controller: providerSecret,
+                          obscureText: true,
+                          decoration:
+                              const InputDecoration(labelText: '密码 / 应用密码'),
+                        ),
+                      ] else ...[
+                        TextField(
+                          controller: resourceId,
+                          decoration: const InputDecoration(
+                            labelText: 'Gist ID（首次可留空）',
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        TextField(
+                          controller: providerSecret,
+                          obscureText: true,
+                          decoration: const InputDecoration(
+                            labelText: 'GitHub Token（gist 权限）',
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: masterPassword,
+                        obscureText: true,
+                        decoration: const InputDecoration(
+                          labelText: 'Netcatty 同步主密码',
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed:
+                                  _busy ? null : () => _sync(push: false),
+                              icon: const Icon(Icons.cloud_download_outlined),
+                              label: const Text('拉取并合并'),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: FilledButton.icon(
+                              onPressed: _busy ? null : () => _sync(push: true),
+                              icon: const Icon(Icons.cloud_upload_outlined),
+                              label: const Text('上传'),
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (_busy)
+                        const Padding(
+                          padding: EdgeInsets.only(top: 12),
+                          child: LinearProgressIndicator(),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+              _header('Catty Agent', '使用 OpenAI 兼容接口生成命令，执行前始终确认'),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    children: [
+                      TextField(
+                        controller: aiEndpoint,
+                        decoration: const InputDecoration(labelText: 'API 地址'),
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: aiModel,
+                        decoration: const InputDecoration(labelText: '模型'),
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: aiKey,
+                        obscureText: true,
+                        decoration: const InputDecoration(labelText: 'API Key'),
+                      ),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton(
+                          onPressed: _saveAi,
+                          child: const Text('保存 AI 设置'),
+                        ),
                       ),
                     ],
-                    selected: {provider},
-                    onSelectionChanged: (value) =>
-                        setState(() => provider = value.first),
                   ),
-                  const SizedBox(height: 14),
-                  if (provider == SyncProviderType.webdav) ...[
-                    TextField(
-                      controller: endpoint,
-                      keyboardType: TextInputType.url,
-                      decoration: const InputDecoration(
-                        labelText: 'WebDAV 地址',
-                        hintText: 'https://dav.example.com/netcatty',
+                ),
+              ),
+              _header('数据管理', '导入导出会保留桌面端未知字段和插件数据'),
+              Card(
+                child: Column(
+                  children: [
+                    ListTile(
+                      leading: const Icon(Icons.key_outlined),
+                      title: const Text('SSH 密钥库'),
+                      subtitle: const Text('导入私钥与口令'),
+                      onTap: () => showModalBottomSheet<void>(
+                        context: context,
+                        isScrollControlled: true,
+                        useSafeArea: true,
+                        builder: (_) => const KeychainSheet(),
                       ),
                     ),
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller: username,
-                      decoration: const InputDecoration(labelText: '用户名'),
+                    const Divider(height: 1),
+                    ListTile(
+                      leading: const Icon(Icons.file_upload_outlined),
+                      title: const Text('导入 Netcatty JSON'),
+                      subtitle: const Text('支持桌面端解密后的保险库数据'),
+                      onTap: _import,
                     ),
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller: providerSecret,
-                      obscureText: true,
-                      decoration: const InputDecoration(labelText: '密码 / 应用密码'),
-                    ),
-                  ] else ...[
-                    TextField(
-                      controller: resourceId,
-                      decoration: const InputDecoration(
-                        labelText: 'Gist ID（首次可留空）',
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller: providerSecret,
-                      obscureText: true,
-                      decoration: const InputDecoration(
-                        labelText: 'GitHub Token（gist 权限）',
-                      ),
+                    const Divider(height: 1),
+                    ListTile(
+                      leading: const Icon(Icons.file_download_outlined),
+                      title: const Text('导出保险库 JSON'),
+                      subtitle: const Text('导出包含凭据，请妥善保存'),
+                      onTap: _export,
                     ),
                   ],
-                  const SizedBox(height: 10),
-                  TextField(
-                    controller: masterPassword,
-                    obscureText: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Netcatty 同步主密码',
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: _busy ? null : () => _sync(push: false),
-                          icon: const Icon(Icons.cloud_download_outlined),
-                          label: const Text('拉取并合并'),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: FilledButton.icon(
-                          onPressed: _busy ? null : () => _sync(push: true),
-                          icon: const Icon(Icons.cloud_upload_outlined),
-                          label: const Text('上传'),
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (_busy)
-                    const Padding(
-                      padding: EdgeInsets.only(top: 12),
-                      child: LinearProgressIndicator(),
-                    ),
-                ],
+                ),
               ),
-            ),
-          ),
-          _header('Catty Agent', '使用 OpenAI 兼容接口生成命令，执行前始终确认'),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Column(
-                children: [
-                  TextField(
-                    controller: aiEndpoint,
-                    decoration: const InputDecoration(labelText: 'API 地址'),
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    controller: aiModel,
-                    decoration: const InputDecoration(labelText: '模型'),
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    controller: aiKey,
-                    obscureText: true,
-                    decoration: const InputDecoration(labelText: 'API Key'),
-                  ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton(
-                      onPressed: _saveAi,
-                      child: const Text('保存 AI 设置'),
+              _header('安全', null),
+              const Card(
+                child: Column(
+                  children: [
+                    ListTile(
+                      leading: Icon(Icons.security),
+                      title: Text('系统安全存储'),
+                      subtitle: Text('Android Keystore / iOS Keychain'),
                     ),
-                  ),
-                ],
+                    Divider(height: 1),
+                    ListTile(
+                      leading: Icon(Icons.fingerprint),
+                      title: Text('服务器身份验证'),
+                      subtitle: Text('每次首次连接显示 SHA-256 主机指纹'),
+                    ),
+                  ],
+                ),
               ),
-            ),
+              const SizedBox(height: 20),
+              const Center(
+                child: Text(
+                  'Netcatty Mobile 0.1.0 · GPL-3.0-or-later',
+                  style: TextStyle(color: Colors.white38),
+                ),
+              ),
+            ],
           ),
-          _header('数据管理', '导入导出会保留桌面端未知字段和插件数据'),
-          Card(
-            child: Column(
-              children: [
-                ListTile(
-                  leading: const Icon(Icons.key_outlined),
-                  title: const Text('SSH 密钥库'),
-                  subtitle: const Text('导入私钥与口令'),
-                  onTap: () => showModalBottomSheet<void>(
-                    context: context,
-                    isScrollControlled: true,
-                    useSafeArea: true,
-                    builder: (_) => const KeychainSheet(),
-                  ),
-                ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: const Icon(Icons.file_upload_outlined),
-                  title: const Text('导入 Netcatty JSON'),
-                  subtitle: const Text('支持桌面端解密后的保险库数据'),
-                  onTap: _import,
-                ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: const Icon(Icons.file_download_outlined),
-                  title: const Text('导出保险库 JSON'),
-                  subtitle: const Text('导出包含凭据，请妥善保存'),
-                  onTap: _export,
-                ),
-              ],
-            ),
-          ),
-          _header('安全', null),
-          const Card(
-            child: Column(
-              children: [
-                ListTile(
-                  leading: Icon(Icons.security),
-                  title: Text('系统安全存储'),
-                  subtitle: Text('Android Keystore / iOS Keychain'),
-                ),
-                Divider(height: 1),
-                ListTile(
-                  leading: Icon(Icons.fingerprint),
-                  title: Text('服务器身份验证'),
-                  subtitle: Text('每次首次连接显示 SHA-256 主机指纹'),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 20),
-          const Center(
-            child: Text(
-              'Netcatty Mobile 0.1.0 · GPL-3.0-or-later',
-              style: TextStyle(color: Colors.white38),
-            ),
-          ),
-        ],
-      ),
-    ),
-  );
+        ),
+      );
 
   Widget _header(String title, String? subtitle) => Padding(
-    padding: const EdgeInsets.fromLTRB(4, 20, 4, 8),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
-        if (subtitle != null)
-          Text(
-            subtitle,
-            style: const TextStyle(color: Colors.white54, fontSize: 12),
-          ),
-      ],
-    ),
-  );
+        padding: const EdgeInsets.fromLTRB(4, 20, 4, 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+            if (subtitle != null)
+              Text(
+                subtitle,
+                style: const TextStyle(color: Colors.white54, fontSize: 12),
+              ),
+          ],
+        ),
+      );
 
   Future<void> _saveSync() async {
     final connection = SyncConnection(
@@ -373,9 +375,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Future<void> _saveAi() async {
     final repository = ref.read(vaultRepositoryProvider);
     final current = await repository.loadSettings();
-    await ref
-        .read(settingsControllerProvider.notifier)
-        .update(
+    await ref.read(settingsControllerProvider.notifier).update(
           current.copyWith(
             aiEndpoint: aiEndpoint.text.trim(),
             aiModel: aiModel.text.trim(),
@@ -387,9 +387,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   Future<void> _saveAppearance() async {
     final current = ref.read(settingsControllerProvider);
-    await ref
-        .read(settingsControllerProvider.notifier)
-        .update(
+    await ref.read(settingsControllerProvider.notifier).update(
           current.copyWith(
             themeMode: themeMode,
             terminalFontSize: terminalFontSize,

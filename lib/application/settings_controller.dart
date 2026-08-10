@@ -7,10 +7,10 @@ import '../infrastructure/storage/vault_repository.dart';
 
 final settingsControllerProvider =
     StateNotifierProvider<SettingsController, AppSettings>((ref) {
-      final controller = SettingsController(ref.watch(vaultRepositoryProvider));
-      unawaited(controller.load());
-      return controller;
-    });
+  final controller = SettingsController(ref.watch(vaultRepositoryProvider));
+  unawaited(controller.load());
+  return controller;
+});
 
 class SettingsController extends StateNotifier<AppSettings> {
   SettingsController(this.repository) : super(const AppSettings());

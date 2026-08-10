@@ -101,41 +101,41 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
                     ),
                   )
                 : state.sessions.isEmpty
-                ? const EmptyState(
-                    icon: Icons.terminal_outlined,
-                    title: '没有活动会话',
-                    subtitle: '从“保险库”选择主机开始连接。',
-                  )
-                : LayoutBuilder(
-                    builder: (context, constraints) {
-                      if (!_split || state.sessions.length < 2) {
-                        return _TerminalPane(
-                          session: state.active!,
-                          fontSize: settings.terminalFontSize,
-                        );
-                      }
-                      final secondIndex =
-                          (state.activeIndex + 1) % state.sessions.length;
-                      final children = [
-                        Expanded(
-                          child: _TerminalPane(
-                            session: state.active!,
-                            fontSize: settings.terminalFontSize,
-                          ),
-                        ),
-                        const Divider(height: 1, thickness: 1),
-                        Expanded(
-                          child: _TerminalPane(
-                            session: state.sessions[secondIndex],
-                            fontSize: settings.terminalFontSize,
-                          ),
-                        ),
-                      ];
-                      return constraints.maxWidth > constraints.maxHeight
-                          ? Row(children: children)
-                          : Column(children: children);
-                    },
-                  ),
+                    ? const EmptyState(
+                        icon: Icons.terminal_outlined,
+                        title: '没有活动会话',
+                        subtitle: '从“保险库”选择主机开始连接。',
+                      )
+                    : LayoutBuilder(
+                        builder: (context, constraints) {
+                          if (!_split || state.sessions.length < 2) {
+                            return _TerminalPane(
+                              session: state.active!,
+                              fontSize: settings.terminalFontSize,
+                            );
+                          }
+                          final secondIndex =
+                              (state.activeIndex + 1) % state.sessions.length;
+                          final children = [
+                            Expanded(
+                              child: _TerminalPane(
+                                session: state.active!,
+                                fontSize: settings.terminalFontSize,
+                              ),
+                            ),
+                            const Divider(height: 1, thickness: 1),
+                            Expanded(
+                              child: _TerminalPane(
+                                session: state.sessions[secondIndex],
+                                fontSize: settings.terminalFontSize,
+                              ),
+                            ),
+                          ];
+                          return constraints.maxWidth > constraints.maxHeight
+                              ? Row(children: children)
+                              : Column(children: children);
+                        },
+                      ),
           ),
           if (state.active != null)
             _SpecialKeys(
@@ -263,14 +263,14 @@ class _TerminalPane extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => ColoredBox(
-    color: const Color(0xff050607),
-    child: TerminalView(
-      session.terminal,
-      autofocus: true,
-      padding: const EdgeInsets.all(8),
-      textStyle: TerminalStyle(fontSize: fontSize, fontFamily: 'monospace'),
-    ),
-  );
+        color: const Color(0xff050607),
+        child: TerminalView(
+          session.terminal,
+          autofocus: true,
+          padding: const EdgeInsets.all(8),
+          textStyle: TerminalStyle(fontSize: fontSize, fontFamily: 'monospace'),
+        ),
+      );
 }
 
 class _SpecialKeys extends StatelessWidget {
@@ -279,35 +279,35 @@ class _SpecialKeys extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => SizedBox(
-    height: 44,
-    child: ListView(
-      scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      children: [
-        _key('Esc', '\x1b'),
-        _key('Tab', '\t'),
-        _key('Ctrl+C', '\x03'),
-        _key('Ctrl+D', '\x04'),
-        _key('Ctrl+Z', '\x1a'),
-        _key('↑', '\x1b[A'),
-        _key('↓', '\x1b[B'),
-        _key('←', '\x1b[D'),
-        _key('→', '\x1b[C'),
-        _key('|', '|'),
-        _key('/', '/'),
-        _key('~', '~'),
-      ],
-    ),
-  );
+        height: 44,
+        child: ListView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          children: [
+            _key('Esc', '\x1b'),
+            _key('Tab', '\t'),
+            _key('Ctrl+C', '\x03'),
+            _key('Ctrl+D', '\x04'),
+            _key('Ctrl+Z', '\x1a'),
+            _key('↑', '\x1b[A'),
+            _key('↓', '\x1b[B'),
+            _key('←', '\x1b[D'),
+            _key('→', '\x1b[C'),
+            _key('|', '|'),
+            _key('/', '/'),
+            _key('~', '~'),
+          ],
+        ),
+      );
 
   Widget _key(String label, String value) => Padding(
-    padding: const EdgeInsets.only(right: 6),
-    child: OutlinedButton(
-      onPressed: () => onSend(value),
-      style: OutlinedButton.styleFrom(
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-      ),
-      child: Text(label),
-    ),
-  );
+        padding: const EdgeInsets.only(right: 6),
+        child: OutlinedButton(
+          onPressed: () => onSend(value),
+          style: OutlinedButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+          ),
+          child: Text(label),
+        ),
+      );
 }

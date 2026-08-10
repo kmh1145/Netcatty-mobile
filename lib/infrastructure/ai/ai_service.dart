@@ -37,7 +37,7 @@ class AiService {
             'role': 'system',
             'content':
                 'You are Catty, an SSH operations assistant. Return JSON with explanation and command. '
-                'Generate one non-interactive shell command. Never claim it ran. Prefer read-only diagnostics.',
+                    'Generate one non-interactive shell command. Never claim it ran. Prefer read-only diagnostics.',
           },
           {'role': 'user', 'content': 'Host: $hostSummary\nRequest: $request'},
         ],
@@ -47,9 +47,8 @@ class AiService {
       throw StateError('AI 请求失败 (${response.statusCode})');
     }
     final body = jsonDecode(response.body) as Map<String, dynamic>;
-    final content =
-        ((body['choices'] as List).first as Map)['message']['content']
-            as String;
+    final content = ((body['choices'] as List).first as Map)['message']
+        ['content'] as String;
     final normalized = content
         .replaceFirst(RegExp(r'^\s*```(?:json)?\s*'), '')
         .replaceFirst(RegExp(r'\s*```\s*$'), '');

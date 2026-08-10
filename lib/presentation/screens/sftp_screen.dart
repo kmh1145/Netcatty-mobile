@@ -266,8 +266,7 @@ class _SftpScreenState extends ConsumerState<SftpScreen> {
     final result = await FilePicker.platform.pickFiles(withData: true);
     if (result == null) return;
     final file = result.files.single;
-    final bytes =
-        file.bytes ??
+    final bytes = file.bytes ??
         (file.path == null ? null : await File(file.path!).readAsBytes());
     if (bytes == null) return;
     try {
@@ -367,16 +366,16 @@ class _SftpScreenState extends ConsumerState<SftpScreen> {
       path == '/' ? '/$name' : '$path/$name';
   IconData _fileIcon(String name) =>
       RegExp(r'\.(png|jpg|jpeg|gif|webp)$', caseSensitive: false).hasMatch(name)
-      ? Icons.image_outlined
-      : RegExp(
-          r'\.(dart|js|ts|py|sh|json|ya?ml|conf)$',
-          caseSensitive: false,
-        ).hasMatch(name)
-      ? Icons.code
-      : Icons.description_outlined;
+          ? Icons.image_outlined
+          : RegExp(
+              r'\.(dart|js|ts|py|sh|json|ya?ml|conf)$',
+              caseSensitive: false,
+            ).hasMatch(name)
+              ? Icons.code
+              : Icons.description_outlined;
   String _formatBytes(int value) => value < 1024
       ? '$value B'
       : value < 1024 * 1024
-      ? '${(value / 1024).toStringAsFixed(1)} KB'
-      : '${(value / 1024 / 1024).toStringAsFixed(1)} MB';
+          ? '${(value / 1024).toStringAsFixed(1)} KB'
+          : '${(value / 1024 / 1024).toStringAsFixed(1)} MB';
 }

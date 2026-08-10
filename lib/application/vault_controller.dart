@@ -15,10 +15,10 @@ class VaultState {
 
 final vaultControllerProvider =
     StateNotifierProvider<VaultController, VaultState>((ref) {
-      final controller = VaultController(ref.watch(vaultRepositoryProvider));
-      unawaited(controller.load());
-      return controller;
-    });
+  final controller = VaultController(ref.watch(vaultRepositoryProvider));
+  unawaited(controller.load());
+  return controller;
+});
 
 class VaultController extends StateNotifier<VaultState> {
   VaultController(this.repository) : super(const VaultState(loading: true));
@@ -64,6 +64,6 @@ class VaultController extends StateNotifier<VaultState> {
   }
 
   Future<void> markConnected(HostProfile host) => upsertHost(
-    host.copyWith(lastConnectedAt: DateTime.now().millisecondsSinceEpoch),
-  );
+        host.copyWith(lastConnectedAt: DateTime.now().millisecondsSinceEpoch),
+      );
 }
