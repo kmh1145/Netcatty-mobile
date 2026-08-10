@@ -19,7 +19,24 @@ jobs:
       - run: dart format --output=none --set-exit-if-changed lib test
       - run: flutter analyze
       - run: flutter test
-      - run: flutter build apk --debug
+      - name: Build Android release APK
+        run: flutter build apk --release
+      - name: Prepare Android package
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-release.apk dist/netcatty-mobile-android.apk
+          cd dist
+          sha256sum netcatty-mobile-android.apk > netcatty-mobile-android.apk.sha256
+      - name: Upload Android package
+        uses: actions/upload-artifact@v4
+        with:
+          name: netcatty-mobile-android-${{ github.run_number }}
+          path: |
+            dist/netcatty-mobile-android.apk
+            dist/netcatty-mobile-android.apk.sha256
+          if-no-files-found: error
+          retention-days: 30
 
   ios:
     runs-on: macos-15
