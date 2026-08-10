@@ -412,14 +412,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         barrierDismissible: false,
         builder: (_) => _GitHubDeviceFlowDialog(
           authorization: authorization,
-          tokenFuture: auth.poll(authorization),
+          auth: auth,
         ),
       );
       if (token == null || !mounted) return;
-      final user = await auth.currentUser(token);
       providerSecret.text = token;
       resourceId.clear();
-      _githubUser = user['login']?.toString();
+      await _saveSync();
+      try {
+        final user = await auth.currentUser(token);
+        _githubUser = user['login']?.toString();
+      } on GitHubAuthNetworkException {
+        _githubUser = null;
+      }
       await _saveSync();
       if (mounted) setState(() {});
       _message('GitHub 登录成功，将自动查找 Netcatty Gist');
@@ -532,11 +537,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 class _GitHubDeviceFlowDialog extends StatefulWidget {
   const _GitHubDeviceFlowDialog({
     required this.authorization,
-    required this.tokenFuture,
+    required this.auth,
   });
 
   final GitHubDeviceAuthorization authorization;
-  final Future<String> tokenFuture;
+  final GitHubAuthService auth;
 
   @override
   State<_GitHubDeviceFlowDialog> createState() =>
@@ -545,6 +550,8 @@ class _GitHubDeviceFlowDialog extends StatefulWidget {
 
 class _GitHubDeviceFlowDialogState extends State<_GitHubDeviceFlowDialog> {
   Object? error;
+  GitHubAuthPollState state = GitHubAuthPollState.waitingForAuthorization;
+  bool cancelled = false;
 
   @override
   void initState() {
@@ -553,11 +560,30 @@ class _GitHubDeviceFlowDialogState extends State<_GitHubDeviceFlowDialog> {
       ClipboardData(text: widget.authorization.userCode),
     ));
     unawaited(_openGitHub());
-    widget.tokenFuture.then((token) {
+    unawaited(_poll());
+  }
+
+  @override
+  void dispose() {
+    cancelled = true;
+    super.dispose();
+  }
+
+  Future<void> _poll() async {
+    try {
+      final token = await widget.auth.poll(
+        widget.authorization,
+        isCancelled: () => cancelled,
+        onStateChanged: (value) {
+          if (mounted) setState(() => state = value);
+        },
+      );
       if (mounted) Navigator.pop(context, token);
-    }).catchError((Object value) {
+    } on GitHubAuthCancelledException {
+      // Closing the dialog intentionally stops the pending device flow.
+    } on Object catch (value) {
       if (mounted) setState(() => error = value);
-    });
+    }
   }
 
   Future<void> _openGitHub() => launchUrl(
@@ -592,7 +618,12 @@ class _GitHubDeviceFlowDialogState extends State<_GitHubDeviceFlowDialog> {
             if (error == null) ...[
               const LinearProgressIndicator(),
               const SizedBox(height: 8),
-              const Text('正在等待 GitHub 授权…'),
+              Text(
+                state == GitHubAuthPollState.retryingNetwork
+                    ? '网络连接发生变化，正在自动重试…'
+                    : '正在等待 GitHub 授权…',
+                textAlign: TextAlign.center,
+              ),
             ] else
               Text(
                 '$error',
