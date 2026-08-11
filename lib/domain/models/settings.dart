@@ -58,7 +58,8 @@ class AppSettings {
         .toList();
     final storedOrder = rawStoredOrder.where(supported.contains).toList();
     final order = storedOrder.isEmpty ||
-            _sameStrings(rawStoredOrder, legacyDefaultTerminalQuickKeys)
+            _sameStrings(rawStoredOrder, legacyDefaultTerminalQuickKeys) ||
+            _sameStrings(rawStoredOrder, previousMobileDefaultTerminalQuickKeys)
         ? defaultTerminalQuickKeys
         : storedOrder;
     return AppSettings(
@@ -125,6 +126,21 @@ class AppSettings {
 }
 
 const defaultTerminalQuickKeys = <String>[
+  'escape',
+  'alt',
+  'home',
+  'arrowUp',
+  'end',
+  'paste',
+  'tab',
+  'ctrl',
+  'arrowLeft',
+  'arrowDown',
+  'arrowRight',
+  'shift',
+];
+
+const previousMobileDefaultTerminalQuickKeys = <String>[
   'escape',
   'alt',
   'ctrl',

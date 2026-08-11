@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
 import 'package:xterm/xterm.dart';
 
 import '../../application/session_controller.dart';
@@ -126,6 +127,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
                         builder: (context, constraints) {
                           if (!_split || state.sessions.length < 2) {
                             return _TerminalPane(
+                              key: ValueKey(state.active!.id),
                               session: state.active!,
                               fontSize: settings.terminalFontSize,
                             );
@@ -135,6 +137,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
                           final children = [
                             Expanded(
                               child: _TerminalPane(
+                                key: ValueKey(state.active!.id),
                                 session: state.active!,
                                 fontSize: settings.terminalFontSize,
                               ),
@@ -142,6 +145,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
                             const Divider(height: 1, thickness: 1),
                             Expanded(
                               child: _TerminalPane(
+                                key: ValueKey(state.sessions[secondIndex].id),
                                 session: state.sessions[secondIndex],
                                 fontSize: settings.terminalFontSize,
                               ),
@@ -317,10 +321,27 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
   }
 }
 
-class _TerminalPane extends StatelessWidget {
-  const _TerminalPane({required this.session, required this.fontSize});
+class _TerminalPane extends StatefulWidget {
+  const _TerminalPane({
+    super.key,
+    required this.session,
+    required this.fontSize,
+  });
   final ActiveTerminalSession session;
   final double fontSize;
+
+  @override
+  State<_TerminalPane> createState() => _TerminalPaneState();
+}
+
+class _TerminalPaneState extends State<_TerminalPane> {
+  final _controller = TerminalController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -352,13 +373,52 @@ class _TerminalPane extends StatelessWidget {
     );
     return ColoredBox(
       color: scheme.surface,
-      child: TerminalView(
-        session.terminal,
-        theme: terminalTheme,
-        keyboardAppearance: Theme.of(context).brightness,
-        autofocus: true,
-        padding: const EdgeInsets.all(8),
-        textStyle: TerminalStyle(fontSize: fontSize, fontFamily: 'monospace'),
+      child: AnimatedBuilder(
+        animation: _controller,
+        builder: (context, _) => Stack(
+          fit: StackFit.expand,
+          children: [
+            TerminalView(
+              widget.session.terminal,
+              controller: _controller,
+              theme: terminalTheme,
+              keyboardAppearance: Theme.of(context).brightness,
+              autofocus: true,
+              padding: const EdgeInsets.all(8),
+              textStyle: TerminalStyle(
+                fontSize: widget.fontSize,
+                fontFamily: 'monospace',
+              ),
+            ),
+            if (_controller.selection != null)
+              Positioned(
+                top: 10,
+                right: 10,
+                child: FilledButton.tonalIcon(
+                  key: const ValueKey('copy-terminal-selection'),
+                  onPressed: _copySelection,
+                  icon: const Icon(Icons.copy_outlined, size: 18),
+                  label: const Text('复制'),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _copySelection() async {
+    final selection = _controller.selection;
+    if (selection == null) return;
+    final text = widget.session.terminal.buffer.getText(selection);
+    if (text.isEmpty) return;
+    await Clipboard.setData(ClipboardData(text: text));
+    _controller.clearSelection();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('已复制终端文本'),
+        duration: Duration(seconds: 1),
       ),
     );
   }

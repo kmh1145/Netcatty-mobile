@@ -54,18 +54,38 @@ class _TerminalSpecialKeysState extends ConsumerState<TerminalSpecialKeys> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Wrap(
-              spacing: 6,
-              runSpacing: 4,
-              children: [
-                for (final id in normalized) _keyButton(definitions[id]!),
-              ],
+            LayoutBuilder(
+              builder: (context, constraints) {
+                const spacing = 6.0;
+                const minimumButtonWidth = 52.0;
+                final columnCount = ((constraints.maxWidth + spacing) /
+                        (minimumButtonWidth + spacing))
+                    .floor()
+                    .clamp(1, 6);
+                final buttonWidth =
+                    (constraints.maxWidth - spacing * (columnCount - 1)) /
+                        columnCount;
+                return Wrap(
+                  alignment: WrapAlignment.spaceEvenly,
+                  spacing: spacing,
+                  runSpacing: 4,
+                  children: [
+                    for (final id in normalized)
+                      SizedBox(
+                        width: buttonWidth,
+                        height: 38,
+                        child: _keyButton(definitions[id]!),
+                      ),
+                  ],
+                );
+              },
             ),
-            const SizedBox(height: 2),
+            const SizedBox(height: 4),
             Row(
-              mainAxisAlignment: MainAxisAlignment.end,
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
                 IconButton(
+                  key: const ValueKey('terminal-action-ai'),
                   tooltip: 'Catty Agent',
                   onPressed: widget.onAi,
                   icon: Icon(
@@ -74,26 +94,30 @@ class _TerminalSpecialKeysState extends ConsumerState<TerminalSpecialKeys> {
                   ),
                 ),
                 IconButton(
+                  key: const ValueKey('terminal-action-port-forward'),
                   tooltip: '端口转发',
                   onPressed: widget.onPortForward,
                   icon: const Icon(Icons.swap_horiz),
                 ),
                 IconButton(
+                  key: const ValueKey('terminal-action-split'),
                   tooltip: '分屏',
                   isSelected: widget.split,
                   onPressed: widget.onSplit,
                   icon: const Icon(Icons.vertical_split_outlined),
                 ),
                 IconButton(
+                  key: const ValueKey('terminal-action-edit'),
+                  tooltip: '编辑快捷键',
+                  onPressed: () => _customize(context, normalized),
+                  icon: const Icon(Icons.tune, size: 20),
+                ),
+                IconButton(
+                  key: const ValueKey('terminal-action-hide-keyboard'),
                   tooltip: '收起键盘',
                   onPressed: () =>
                       FocusManager.instance.primaryFocus?.unfocus(),
                   icon: const Icon(Icons.keyboard_hide_outlined),
-                ),
-                IconButton(
-                  tooltip: '编辑快捷键',
-                  onPressed: () => _customize(context, normalized),
-                  icon: const Icon(Icons.tune, size: 20),
                 ),
               ],
             ),
@@ -112,8 +136,9 @@ class _TerminalSpecialKeysState extends ConsumerState<TerminalSpecialKeys> {
       child: TextButton(
         onPressed: () => _press(key),
         style: TextButton.styleFrom(
-          minimumSize: const Size(46, 38),
-          padding: const EdgeInsets.symmetric(horizontal: 10),
+          minimumSize: Size.zero,
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
           backgroundColor:
               selected ? Theme.of(context).colorScheme.primaryContainer : null,
           foregroundColor: selected
@@ -123,7 +148,12 @@ class _TerminalSpecialKeysState extends ConsumerState<TerminalSpecialKeys> {
             borderRadius: BorderRadius.circular(7),
           ),
         ),
-        child: Text(key.label),
+        child: key.icon == null
+            ? Text(key.label, textAlign: TextAlign.center)
+            : Tooltip(
+                message: key.label,
+                child: Icon(key.icon, size: 20),
+              ),
       ),
     );
   }
@@ -383,12 +413,14 @@ class _QuickKey {
     this.value, {
     this.type = _QuickKeyType.text,
     this.modifierId,
+    this.icon,
   });
 
   final String label;
   final String? value;
   final _QuickKeyType type;
   final String? modifierId;
+  final IconData? icon;
 }
 
 const _quickKeys = <String, _QuickKey>{
@@ -418,7 +450,12 @@ const _quickKeys = <String, _QuickKey>{
   'arrowRight': _QuickKey('→', '\x1b[C'),
   'home': _QuickKey('Home', '\x1b[H'),
   'end': _QuickKey('End', '\x1b[F'),
-  'paste': _QuickKey('粘贴', null, type: _QuickKeyType.paste),
+  'paste': _QuickKey(
+    '粘贴',
+    null,
+    type: _QuickKeyType.paste,
+    icon: Icons.content_paste_outlined,
+  ),
   'ctrlC': _QuickKey('Ctrl+C', '\x03'),
   'ctrlD': _QuickKey('Ctrl+D', '\x04'),
   'ctrlZ': _QuickKey('Ctrl+Z', '\x1a'),

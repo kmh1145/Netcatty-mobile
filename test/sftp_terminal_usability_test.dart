@@ -18,6 +18,28 @@ void main() {
     expect(settings.terminalQuickKeys, containsAll(['home', 'end', 'paste']));
   });
 
+  test('previous mobile defaults migrate to the screenshot ordering', () {
+    final settings = AppSettings.fromJson({
+      'terminalQuickKeys': previousMobileDefaultTerminalQuickKeys,
+    });
+
+    expect(settings.terminalQuickKeys, defaultTerminalQuickKeys);
+    expect(settings.terminalQuickKeys, [
+      'escape',
+      'alt',
+      'home',
+      'arrowUp',
+      'end',
+      'paste',
+      'tab',
+      'ctrl',
+      'arrowLeft',
+      'arrowDown',
+      'arrowRight',
+      'shift',
+    ]);
+  });
+
   test('custom terminal keys and their ordering round-trip', () {
     final settings = AppSettings.fromJson({
       'terminalQuickKeys': ['escape', 'custom-clear'],
@@ -72,7 +94,7 @@ void main() {
             body: Align(
               alignment: Alignment.topLeft,
               child: SizedBox(
-                width: 280,
+                width: 360,
                 child: TerminalSpecialKeys(
                   order: defaultTerminalQuickKeys,
                   customKeys: [],
@@ -91,8 +113,44 @@ void main() {
 
     expect(find.byType(Wrap), findsOneWidget);
     expect(
-      tester.getTopLeft(find.text('粘贴')).dy,
-      greaterThan(tester.getTopLeft(find.text('Esc')).dy),
+      tester.getTopLeft(find.byTooltip('粘贴')).dy,
+      closeTo(tester.getTopLeft(find.text('Esc')).dy, 1),
+    );
+    final escButton = find.ancestor(
+      of: find.text('Esc'),
+      matching: find.byType(TextButton),
+    );
+    final homeButton = find.ancestor(
+      of: find.text('Home'),
+      matching: find.byType(TextButton),
+    );
+    expect(
+      tester.getSize(escButton).width,
+      closeTo(tester.getSize(homeButton).width, .01),
+    );
+    final actionKeys = [
+      'terminal-action-ai',
+      'terminal-action-port-forward',
+      'terminal-action-split',
+      'terminal-action-edit',
+      'terminal-action-hide-keyboard',
+    ];
+    final actionCenters = actionKeys
+        .map((key) => tester.getCenter(find.byKey(ValueKey(key))).dx)
+        .toList();
+    final actionGaps = [
+      for (var index = 1; index < actionCenters.length; index++)
+        actionCenters[index] - actionCenters[index - 1],
+    ];
+    expect(
+      actionGaps.every((gap) => (gap - actionGaps.first).abs() < .01),
+      isTrue,
+    );
+    expect(
+      actionCenters[actionKeys.indexOf('terminal-action-edit')],
+      lessThan(
+        actionCenters[actionKeys.indexOf('terminal-action-hide-keyboard')],
+      ),
     );
     expect(
       find.descendant(
