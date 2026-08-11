@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../application/session_controller.dart';
+import '../../infrastructure/ssh/android_document_tree_service.dart';
 import '../../infrastructure/ssh/sftp_service.dart';
 
 class SftpScreen extends ConsumerStatefulWidget {
@@ -18,7 +19,7 @@ class SftpScreen extends ConsumerStatefulWidget {
 }
 
 class _SftpScreenState extends ConsumerState<SftpScreen> {
-  late final Future<LocalFileTransferService> _localService;
+  late final Future<MountableFileTransferService> _localService;
   final _remoteServices = <String, SftpService>{};
   var _leftKey = GlobalKey<_SftpPaneState>();
   var _rightKey = GlobalKey<_SftpPaneState>();
@@ -29,7 +30,9 @@ class _SftpScreenState extends ConsumerState<SftpScreen> {
   @override
   void initState() {
     super.initState();
-    _localService = LocalFileTransferService.create();
+    _localService = Platform.isAndroid
+        ? AndroidDocumentTreeTransferService.create()
+        : LocalFileTransferService.create();
   }
 
   @override
@@ -45,7 +48,7 @@ class _SftpScreenState extends ConsumerState<SftpScreen> {
         _remoteServices[session.id] = SftpService(session);
       }
     }
-    return FutureBuilder<LocalFileTransferService>(
+    return FutureBuilder<MountableFileTransferService>(
       future: _localService,
       builder: (context, snapshot) {
         if (!snapshot.hasData) {
@@ -117,6 +120,7 @@ class _SftpScreenState extends ConsumerState<SftpScreen> {
                         service: left,
                         sources: sources,
                         onSourceChanged: (id) => _changeSource(true, id),
+                        onPhoneMountChanged: _phoneMountChanged,
                         onCopyToOther: (entry) =>
                             _copy(entry, _leftKey, _rightKey, '右侧'),
                       ),
@@ -133,6 +137,7 @@ class _SftpScreenState extends ConsumerState<SftpScreen> {
                         service: right,
                         sources: sources,
                         onSourceChanged: (id) => _changeSource(false, id),
+                        onPhoneMountChanged: _phoneMountChanged,
                         onCopyToOther: (entry) =>
                             _copy(entry, _rightKey, _leftKey, '左侧'),
                       ),
@@ -157,6 +162,12 @@ class _SftpScreenState extends ConsumerState<SftpScreen> {
         _rightKey = GlobalKey<_SftpPaneState>();
       }
     });
+  }
+
+  void _phoneMountChanged() {
+    setState(() {});
+    _leftKey.currentState?.resetAfterPhoneMount();
+    _rightKey.currentState?.resetAfterPhoneMount();
   }
 
   Future<void> _copy(
@@ -203,6 +214,7 @@ class _SftpPane extends StatefulWidget {
     required this.service,
     required this.sources,
     required this.onSourceChanged,
+    required this.onPhoneMountChanged,
     required this.onCopyToOther,
   });
 
@@ -210,6 +222,7 @@ class _SftpPane extends StatefulWidget {
   final FileTransferService service;
   final List<FileTransferService> sources;
   final ValueChanged<String> onSourceChanged;
+  final VoidCallback onPhoneMountChanged;
   final ValueChanged<RemoteEntry> onCopyToOther;
 
   @override
@@ -244,6 +257,10 @@ class _SftpPaneState extends State<_SftpPane> {
   Widget build(BuildContext context) => LayoutBuilder(
         builder: (context, constraints) {
           final compact = constraints.maxWidth < 260;
+          final mountable = service is MountableFileTransferService
+              ? service as MountableFileTransferService
+              : null;
+          final localReady = mountable?.isMounted ?? true;
           return Column(
             children: [
               Padding(
@@ -265,7 +282,11 @@ class _SftpPaneState extends State<_SftpPane> {
                                     : Icons.dns_outlined),
                                 title: Text(source.displayName),
                                 subtitle: Text(
-                                  source.isLocal ? '手机端文件' : '已连接 SSH',
+                                  source is MountableFileTransferService
+                                      ? source.isMounted
+                                          ? '已挂载：${source.mountedDirectoryName}'
+                                          : '点文件夹按钮选择手机目录'
+                                      : '已连接 SSH',
                                 ),
                               ),
                             ),
@@ -332,14 +353,22 @@ class _SftpPaneState extends State<_SftpPane> {
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
                     _toolbar(Icons.arrow_upward, '上级',
-                        path == service.rootPath ? null : _up),
-                    _toolbar(Icons.refresh, '刷新', _loading ? null : refresh),
+                        !localReady || path == service.rootPath ? null : _up),
+                    _toolbar(Icons.refresh, '刷新',
+                        _loading || !localReady ? null : refresh),
+                    if (mountable != null)
+                      _toolbar(
+                        Icons.folder_open_outlined,
+                        mountable.isMounted ? '更换挂载目录' : '挂载手机目录',
+                        _mountPhoneDirectory,
+                      ),
                     _toolbar(
                       service.isLocal ? Icons.add_to_photos : Icons.upload_file,
-                      service.isLocal ? '导入手机文件' : '上传文件',
-                      _importFile,
+                      service.isLocal ? '导入其他手机文件' : '上传文件',
+                      localReady ? _importFile : null,
                     ),
-                    _toolbar(Icons.create_new_folder_outlined, '新建', _mkdir),
+                    _toolbar(Icons.create_new_folder_outlined, '新建',
+                        localReady ? _mkdir : null),
                   ],
                 ),
               ),
@@ -364,7 +393,11 @@ class _SftpPaneState extends State<_SftpPane> {
                 child: _entries.isEmpty && !_loading
                     ? Center(
                         child: Text(
-                          service.isLocal ? '手机传输目录为空\n点上方导入文件' : '目录为空',
+                          mountable != null && !mountable.isMounted
+                              ? '尚未挂载手机目录\n点上方文件夹按钮选择目录'
+                              : service.isLocal
+                                  ? '挂载目录为空\n可直接上传或导入文件'
+                                  : '目录为空',
                           textAlign: TextAlign.center,
                           style: const TextStyle(fontSize: 11),
                         ),
@@ -466,6 +499,30 @@ class _SftpPaneState extends State<_SftpPane> {
     }
   }
 
+  void resetAfterPhoneMount() {
+    if (!service.isLocal) return;
+    setState(() {
+      path = service.rootPath;
+      _entries = const [];
+      _error = null;
+    });
+    refresh();
+  }
+
+  Future<void> _mountPhoneDirectory() async {
+    final mountable = service is MountableFileTransferService
+        ? service as MountableFileTransferService
+        : null;
+    if (mountable == null) return;
+    try {
+      if (!await mountable.mount()) return;
+      widget.onPhoneMountChanged();
+      _message('已挂载手机目录：${mountable.mountedDirectoryName ?? '已选目录'}');
+    } catch (error) {
+      _message('挂载目录失败：$error');
+    }
+  }
+
   void _open(String value) {
     setState(() => path = value);
     refresh();
@@ -537,7 +594,7 @@ class _SftpPaneState extends State<_SftpPane> {
     try {
       await service.writeStream(service.joinPath(path, file.name), stream);
       await refresh();
-      _message(service.isLocal ? '已导入到手机传输目录' : '上传完成');
+      _message(service.isLocal ? '已导入到挂载目录' : '上传完成');
     } catch (error) {
       _message('$error');
     }
@@ -546,7 +603,7 @@ class _SftpPaneState extends State<_SftpPane> {
   Future<void> _share(RemoteEntry entry) async {
     try {
       late final File file;
-      if (service.isLocal) {
+      if (service is LocalFileTransferService) {
         file = File(entry.path);
       } else {
         final directory = await getTemporaryDirectory();
@@ -597,7 +654,7 @@ class _SftpPaneState extends State<_SftpPane> {
           builder: (context) => AlertDialog(
             title: Text('删除 ${entry.name}？'),
             content: Text(service.isLocal
-                ? '文件将从手机 Netcatty 目录删除，无法撤销。'
+                ? '文件将从当前挂载的手机目录删除，无法撤销。'
                 : '此操作会直接修改远程服务器，无法撤销。'),
             actions: [
               TextButton(

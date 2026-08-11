@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:dartssh2/dartssh2.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'ssh_service.dart';
@@ -58,6 +59,12 @@ abstract class FileTransferService {
       writeBytes(path, Uint8List.fromList(utf8.encode(content)));
 }
 
+abstract class MountableFileTransferService extends FileTransferService {
+  bool get isMounted;
+  String? get mountedDirectoryName;
+  Future<bool> mount();
+}
+
 class SftpService extends FileTransferService {
   SftpService(this.session);
 
@@ -110,7 +117,7 @@ class SftpService extends FileTransferService {
             : DateTime.fromMillisecondsSinceEpoch(modified * 1000),
       );
     }).toList()
-      ..sort(_sortEntries);
+      ..sort(compareFileTransferEntries);
   }
 
   @override
@@ -172,7 +179,7 @@ class SftpService extends FileTransferService {
   }
 }
 
-class LocalFileTransferService extends FileTransferService {
+class LocalFileTransferService extends MountableFileTransferService {
   LocalFileTransferService._(this.rootPath);
 
   static Future<LocalFileTransferService> create() async {
@@ -185,16 +192,35 @@ class LocalFileTransferService extends FileTransferService {
   }
 
   @override
-  final String rootPath;
+  String rootPath;
+  @override
+  bool isMounted = false;
+  @override
+  String? get mountedDirectoryName => isMounted
+      ? Uri.file(rootPath).pathSegments.where((value) => value.isNotEmpty).last
+      : null;
   @override
   String get id => 'local';
   @override
-  String get displayName => '手机文件';
+  String get displayName =>
+      isMounted ? '手机：${mountedDirectoryName ?? '已选目录'}' : '手机目录（未挂载）';
   @override
   bool get isLocal => true;
 
   @override
+  Future<bool> mount() async {
+    final selected = await FilePicker.platform.getDirectoryPath(
+      dialogTitle: '选择要挂载到 SFTP 的手机目录',
+    );
+    if (selected == null || selected.isEmpty) return false;
+    rootPath = selected;
+    isMounted = true;
+    return true;
+  }
+
+  @override
   String displayPath(String path) {
+    if (!isMounted) return '尚未选择手机目录';
     if (path == rootPath) return '/';
     final relative = path.substring(rootPath.length).replaceAll('\\', '/');
     return relative.startsWith('/') ? relative : '/$relative';
@@ -213,6 +239,7 @@ class LocalFileTransferService extends FileTransferService {
 
   @override
   Future<List<RemoteEntry>> list(String path) async {
+    if (!isMounted) return const [];
     final directory = Directory(path);
     if (!await directory.exists()) throw StateError('手机目录不存在');
     final result = <RemoteEntry>[];
@@ -228,7 +255,7 @@ class LocalFileTransferService extends FileTransferService {
         ),
       );
     }
-    return result..sort(_sortEntries);
+    return result..sort(compareFileTransferEntries);
   }
 
   @override
@@ -296,7 +323,7 @@ Future<void> transferEntry(
 String joinRemotePath(String path, String name) =>
     path == '/' ? '/$name' : '$path/$name';
 
-int _sortEntries(RemoteEntry a, RemoteEntry b) {
+int compareFileTransferEntries(RemoteEntry a, RemoteEntry b) {
   if (a.isDirectory != b.isDirectory) return a.isDirectory ? -1 : 1;
   return a.name.toLowerCase().compareTo(b.name.toLowerCase());
 }
