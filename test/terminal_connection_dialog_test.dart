@@ -75,6 +75,10 @@ void main() {
         findsOneWidget,
       );
       expect(find.text('正在建立安全连接…'), findsOneWidget);
+      expect(
+        find.text('连接会在此标签页中完成，其他终端会话不会受到影响。'),
+        findsNothing,
+      );
       expect(find.text('已有终端'), findsOneWidget);
       expect(find.text('正在连接'), findsWidgets);
 

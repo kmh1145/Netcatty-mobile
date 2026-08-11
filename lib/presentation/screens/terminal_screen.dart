@@ -442,18 +442,18 @@ class _ConnectionStatusPane extends StatelessWidget {
                             color: failed ? scheme.error : null,
                           ),
                     ),
-                    const SizedBox(height: 8),
-                    Text(
-                      failed
-                          ? '${pending.error ?? '未知错误'}'
-                          : '连接会在此标签页中完成，其他终端会话不会受到影响。',
-                      maxLines: failed ? 5 : 2,
-                      overflow: TextOverflow.ellipsis,
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: scheme.onSurfaceVariant,
-                          ),
-                    ),
+                    if (failed) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        '${pending.error ?? '未知错误'}',
+                        maxLines: 5,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                            ),
+                      ),
+                    ],
                     if (onReturn != null || onClose != null) ...[
                       const SizedBox(height: 18),
                       Wrap(
