@@ -9,6 +9,7 @@ import '../../infrastructure/ai/ai_service.dart';
 import '../../infrastructure/ssh/ssh_service.dart';
 import '../../infrastructure/storage/vault_repository.dart';
 import '../widgets/empty_state.dart';
+import '../widgets/host_system_icon.dart';
 import '../widgets/port_forward_sheet.dart';
 import '../widgets/server_monitor_sheet.dart';
 import '../widgets/terminal_special_keys.dart';
@@ -27,6 +28,12 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
   Widget build(BuildContext context) {
     final state = ref.watch(sessionControllerProvider);
     final settings = ref.watch(settingsControllerProvider);
+    final selectedPending = state.selectedPending;
+    final visibleSession = selectedPending == null ? state.active : null;
+    final tabHosts = [
+      ...state.sessions.map((value) => value.host),
+      ...state.pendingConnections.map((value) => value.host),
+    ];
     return SafeArea(
       child: Column(
         children: [
@@ -41,22 +48,66 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
                 ),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: state.sessions.isEmpty
+                  child: state.tabCount == 0
                       ? const Text('终端')
                       : ListView.builder(
                           scrollDirection: Axis.horizontal,
-                          itemCount: state.sessions.length,
+                          itemCount: state.tabCount,
                           itemBuilder: (_, index) {
-                            final session = state.sessions[index];
-                            final occurrence = state.sessions
+                            final host = tabHosts[index];
+                            final occurrence = tabHosts
                                 .take(index + 1)
-                                .where(
-                                    (value) => value.host.id == session.host.id)
+                                .where((value) => value.id == host.id)
                                 .length;
-                            final duplicateCount = state.sessions
-                                .where(
-                                    (value) => value.host.id == session.host.id)
+                            final duplicateCount = tabHosts
+                                .where((value) => value.id == host.id)
                                 .length;
+                            if (index >= state.sessions.length) {
+                              final pending = state.pendingConnections[
+                                  index - state.sessions.length];
+                              final failed = pending.phase ==
+                                  PendingConnectionPhase.failed;
+                              return Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 7,
+                                  horizontal: 2,
+                                ),
+                                child: InputChip(
+                                  selected: state.activePendingId == pending.id,
+                                  showCheckmark: false,
+                                  avatar: failed
+                                      ? const Icon(
+                                          Icons.error_outline,
+                                          size: 17,
+                                          color: Colors.redAccent,
+                                        )
+                                      : const SizedBox.square(
+                                          dimension: 14,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        ),
+                                  label: Text(
+                                    duplicateCount > 1
+                                        ? '${host.label} #$occurrence'
+                                        : host.label,
+                                  ),
+                                  onPressed: () => ref
+                                      .read(
+                                        sessionControllerProvider.notifier,
+                                      )
+                                      .activate(index),
+                                  onDeleted: failed
+                                      ? () => ref
+                                          .read(
+                                            sessionControllerProvider.notifier,
+                                          )
+                                          .dismissPending(pending.id)
+                                      : null,
+                                ),
+                              );
+                            }
+                            final session = state.sessions[index];
                             return Padding(
                               padding: const EdgeInsets.symmetric(
                                 vertical: 7,
@@ -88,16 +139,17 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
                           },
                         ),
                 ),
-                if (state.active != null)
+                if (visibleSession != null)
                   IconButton(
                     tooltip: '性能监控',
-                    onPressed: state.active!.isSsh
+                    onPressed: visibleSession.isSsh
                         ? () => showModalBottomSheet<void>(
                               context: context,
                               useSafeArea: true,
                               isScrollControlled: true,
-                              builder: (_) =>
-                                  ServerMonitorSheet(session: state.active!),
+                              builder: (_) => ServerMonitorSheet(
+                                session: visibleSession,
+                              ),
                             )
                         : null,
                     icon: const Icon(Icons.monitor_heart_outlined),
@@ -106,16 +158,20 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
             ),
           ),
           Expanded(
-            child: state.connectingHostId != null
-                ? const Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        CircularProgressIndicator(),
-                        SizedBox(height: 12),
-                        Text('正在建立安全连接…'),
-                      ],
-                    ),
+            child: selectedPending != null
+                ? _ConnectionStatusPane(
+                    pending: selectedPending,
+                    onReturn: state.sessions.isEmpty
+                        ? null
+                        : () => ref
+                            .read(sessionControllerProvider.notifier)
+                            .activate(state.activeIndex),
+                    onClose:
+                        selectedPending.phase == PendingConnectionPhase.failed
+                            ? () => ref
+                                .read(sessionControllerProvider.notifier)
+                                .dismissPending(selectedPending.id)
+                            : null,
                   )
                 : state.sessions.isEmpty
                     ? const EmptyState(
@@ -157,18 +213,18 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
                         },
                       ),
           ),
-          if (state.active != null)
+          if (visibleSession != null)
             TerminalSpecialKeys(
               order: settings.terminalQuickKeys,
               customKeys: settings.terminalCustomKeys,
               onSend: ref.read(sessionControllerProvider.notifier).send,
-              onAi: () => _openAi(state.active!),
-              onPortForward: state.active!.isSsh
+              onAi: () => _openAi(visibleSession),
+              onPortForward: visibleSession.isSsh
                   ? () => showModalBottomSheet<void>(
                         context: context,
                         isScrollControlled: true,
                         builder: (_) =>
-                            PortForwardSheet(session: state.active!),
+                            PortForwardSheet(session: visibleSession),
                       )
                   : null,
               split: _split,
@@ -318,6 +374,116 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
         ).showSnackBar(SnackBar(content: Text('$error')));
       }
     }
+  }
+}
+
+class _ConnectionStatusPane extends StatelessWidget {
+  const _ConnectionStatusPane({
+    required this.pending,
+    this.onReturn,
+    this.onClose,
+  });
+
+  final PendingTerminalConnection pending;
+  final VoidCallback? onReturn;
+  final VoidCallback? onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final failed = pending.phase == PendingConnectionPhase.failed;
+    return ColoredBox(
+      color: scheme.surface,
+      child: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 460),
+            child: Card(
+              key: const ValueKey('terminal-connection-status-dialog'),
+              elevation: 12,
+              margin: EdgeInsets.zero,
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    HostSystemIcon(host: pending.host, size: 50),
+                    const SizedBox(height: 12),
+                    Text(
+                      pending.host.label,
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${pending.host.protocol.name.toUpperCase()}  '
+                      '${pending.host.username}@${pending.host.hostname}:'
+                      '${pending.host.port}',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                          ),
+                    ),
+                    const SizedBox(height: 20),
+                    if (failed)
+                      Icon(
+                        Icons.error_outline,
+                        size: 38,
+                        color: scheme.error,
+                      )
+                    else ...[
+                      const LinearProgressIndicator(),
+                      const SizedBox(height: 18),
+                    ],
+                    Text(
+                      failed ? '安全连接建立失败' : '正在建立安全连接…',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            color: failed ? scheme.error : null,
+                          ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      failed
+                          ? '${pending.error ?? '未知错误'}'
+                          : '连接会在此标签页中完成，其他终端会话不会受到影响。',
+                      maxLines: failed ? 5 : 2,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                          ),
+                    ),
+                    if (onReturn != null || onClose != null) ...[
+                      const SizedBox(height: 18),
+                      Wrap(
+                        alignment: WrapAlignment.center,
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          if (onReturn != null)
+                            TextButton.icon(
+                              onPressed: onReturn,
+                              icon: const Icon(Icons.arrow_back),
+                              label: const Text('返回当前终端'),
+                            ),
+                          if (onClose != null)
+                            FilledButton.icon(
+                              onPressed: onClose,
+                              icon: const Icon(Icons.close),
+                              label: const Text('关闭标签页'),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
