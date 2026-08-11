@@ -10,8 +10,8 @@ Netcatty 的 Android / iOS 移动端。项目沿用桌面版的深色工作台�
 - SSH：密码、OpenSSH/PEM 私钥、私钥口令、keyboard-interactive/MFA、环境变量、启动命令、保活、超时配置
 - 主机密钥：连接时显示算法与 SHA-256 指纹，拒绝后立即终止握手
 - Telnet：基础交互会话和 Telnet option 协商
-- 终端：多会话标签、横/竖分屏、中文输入、触控扩展键、10,000 行回滚
-- 双栏 SFTP：左右独立目录、跨栏流式复制、目录浏览、新建、上传、下载/分享、重命名、删除、文本文件远程编辑
+- 终端：多会话标签、关闭二次确认、横/竖分屏、中文输入、可自定义且自动换行的触控扩展键、10,000 行回滚
+- 双栏 SFTP：左右独立选择已连接服务器或系统授权挂载的手机目录；Android 使用可持久化的 SAF 目录权限，支持服务器间、服务器与手机间传输，以及目录浏览、新建、上传、下载/分享、重命名、删除、文本文件远程编辑
 - 性能监控：连接内实时查看 CPU、内存、根分区、网络吞吐、系统负载和运行时间
 - 端口转发：SSH 本地转发和动态 SOCKS5
 - 命令片段：保存、编辑、发送或自动执行
@@ -62,7 +62,7 @@ flutter build appbundle --release
 - `netcatty-mobile-android.apk`：可直接安装的 Android Release APK
 - `netcatty-mobile-android.apk.sha256`：安装包完整性校验值
 
-自动构建产物保留 30 天。当前 APK 使用仓库配置的自签密钥，适合测试与自行安装；应用商店发布前请配置专用发布密钥。
+自动构建产物保留 30 天。CI 使用仓库 Secrets 中持久保存的同一套自签密钥，并以 Actions 运行编号作为递增的 Android `versionCode`，因此后续 CI 安装包可以直接覆盖更新。旧版 CI 曾在每台临时 Runner 上自动生成不同的 debug 密钥；从旧包迁移到新签名包时必须先同步或导出数据，再卸载旧包并安装一次新包，此后即可正常覆盖升级。应用商店发布前仍应使用单独妥善保管的正式发布密钥。
 
 iOS 本地构建（需先在 Xcode 设置开发团队和签名）：
 
@@ -71,7 +71,7 @@ flutter build ios --release
 open ios/Runner.xcworkspace
 ```
 
-发布前请把 `android/app/build.gradle.kts` 的 debug signingConfig 替换成正式签名，并在 Xcode 设置唯一 Bundle ID、Team、App Store 图标和隐私清单。
+正式上架前请在 CI 中替换为专用发布密钥，并在 Xcode 设置唯一 Bundle ID、Team、App Store 图标和隐私清单。
 
 ## 与桌面端同步
 

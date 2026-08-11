@@ -198,6 +198,7 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
   }
 
   Future<void> _connect(HostProfile host) async {
+    ref.read(homeTabProvider.notifier).state = 1;
     try {
       await ref.read(sessionControllerProvider.notifier).connect(
             host,
@@ -205,10 +206,9 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
             keyboardInteractive: _promptKeyboardInteractive,
           );
       if (mounted) {
-        ref.read(homeTabProvider.notifier).state = 1;
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(const SnackBar(content: Text('已连接，请打开“终端”标签')));
+        ).showSnackBar(SnackBar(content: Text('${host.label} 已连接')));
       }
     } catch (error) {
       if (mounted) {
