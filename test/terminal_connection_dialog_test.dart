@@ -41,6 +41,7 @@ void main() {
         verifyHostKey: _acceptHostKey,
         keyboardInteractive: null,
       );
+      existing.terminal.write('alpha beta gamma');
       final pending = PendingTerminalConnection(
         id: 'pending-1',
         host: pendingHost,
@@ -91,6 +92,42 @@ void main() {
       );
       expect(find.byType(TerminalView), findsOneWidget);
       expect(find.text('正在连接'), findsOneWidget);
+
+      final terminalState = tester.state<TerminalViewState>(
+        find.byType(TerminalView),
+      );
+      final renderTerminal = terminalState.renderTerminal;
+      final wordPosition = renderTerminal.localToGlobal(
+        renderTerminal.getOffset(const CellOffset(2, 0)) +
+            Offset(
+              renderTerminal.cellSize.width / 2,
+              renderTerminal.cellSize.height / 2,
+            ),
+      );
+      await tester.longPressAt(wordPosition);
+      await tester.pump();
+
+      final startHandle = find.byKey(
+        const ValueKey('terminal-selection-handle-start'),
+      );
+      final endHandle = find.byKey(
+        const ValueKey('terminal-selection-handle-end'),
+      );
+      expect(startHandle, findsOneWidget);
+      expect(endHandle, findsOneWidget);
+      final endBeforeDrag = tester.getCenter(endHandle);
+
+      await tester.drag(
+        endHandle,
+        Offset(renderTerminal.cellSize.width * 4, 0),
+      );
+      await tester.pump();
+
+      expect(tester.getCenter(endHandle).dx, greaterThan(endBeforeDrag.dx));
+      expect(
+        find.byKey(const ValueKey('copy-terminal-selection')),
+        findsOneWidget,
+      );
     },
   );
 }

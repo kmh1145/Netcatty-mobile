@@ -502,10 +502,15 @@ class _TerminalPane extends StatefulWidget {
 
 class _TerminalPaneState extends State<_TerminalPane> {
   final _controller = TerminalController();
+  final _terminalViewKey = GlobalKey<TerminalViewState>();
+  final _terminalStackKey = GlobalKey();
+  final _scrollController = ScrollController();
+  Offset? _dragPointerToAnchor;
 
   @override
   void dispose() {
     _controller.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -540,37 +545,151 @@ class _TerminalPaneState extends State<_TerminalPane> {
     return ColoredBox(
       color: scheme.surface,
       child: AnimatedBuilder(
-        animation: _controller,
-        builder: (context, _) => Stack(
-          fit: StackFit.expand,
-          children: [
-            TerminalView(
-              widget.session.terminal,
-              controller: _controller,
-              theme: terminalTheme,
-              keyboardAppearance: Theme.of(context).brightness,
-              autofocus: true,
-              padding: const EdgeInsets.all(8),
-              textStyle: TerminalStyle(
-                fontSize: widget.fontSize,
-                fontFamily: 'monospace',
-              ),
-            ),
-            if (_controller.selection != null)
-              Positioned(
-                top: 10,
-                right: 10,
-                child: FilledButton.tonalIcon(
-                  key: const ValueKey('copy-terminal-selection'),
-                  onPressed: _copySelection,
-                  icon: const Icon(Icons.copy_outlined, size: 18),
-                  label: const Text('复制'),
+        animation: Listenable.merge([_controller, _scrollController]),
+        builder: (context, _) {
+          final selection = _controller.selection?.normalized;
+          final startHandle = selection == null
+              ? null
+              : _selectionHandlePosition(selection.begin);
+          final endHandle = selection == null
+              ? null
+              : _selectionHandlePosition(selection.end);
+          return Stack(
+            key: _terminalStackKey,
+            fit: StackFit.expand,
+            clipBehavior: Clip.none,
+            children: [
+              TerminalView(
+                widget.session.terminal,
+                key: _terminalViewKey,
+                controller: _controller,
+                scrollController: _scrollController,
+                theme: terminalTheme,
+                keyboardAppearance: Theme.of(context).brightness,
+                autofocus: true,
+                padding: const EdgeInsets.all(8),
+                textStyle: TerminalStyle(
+                  fontSize: widget.fontSize,
+                  fontFamily: 'monospace',
                 ),
               ),
-          ],
-        ),
+              if (startHandle != null)
+                _TerminalSelectionHandle(
+                  key: const ValueKey('terminal-selection-handle-start'),
+                  anchor: startHandle,
+                  color: scheme.primary,
+                  onPanStart: (details) => _startHandleDrag(true, details),
+                  onPanUpdate: (details) => _updateHandleDrag(true, details),
+                  onPanEnd: _endHandleDrag,
+                ),
+              if (endHandle != null)
+                _TerminalSelectionHandle(
+                  key: const ValueKey('terminal-selection-handle-end'),
+                  anchor: endHandle,
+                  color: scheme.primary,
+                  onPanStart: (details) => _startHandleDrag(false, details),
+                  onPanUpdate: (details) => _updateHandleDrag(false, details),
+                  onPanEnd: _endHandleDrag,
+                ),
+              if (selection != null)
+                Positioned(
+                  top: 10,
+                  right: 10,
+                  child: FilledButton.tonalIcon(
+                    key: const ValueKey('copy-terminal-selection'),
+                    onPressed: _copySelection,
+                    icon: const Icon(Icons.copy_outlined, size: 18),
+                    label: const Text('复制'),
+                  ),
+                ),
+            ],
+          );
+        },
       ),
     );
+  }
+
+  Offset? _selectionHandlePosition(CellOffset offset) {
+    final terminalView = _terminalViewKey.currentState;
+    final stackContext = _terminalStackKey.currentContext;
+    if (terminalView == null || stackContext == null) return null;
+    final stackBox = stackContext.findRenderObject();
+    if (stackBox is! RenderBox || !stackBox.hasSize) return null;
+    final renderTerminal = terminalView.renderTerminal;
+    if (!renderTerminal.attached || !renderTerminal.hasSize) return null;
+    final terminalOffset = renderTerminal.getOffset(offset).translate(
+          0,
+          renderTerminal.cellSize.height,
+        );
+    final position = stackBox.globalToLocal(
+      renderTerminal.localToGlobal(terminalOffset),
+    );
+    if (position.dy < 0 ||
+        position.dy > stackBox.size.height ||
+        position.dx < 0 ||
+        position.dx > stackBox.size.width) {
+      return null;
+    }
+    return position;
+  }
+
+  void _startHandleDrag(bool start, DragStartDetails details) {
+    final selection = _controller.selection?.normalized;
+    final stackContext = _terminalStackKey.currentContext;
+    if (selection == null || stackContext == null) return;
+    final stackBox = stackContext.findRenderObject();
+    if (stackBox is! RenderBox) return;
+    final anchor = _selectionHandlePosition(
+      start ? selection.begin : selection.end,
+    );
+    if (anchor == null) return;
+    _dragPointerToAnchor =
+        details.globalPosition - stackBox.localToGlobal(anchor);
+  }
+
+  void _updateHandleDrag(bool start, DragUpdateDetails details) {
+    final pointerToAnchor = _dragPointerToAnchor;
+    if (pointerToAnchor == null) return;
+    final boundary = _selectionBoundaryAt(
+      details.globalPosition - pointerToAnchor,
+    );
+    final selection = _controller.selection?.normalized;
+    if (boundary == null || selection == null) return;
+
+    var begin = selection.begin;
+    var end = selection.end;
+    if (start) {
+      begin = boundary.isAfter(end) ? end : boundary;
+    } else {
+      end = boundary.isBefore(begin) ? begin : boundary;
+    }
+    _controller.setSelection(
+      widget.session.terminal.buffer.createAnchorFromOffset(begin),
+      widget.session.terminal.buffer.createAnchorFromOffset(end),
+      mode: _controller.selectionMode,
+    );
+  }
+
+  CellOffset? _selectionBoundaryAt(Offset globalPosition) {
+    final terminalView = _terminalViewKey.currentState;
+    if (terminalView == null) return null;
+    final renderTerminal = terminalView.renderTerminal;
+    if (!renderTerminal.attached || !renderTerminal.hasSize) return null;
+    final local = renderTerminal.globalToLocal(globalPosition);
+    final origin = renderTerminal.getOffset(const CellOffset(0, 0));
+    final cellSize = renderTerminal.cellSize;
+    final column = ((local.dx - origin.dx) / cellSize.width)
+        .round()
+        .clamp(0, widget.session.terminal.viewWidth)
+        .toInt();
+    final row = (((local.dy - origin.dy) / cellSize.height).round() - 1)
+        .clamp(0, widget.session.terminal.buffer.lines.length - 1)
+        .toInt();
+    return CellOffset(column, row);
+  }
+
+  void _endHandleDrag(DragEndDetails details) {
+    _dragPointerToAnchor = null;
   }
 
   Future<void> _copySelection() async {
@@ -588,4 +707,66 @@ class _TerminalPaneState extends State<_TerminalPane> {
       ),
     );
   }
+}
+
+class _TerminalSelectionHandle extends StatelessWidget {
+  const _TerminalSelectionHandle({
+    super.key,
+    required this.anchor,
+    required this.color,
+    required this.onPanStart,
+    required this.onPanUpdate,
+    required this.onPanEnd,
+  });
+
+  static const hitSize = 44.0;
+
+  final Offset anchor;
+  final Color color;
+  final GestureDragStartCallback onPanStart;
+  final GestureDragUpdateCallback onPanUpdate;
+  final GestureDragEndCallback onPanEnd;
+
+  @override
+  Widget build(BuildContext context) => Positioned(
+        left: anchor.dx - hitSize / 2,
+        top: anchor.dy - 2,
+        width: hitSize,
+        height: hitSize,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onPanStart: onPanStart,
+          onPanUpdate: onPanUpdate,
+          onPanEnd: onPanEnd,
+          child: CustomPaint(
+            painter: _TerminalSelectionHandlePainter(color),
+          ),
+        ),
+      );
+}
+
+class _TerminalSelectionHandlePainter extends CustomPainter {
+  const _TerminalSelectionHandlePainter(this.color);
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+    final centerX = size.width / 2;
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(centerX - 2, 0, 4, 11),
+        const Radius.circular(2),
+      ),
+      paint,
+    );
+    canvas.drawCircle(Offset(centerX, 16), 11, paint);
+  }
+
+  @override
+  bool shouldRepaint(_TerminalSelectionHandlePainter oldDelegate) =>
+      oldDelegate.color != color;
 }
