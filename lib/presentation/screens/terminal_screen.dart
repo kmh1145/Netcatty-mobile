@@ -4,13 +4,13 @@ import 'package:xterm/xterm.dart';
 
 import '../../application/session_controller.dart';
 import '../../application/settings_controller.dart';
-import '../../domain/models/settings.dart';
 import '../../infrastructure/ai/ai_service.dart';
 import '../../infrastructure/ssh/ssh_service.dart';
 import '../../infrastructure/storage/vault_repository.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/port_forward_sheet.dart';
 import '../widgets/server_monitor_sheet.dart';
+import '../widgets/terminal_special_keys.dart';
 
 class TerminalScreen extends ConsumerStatefulWidget {
   const TerminalScreen({super.key});
@@ -63,6 +63,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
                               ),
                               child: InputChip(
                                 selected: state.activeIndex == index,
+                                showCheckmark: false,
                                 avatar: Icon(
                                   session.connected
                                       ? Icons.circle
@@ -80,21 +81,12 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
                                 onPressed: () => ref
                                     .read(sessionControllerProvider.notifier)
                                     .activate(index),
-                                onDeleted: () => ref
-                                    .read(sessionControllerProvider.notifier)
-                                    .close(index),
+                                onDeleted: () => _confirmClose(index, session),
                               ),
                             );
                           },
                         ),
                 ),
-                if (state.sessions.length > 1)
-                  IconButton(
-                    tooltip: '分屏',
-                    isSelected: _split,
-                    onPressed: () => setState(() => _split = !_split),
-                    icon: const Icon(Icons.vertical_split_outlined),
-                  ),
                 if (state.active != null)
                   IconButton(
                     tooltip: '性能监控',
@@ -108,25 +100,6 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
                             )
                         : null,
                     icon: const Icon(Icons.monitor_heart_outlined),
-                  ),
-                if (state.active != null)
-                  IconButton(
-                    tooltip: '端口转发',
-                    onPressed: () => showModalBottomSheet<void>(
-                      context: context,
-                      isScrollControlled: true,
-                      builder: (_) => PortForwardSheet(session: state.active!),
-                    ),
-                    icon: const Icon(Icons.swap_horiz),
-                  ),
-                if (state.active != null)
-                  IconButton(
-                    tooltip: 'Catty AI',
-                    onPressed: () => _openAi(state.active!),
-                    icon: Icon(
-                      Icons.auto_awesome,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
                   ),
               ],
             ),
@@ -181,13 +154,57 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
                       ),
           ),
           if (state.active != null)
-            _SpecialKeys(
+            TerminalSpecialKeys(
               order: settings.terminalQuickKeys,
+              customKeys: settings.terminalCustomKeys,
               onSend: ref.read(sessionControllerProvider.notifier).send,
+              onAi: () => _openAi(state.active!),
+              onPortForward: state.active!.isSsh
+                  ? () => showModalBottomSheet<void>(
+                        context: context,
+                        isScrollControlled: true,
+                        builder: (_) =>
+                            PortForwardSheet(session: state.active!),
+                      )
+                  : null,
+              split: _split,
+              onSplit: state.sessions.length > 1
+                  ? () => setState(() => _split = !_split)
+                  : null,
             ),
         ],
       ),
     );
+  }
+
+  Future<void> _confirmClose(
+    int index,
+    ActiveTerminalSession session,
+  ) async {
+    final close = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            icon: const Icon(Icons.warning_amber_outlined),
+            title: const Text('关闭 SSH 标签页？'),
+            content: Text(
+              '将断开 ${session.host.label} '
+              '(${session.host.username}@${session.host.hostname}) 的当前会话。',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('断开并关闭'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (!close || !mounted) return;
+    await ref.read(sessionControllerProvider.notifier).close(index);
   }
 
   Future<void> _openAi(ActiveTerminalSession session) async {
@@ -346,154 +363,3 @@ class _TerminalPane extends StatelessWidget {
     );
   }
 }
-
-class _SpecialKeys extends ConsumerWidget {
-  const _SpecialKeys({required this.order, required this.onSend});
-  final List<String> order;
-  final void Function(String, {bool enter}) onSend;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final normalized = [
-      ...order.where(_quickKeys.containsKey),
-      ...defaultTerminalQuickKeys.where((value) => !order.contains(value)),
-    ];
-    final split = (normalized.length + 1) ~/ 2;
-    return SizedBox(
-      height: 92,
-      child: Row(
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(left: 6),
-            child: IconButton(
-              tooltip: '自定义快捷键顺序',
-              onPressed: () => _customize(context, ref, normalized),
-              icon: const Icon(Icons.tune, size: 20),
-            ),
-          ),
-          Expanded(
-            child: Column(
-              children: [
-                Expanded(child: _row(normalized.take(split))),
-                Expanded(child: _row(normalized.skip(split))),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _row(Iterable<String> ids) => ListView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
-        children: ids.map((id) {
-          final key = _quickKeys[id]!;
-          return _key(key.label, key.value);
-        }).toList(),
-      );
-
-  Widget _key(String label, String? value) => Padding(
-        padding: const EdgeInsets.only(right: 6),
-        child: OutlinedButton(
-          onPressed: value == null
-              ? () => FocusManager.instance.primaryFocus?.unfocus()
-              : () => onSend(value),
-          style: OutlinedButton.styleFrom(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-          ),
-          child: Text(label),
-        ),
-      );
-
-  Future<void> _customize(
-    BuildContext context,
-    WidgetRef ref,
-    List<String> current,
-  ) async {
-    final working = [...current];
-    final result = await showModalBottomSheet<List<String>>(
-      context: context,
-      useSafeArea: true,
-      isScrollControlled: true,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setModalState) => SizedBox(
-          height: MediaQuery.sizeOf(context).height * .72,
-          child: Column(
-            children: [
-              ListTile(
-                title: const Text('快捷键顺序'),
-                subtitle: const Text('拖动排序，终端中会自动分成两行显示'),
-                trailing: TextButton(
-                  onPressed: () => setModalState(() {
-                    working
-                      ..clear()
-                      ..addAll(defaultTerminalQuickKeys);
-                  }),
-                  child: const Text('恢复默认'),
-                ),
-              ),
-              const Divider(height: 1),
-              Expanded(
-                child: ReorderableListView.builder(
-                  itemCount: working.length,
-                  onReorderItem: (oldIndex, newIndex) => setModalState(() {
-                    final value = working.removeAt(oldIndex);
-                    working.insert(newIndex, value);
-                  }),
-                  itemBuilder: (context, index) {
-                    final id = working[index];
-                    return ListTile(
-                      key: ValueKey(id),
-                      leading: const Icon(Icons.drag_handle),
-                      title: Text(_quickKeys[id]!.label),
-                      trailing: Text(
-                          index < (working.length + 1) ~/ 2 ? '第一行' : '第二行'),
-                    );
-                  },
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: FilledButton(
-                    onPressed: () => Navigator.pop(context, working),
-                    child: const Text('保存排序'),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-    if (result == null) return;
-    final settings = ref.read(settingsControllerProvider);
-    await ref.read(settingsControllerProvider.notifier).update(
-          settings.copyWith(terminalQuickKeys: result),
-        );
-  }
-}
-
-class _QuickKey {
-  const _QuickKey(this.label, this.value);
-  final String label;
-  final String? value;
-}
-
-const _quickKeys = <String, _QuickKey>{
-  'escape': _QuickKey('Esc', '\x1b'),
-  'tab': _QuickKey('Tab', '\t'),
-  'ctrlC': _QuickKey('Ctrl+C', '\x03'),
-  'ctrlD': _QuickKey('Ctrl+D', '\x04'),
-  'ctrlZ': _QuickKey('Ctrl+Z', '\x1a'),
-  'arrowUp': _QuickKey('↑', '\x1b[A'),
-  'arrowDown': _QuickKey('↓', '\x1b[B'),
-  'arrowLeft': _QuickKey('←', '\x1b[D'),
-  'arrowRight': _QuickKey('→', '\x1b[C'),
-  'pipe': _QuickKey('|', '|'),
-  'slash': _QuickKey('/', '/'),
-  'tilde': _QuickKey('~', '~'),
-  'hideKeyboard': _QuickKey('收起键盘', null),
-};

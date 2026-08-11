@@ -1,5 +1,30 @@
 enum SyncProviderType { webdav, githubGist }
 
+class TerminalCustomKey {
+  const TerminalCustomKey({
+    required this.id,
+    required this.label,
+    required this.value,
+  });
+
+  factory TerminalCustomKey.fromJson(Map<String, dynamic> json) =>
+      TerminalCustomKey(
+        id: json['id']?.toString() ?? '',
+        label: json['label']?.toString() ?? '',
+        value: json['value']?.toString() ?? '',
+      );
+
+  final String id;
+  final String label;
+  final String value;
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'label': label,
+        'value': value,
+      };
+}
+
 class AppSettings {
   const AppSettings({
     this.themeMode = 'dark',
@@ -10,23 +35,44 @@ class AppSettings {
     this.aiEndpoint = 'https://api.openai.com/v1',
     this.aiModel = 'gpt-4.1-mini',
     this.terminalQuickKeys = defaultTerminalQuickKeys,
+    this.terminalCustomKeys = const [],
   });
 
-  factory AppSettings.fromJson(Map<String, dynamic> json) => AppSettings(
-        themeMode: json['themeMode']?.toString() ?? 'dark',
-        uiThemeId: json['uiThemeId']?.toString() ?? 'tokyo-night',
-        serverViewMode: _serverViewMode(json['serverViewMode']?.toString()),
-        terminalFontSize: (json['terminalFontSize'] as num?)?.toDouble() ?? 14,
-        language: json['language']?.toString() ?? 'zh-CN',
-        aiEndpoint:
-            json['aiEndpoint']?.toString() ?? 'https://api.openai.com/v1',
-        aiModel: json['aiModel']?.toString() ?? 'gpt-4.1-mini',
-        terminalQuickKeys:
-            (json['terminalQuickKeys'] as List? ?? defaultTerminalQuickKeys)
-                .map((value) => value.toString())
-                .where(defaultTerminalQuickKeys.contains)
-                .toList(),
-      );
+  factory AppSettings.fromJson(Map<String, dynamic> json) {
+    final customKeys = (json['terminalCustomKeys'] as List? ?? const [])
+        .whereType<Map>()
+        .map((value) => TerminalCustomKey.fromJson(
+              Map<String, dynamic>.from(value),
+            ))
+        .where((key) =>
+            key.id.startsWith('custom-') &&
+            key.label.isNotEmpty &&
+            key.value.isNotEmpty)
+        .toList(growable: false);
+    final supported = {
+      ...supportedTerminalQuickKeys,
+      ...customKeys.map((key) => key.id),
+    };
+    final rawStoredOrder = (json['terminalQuickKeys'] as List? ?? const [])
+        .map((value) => value.toString())
+        .toList();
+    final storedOrder = rawStoredOrder.where(supported.contains).toList();
+    final order = storedOrder.isEmpty ||
+            _sameStrings(rawStoredOrder, legacyDefaultTerminalQuickKeys)
+        ? defaultTerminalQuickKeys
+        : storedOrder;
+    return AppSettings(
+      themeMode: json['themeMode']?.toString() ?? 'dark',
+      uiThemeId: json['uiThemeId']?.toString() ?? 'tokyo-night',
+      serverViewMode: _serverViewMode(json['serverViewMode']?.toString()),
+      terminalFontSize: (json['terminalFontSize'] as num?)?.toDouble() ?? 14,
+      language: json['language']?.toString() ?? 'zh-CN',
+      aiEndpoint: json['aiEndpoint']?.toString() ?? 'https://api.openai.com/v1',
+      aiModel: json['aiModel']?.toString() ?? 'gpt-4.1-mini',
+      terminalQuickKeys: order,
+      terminalCustomKeys: customKeys,
+    );
+  }
 
   final String themeMode;
   final String uiThemeId;
@@ -36,6 +82,7 @@ class AppSettings {
   final String aiEndpoint;
   final String aiModel;
   final List<String> terminalQuickKeys;
+  final List<TerminalCustomKey> terminalCustomKeys;
 
   AppSettings copyWith({
     String? themeMode,
@@ -46,6 +93,7 @@ class AppSettings {
     String? aiEndpoint,
     String? aiModel,
     List<String>? terminalQuickKeys,
+    List<TerminalCustomKey>? terminalCustomKeys,
   }) =>
       AppSettings(
         themeMode: themeMode ?? this.themeMode,
@@ -56,6 +104,7 @@ class AppSettings {
         aiEndpoint: aiEndpoint ?? this.aiEndpoint,
         aiModel: aiModel ?? this.aiModel,
         terminalQuickKeys: terminalQuickKeys ?? this.terminalQuickKeys,
+        terminalCustomKeys: terminalCustomKeys ?? this.terminalCustomKeys,
       );
 
   Map<String, dynamic> toJson() => {
@@ -67,6 +116,8 @@ class AppSettings {
         'aiEndpoint': aiEndpoint,
         'aiModel': aiModel,
         'terminalQuickKeys': terminalQuickKeys,
+        'terminalCustomKeys':
+            terminalCustomKeys.map((key) => key.toJson()).toList(),
       };
 
   static String _serverViewMode(String? value) =>
@@ -74,6 +125,31 @@ class AppSettings {
 }
 
 const defaultTerminalQuickKeys = <String>[
+  'escape',
+  'alt',
+  'ctrl',
+  'shift',
+  'tab',
+  'arrowUp',
+  'arrowDown',
+  'arrowLeft',
+  'arrowRight',
+  'home',
+  'end',
+  'paste',
+];
+
+const supportedTerminalQuickKeys = <String>[
+  ...defaultTerminalQuickKeys,
+  'ctrlC',
+  'ctrlD',
+  'ctrlZ',
+  'pipe',
+  'slash',
+  'tilde',
+];
+
+const legacyDefaultTerminalQuickKeys = <String>[
   'escape',
   'tab',
   'ctrlC',
@@ -88,6 +164,14 @@ const defaultTerminalQuickKeys = <String>[
   'tilde',
   'hideKeyboard',
 ];
+
+bool _sameStrings(List<String> left, List<String> right) {
+  if (left.length != right.length) return false;
+  for (var index = 0; index < left.length; index++) {
+    if (left[index] != right[index]) return false;
+  }
+  return true;
+}
 
 class SyncConnection {
   const SyncConnection({
