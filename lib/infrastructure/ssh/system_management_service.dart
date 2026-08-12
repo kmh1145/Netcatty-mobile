@@ -38,9 +38,12 @@ enum DockerContainerAction {
 
 enum _DockerPrivilege { direct, sudoNoPassword, sudoPassword }
 
+enum _DockerComposeBackend { plugin, standalone }
+
 class SystemManagementService {
   final _dockerPrivileges = <String, _DockerPrivilege>{};
   final _sudoPasswords = <String, String>{};
+  final _composeBackends = <String, _DockerComposeBackend>{};
 
   Future<List<RemoteProcess>> listProcesses(
     ActiveTerminalSession session,
@@ -145,6 +148,7 @@ class SystemManagementService {
             state: state,
             ports: value['Ports']?.toString() ?? '',
             createdAt: value['CreatedAt']?.toString() ?? '',
+            labels: _parseDockerLabels(value['Labels']?.toString() ?? ''),
           ),
         );
       } on FormatException {
@@ -193,6 +197,210 @@ class SystemManagementService {
     return result;
   }
 
+  Future<String> dockerComposeVersion(ActiveTerminalSession session) async {
+    final backend = await _dockerComposeBackend(session);
+    final output = await _compose(
+      session,
+      const ['version', '--short'],
+      backend: backend,
+    );
+    final value = output.trim();
+    return value.isEmpty
+        ? backend == _DockerComposeBackend.plugin
+            ? 'Docker Compose plugin'
+            : 'docker-compose'
+        : value;
+  }
+
+  Future<List<DockerComposeProject>> listDockerComposeProjects(
+    ActiveTerminalSession session, {
+    List<DockerContainerInfo> containers = const [],
+  }) async {
+    final backend = await _dockerComposeBackend(session);
+    if (backend == _DockerComposeBackend.plugin) {
+      try {
+        final output = await _compose(
+          session,
+          const ['ls', '--all', '--format', 'json'],
+          backend: backend,
+        );
+        final values = parseDockerComposeProjects(output);
+        if (values.isNotEmpty || containers.isEmpty) return values;
+      } on RemoteCommandException {
+        // Older Compose plugins do not support `compose ls`; labels below
+        // preserve management support for those installations.
+      }
+    }
+    return composeProjectsFromContainers(containers);
+  }
+
+  List<DockerComposeProject> parseDockerComposeProjects(String raw) {
+    final source = raw.trim();
+    if (source.isEmpty) return const [];
+    final maps = <Map<String, dynamic>>[];
+    try {
+      final decoded = jsonDecode(source);
+      if (decoded is List) {
+        maps.addAll(
+          decoded
+              .whereType<Map>()
+              .map((value) => Map<String, dynamic>.from(value)),
+        );
+      } else if (decoded is Map) {
+        maps.add(Map<String, dynamic>.from(decoded));
+      }
+    } on FormatException {
+      for (final line in const LineSplitter().convert(source)) {
+        try {
+          final decoded = jsonDecode(line);
+          if (decoded is Map) maps.add(Map<String, dynamic>.from(decoded));
+        } on FormatException {
+          continue;
+        }
+      }
+    }
+    return maps
+        .map((value) {
+          final name = _mapValue(value, const ['Name', 'name']);
+          final status = _mapValue(value, const ['Status', 'status']);
+          final configValue = value['ConfigFiles'] ?? value['configFiles'];
+          final configFiles = configValue is List
+              ? configValue
+                  .map((item) => item.toString())
+                  .toList(growable: false)
+              : _splitComposeFiles(configValue?.toString() ?? '');
+          return DockerComposeProject(
+            name: name,
+            status: status,
+            configFiles: configFiles,
+            workingDirectory:
+                configFiles.isEmpty ? '' : _parentDirectory(configFiles.first),
+            runningCount: _composeStatusCount(status, 'running'),
+            stoppedCount: _composeStatusCount(status, 'exited') +
+                _composeStatusCount(status, 'stopped'),
+            pausedCount: _composeStatusCount(status, 'paused'),
+          );
+        })
+        .where((project) => project.name.isNotEmpty)
+        .toList(growable: false);
+  }
+
+  List<DockerComposeProject> composeProjectsFromContainers(
+    List<DockerContainerInfo> containers,
+  ) {
+    final grouped = <String, List<DockerContainerInfo>>{};
+    for (final container in containers) {
+      if (container.composeProject.isEmpty) continue;
+      grouped.putIfAbsent(container.composeProject, () => []).add(container);
+    }
+    return grouped.entries.map((entry) {
+      final first = entry.value.first;
+      final files = _splitComposeFiles(
+        first.labels['com.docker.compose.project.config_files'] ?? '',
+      );
+      final running = entry.value
+          .where((value) => value.state == DockerContainerState.running)
+          .length;
+      final stopped = entry.value
+          .where((value) => value.state == DockerContainerState.stopped)
+          .length;
+      final paused = entry.value
+          .where((value) => value.state == DockerContainerState.paused)
+          .length;
+      final parts = <String>[
+        if (running > 0) 'running($running)',
+        if (paused > 0) 'paused($paused)',
+        if (stopped > 0) 'exited($stopped)',
+      ];
+      return DockerComposeProject(
+        name: entry.key,
+        status: parts.join(', '),
+        configFiles: files,
+        workingDirectory:
+            first.labels['com.docker.compose.project.working_dir'] ??
+                (files.isEmpty ? '' : _parentDirectory(files.first)),
+        runningCount: running,
+        stoppedCount: stopped,
+        pausedCount: paused,
+      );
+    }).toList(growable: false)
+      ..sort((a, b) => a.name.compareTo(b.name));
+  }
+
+  Future<void> dockerComposeAction(
+    ActiveTerminalSession session,
+    DockerComposeProject project,
+    DockerComposeAction action,
+  ) async {
+    _validateComposeProject(project);
+    final backend = await _dockerComposeBackend(session);
+    final base = _composeProjectArgs(project);
+    final timeout = switch (action) {
+      DockerComposeAction.pull ||
+      DockerComposeAction.update ||
+      DockerComposeAction.rebuild =>
+        const Duration(minutes: 10),
+      _ => const Duration(minutes: 2),
+    };
+    if (action == DockerComposeAction.update) {
+      await _compose(
+        session,
+        [...base, 'pull'],
+        backend: backend,
+        timeout: timeout,
+      );
+      await _compose(
+        session,
+        [...base, 'up', '-d', '--remove-orphans'],
+        backend: backend,
+        timeout: timeout,
+      );
+      return;
+    }
+    final command = switch (action) {
+      DockerComposeAction.start => ['up', '-d'],
+      DockerComposeAction.stop => ['stop'],
+      DockerComposeAction.restart => ['restart'],
+      DockerComposeAction.pause => ['pause'],
+      DockerComposeAction.unpause => ['unpause'],
+      DockerComposeAction.pull => ['pull'],
+      DockerComposeAction.recreate => ['up', '-d', '--force-recreate'],
+      DockerComposeAction.rebuild => [
+          'up',
+          '-d',
+          '--build',
+          '--force-recreate',
+        ],
+      DockerComposeAction.down => ['down', '--remove-orphans'],
+      DockerComposeAction.update => const <String>[],
+    };
+    await _compose(
+      session,
+      [...base, ...command],
+      backend: backend,
+      timeout: timeout,
+    );
+  }
+
+  Future<String> dockerComposeLogsCommand(
+    ActiveTerminalSession session,
+    DockerComposeProject project,
+  ) async {
+    _validateComposeProject(project);
+    final backend = await _dockerComposeBackend(session);
+    final executable = backend == _DockerComposeBackend.plugin
+        ? '${_interactiveDockerPrefix(session)} compose'
+        : '${_interactiveSudoPrefix(session)}docker-compose';
+    final args = [
+      ..._composeProjectArgs(project),
+      'logs',
+      '-f',
+      '--tail',
+      '200',
+    ];
+    return '$executable ${args.map(shellQuote).join(' ')}';
+  }
+
   Future<void> dockerContainerAction(
     ActiveTerminalSession session,
     String id,
@@ -238,6 +446,7 @@ class SystemManagementService {
     if (password.isEmpty) return;
     _sudoPasswords[session.id] = password;
     _dockerPrivileges.remove(session.id);
+    _composeBackends.remove(session.id);
   }
 
   String dockerShellCommand(ActiveTerminalSession session, String id) {
@@ -382,6 +591,100 @@ class SystemManagementService {
   String tmuxAttachCommand(String name) =>
       'tmux attach-session -t ${shellQuote(name)}';
 
+  Future<_DockerComposeBackend> _dockerComposeBackend(
+    ActiveTerminalSession session,
+  ) async {
+    final cached = _composeBackends[session.id];
+    if (cached != null) return cached;
+    try {
+      await _docker(session, const ['compose', 'version', '--short']);
+      _composeBackends[session.id] = _DockerComposeBackend.plugin;
+      return _DockerComposeBackend.plugin;
+    } on RemoteCommandException catch (pluginError) {
+      try {
+        await _standaloneCompose(
+          session,
+          const ['version', '--short'],
+        );
+        _composeBackends[session.id] = _DockerComposeBackend.standalone;
+        return _DockerComposeBackend.standalone;
+      } on Object {
+        throw RemoteCommandException(
+          '远程服务器未安装 Docker Compose，或当前版本不可用。\n'
+          '${pluginError.message}',
+        );
+      }
+    }
+  }
+
+  Future<String> _compose(
+    ActiveTerminalSession session,
+    List<String> args, {
+    required _DockerComposeBackend backend,
+    Duration timeout = const Duration(seconds: 30),
+  }) =>
+      backend == _DockerComposeBackend.plugin
+          ? _docker(session, ['compose', ...args], timeout: timeout)
+          : _standaloneCompose(session, args, timeout: timeout);
+
+  Future<String> _standaloneCompose(
+    ActiveTerminalSession session,
+    List<String> args, {
+    Duration timeout = const Duration(seconds: 30),
+  }) async {
+    final direct = 'docker-compose ${args.map(shellQuote).join(' ')}';
+    final cached = _dockerPrivileges[session.id];
+    if (cached != null) {
+      final result = await _executeDockerMode(
+        session,
+        direct,
+        cached,
+        timeout,
+      );
+      return result.stdout;
+    }
+    try {
+      final result = await _executeSession(session, direct, timeout: timeout);
+      return result.stdout;
+    } on RemoteCommandException catch (error) {
+      if (!_isDockerPermissionError(error.message)) rethrow;
+    }
+    try {
+      final result = await _executeSession(
+        session,
+        'sudo -n $direct',
+        timeout: timeout,
+      );
+      _dockerPrivileges[session.id] = _DockerPrivilege.sudoNoPassword;
+      return result.stdout;
+    } on RemoteCommandException catch (error) {
+      if (_sudoPasswords[session.id] == null) {
+        throw DockerSudoPasswordRequired(
+          '当前用户无权运行 Docker Compose，且 sudo 需要密码。\n'
+          '${error.message}',
+        );
+      }
+    }
+    final result = await _executeDockerMode(
+      session,
+      direct,
+      _DockerPrivilege.sudoPassword,
+      timeout,
+    );
+    _dockerPrivileges[session.id] = _DockerPrivilege.sudoPassword;
+    return result.stdout;
+  }
+
+  List<String> _composeProjectArgs(DockerComposeProject project) => [
+        '--project-name',
+        project.name,
+        if (project.workingDirectory.isNotEmpty) ...[
+          '--project-directory',
+          project.workingDirectory,
+        ],
+        for (final file in project.configFiles) ...['--file', file],
+      ];
+
   Future<String> _docker(
     ActiveTerminalSession session,
     List<String> args, {
@@ -471,6 +774,14 @@ class SystemManagementService {
         _ => 'docker',
       };
 
+  String _interactiveSudoPrefix(ActiveTerminalSession session) =>
+      switch (_dockerPrivileges[session.id]) {
+        _DockerPrivilege.sudoNoPassword ||
+        _DockerPrivilege.sudoPassword =>
+          'sudo ',
+        _ => '',
+      };
+
   Future<_RemoteResult> _executeSession(
     ActiveTerminalSession session,
     String command, {
@@ -520,6 +831,58 @@ class SystemManagementService {
         (value.contains('docker.sock') ||
             value.contains('docker daemon') ||
             value.contains('connect'));
+  }
+
+  static Map<String, String> _parseDockerLabels(String raw) {
+    final result = <String, String>{};
+    final expression = RegExp(r'(?:^|,)([^=,]+)=((?:(?!,[^=,]+=).)*)');
+    for (final match in expression.allMatches(raw)) {
+      final key = match.group(1)?.trim() ?? '';
+      if (key.isEmpty) continue;
+      result[key] = match.group(2)?.trim() ?? '';
+    }
+    return result;
+  }
+
+  static String _mapValue(
+    Map<String, dynamic> value,
+    List<String> keys,
+  ) {
+    for (final key in keys) {
+      final result = value[key]?.toString();
+      if (result?.isNotEmpty == true) return result!;
+    }
+    return '';
+  }
+
+  static int _composeStatusCount(String status, String state) {
+    final match = RegExp('$state\\s*\\((\\d+)\\)', caseSensitive: false)
+        .firstMatch(status);
+    return int.tryParse(match?.group(1) ?? '') ?? 0;
+  }
+
+  static List<String> _splitComposeFiles(String value) => value
+      .split(',')
+      .map((file) => file.trim())
+      .where((file) => file.isNotEmpty)
+      .toList(growable: false);
+
+  static String _parentDirectory(String path) {
+    final normalized = path.replaceAll('\\', '/');
+    final separator = normalized.lastIndexOf('/');
+    if (separator <= 0) return '';
+    return normalized.substring(0, separator);
+  }
+
+  static void _validateComposeProject(DockerComposeProject project) {
+    if (!RegExp(r'^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$').hasMatch(project.name)) {
+      throw const FormatException('Compose 项目名称无效');
+    }
+    for (final value in [project.workingDirectory, ...project.configFiles]) {
+      if (value.contains('\n') || value.contains('\x00')) {
+        throw const FormatException('Compose 配置路径无效');
+      }
+    }
   }
 
   static List<RemoteProcess> _parsePortableProcesses(String raw) {

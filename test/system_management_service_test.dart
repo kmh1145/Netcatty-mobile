@@ -43,7 +43,7 @@ PID   USER     TIME  COMMAND
 
   test('parses Docker containers and derives state from JSON lines', () {
     const output = '''
-{"ID":"0123456789abcdef","Names":"web","Image":"nginx:latest","Status":"Up 3 hours","State":"running","Ports":"0.0.0.0:80->80/tcp","CreatedAt":"2026-08-12"}
+{"ID":"0123456789abcdef","Names":"web","Image":"nginx:latest","Status":"Up 3 hours","State":"running","Ports":"0.0.0.0:80->80/tcp","CreatedAt":"2026-08-12","Labels":"com.docker.compose.project=site,com.docker.compose.service=web,com.docker.compose.project.config_files=/srv/site/compose.yml,/srv/site/compose.prod.yml,owner=ops"}
 {"ID":"abcdef0123456789","Names":"cache","Image":"redis:7","Status":"Up 2 hours (Paused)","State":"paused","Ports":"","CreatedAt":"2026-08-12"}
 {"ID":"ffeeddccbbaa9988","Names":"db","Image":"postgres:17","Status":"Exited (0) 1 hour ago","State":"exited","Ports":"","CreatedAt":"2026-08-11"}
 ''';
@@ -55,6 +55,12 @@ PID   USER     TIME  COMMAND
     expect(containers[1].state, DockerContainerState.paused);
     expect(containers[2].state, DockerContainerState.stopped);
     expect(containers[0].shortId, '0123456789ab');
+    expect(containers[0].composeProject, 'site');
+    expect(containers[0].composeService, 'web');
+    expect(
+      containers[0].labels['com.docker.compose.project.config_files'],
+      '/srv/site/compose.yml,/srv/site/compose.prod.yml',
+    );
   });
 
   test('parses Docker image JSON lines', () {
@@ -67,6 +73,41 @@ PID   USER     TIME  COMMAND
     expect(images.single.name, 'postgres:17');
     expect(images.single.shortId, '0123456789ab');
     expect(images.single.size, '438MB');
+  });
+
+  test('parses Compose v2 project JSON and status counts', () {
+    const output = '''
+[{"Name":"site","Status":"running(2), exited(1)","ConfigFiles":"/srv/site/compose.yml,/srv/site/compose.prod.yml"}]
+''';
+
+    final projects = service.parseDockerComposeProjects(output);
+
+    expect(projects, hasLength(1));
+    expect(projects.single.name, 'site');
+    expect(projects.single.runningCount, 2);
+    expect(projects.single.stoppedCount, 1);
+    expect(projects.single.containerCount, 3);
+    expect(projects.single.workingDirectory, '/srv/site');
+    expect(projects.single.configFiles, [
+      '/srv/site/compose.yml',
+      '/srv/site/compose.prod.yml',
+    ]);
+  });
+
+  test('reconstructs Compose projects from container labels', () {
+    final containers = service.parseDockerContainers('''
+{"ID":"1","Names":"site-web-1","Image":"nginx","Status":"Up","State":"running","Ports":"","CreatedAt":"","Labels":"com.docker.compose.project=site,com.docker.compose.service=web,com.docker.compose.project.working_dir=/srv/site,com.docker.compose.project.config_files=/srv/site/compose.yml"}
+{"ID":"2","Names":"site-db-1","Image":"postgres","Status":"Exited","State":"exited","Ports":"","CreatedAt":"","Labels":"com.docker.compose.project=site,com.docker.compose.service=db,com.docker.compose.project.working_dir=/srv/site,com.docker.compose.project.config_files=/srv/site/compose.yml"}
+''');
+
+    final projects = service.composeProjectsFromContainers(containers);
+
+    expect(projects, hasLength(1));
+    expect(projects.single.name, 'site');
+    expect(projects.single.runningCount, 1);
+    expect(projects.single.stoppedCount, 1);
+    expect(projects.single.status, 'running(1), exited(1)');
+    expect(projects.single.workingDirectory, '/srv/site');
   });
 
   test('parses tmux formatted session list', () {
