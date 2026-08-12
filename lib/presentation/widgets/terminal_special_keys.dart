@@ -13,6 +13,7 @@ class TerminalSpecialKeys extends ConsumerStatefulWidget {
     required this.onSend,
     required this.onAi,
     required this.onPortForward,
+    required this.onSystemManagement,
     required this.split,
     required this.onSplit,
   });
@@ -22,6 +23,7 @@ class TerminalSpecialKeys extends ConsumerStatefulWidget {
   final void Function(String, {bool enter}) onSend;
   final VoidCallback onAi;
   final VoidCallback? onPortForward;
+  final VoidCallback? onSystemManagement;
   final bool split;
   final VoidCallback? onSplit;
 
@@ -98,6 +100,12 @@ class _TerminalSpecialKeysState extends ConsumerState<TerminalSpecialKeys> {
                   tooltip: '端口转发',
                   onPressed: widget.onPortForward,
                   icon: const Icon(Icons.swap_horiz),
+                ),
+                IconButton(
+                  key: const ValueKey('terminal-action-system-management'),
+                  tooltip: '系统管理',
+                  onPressed: widget.onSystemManagement,
+                  icon: const Icon(Icons.admin_panel_settings_outlined),
                 ),
                 IconButton(
                   key: const ValueKey('terminal-action-split'),

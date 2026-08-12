@@ -38,3 +38,4 @@ flutter:
   assets:
     - assets/
     - assets/distro/
+    - assets/docker/
