@@ -101,6 +101,7 @@ void main() {
                   onSend: _ignoreSend,
                   onAi: _ignore,
                   onPortForward: null,
+                  onSystemManagement: null,
                   split: false,
                   onSplit: null,
                 ),
@@ -131,6 +132,7 @@ void main() {
     final actionKeys = [
       'terminal-action-ai',
       'terminal-action-port-forward',
+      'terminal-action-system-management',
       'terminal-action-split',
       'terminal-action-edit',
       'terminal-action-hide-keyboard',

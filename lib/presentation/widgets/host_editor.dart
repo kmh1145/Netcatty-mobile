@@ -130,364 +130,370 @@ class _HostEditorState extends ConsumerState<HostEditor> {
       proxyMode = 'none';
     }
 
-    return Padding(
-      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
-      child: Scaffold(
-        appBar: AppBar(
-          leading: IconButton(
-            onPressed: () => Navigator.pop(context),
-            icon: const Icon(Icons.close),
-          ),
-          title: Text(widget.host == null ? '新建连接' : '编辑连接'),
-          actions: [TextButton(onPressed: _save, child: const Text('保存'))],
+    return Scaffold(
+      resizeToAvoidBottomInset: true,
+      appBar: AppBar(
+        leading: IconButton(
+          onPressed: () => Navigator.pop(context),
+          icon: const Icon(Icons.close),
         ),
-        body: Form(
-          key: _form,
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
-            children: [
-              SegmentedButton<HostProtocol>(
-                segments: const [
-                  ButtonSegment(
-                    value: HostProtocol.ssh,
-                    label: Text('SSH'),
-                    icon: Icon(Icons.lock_outline),
+        title: Text(widget.host == null ? '新建连接' : '编辑连接'),
+        actions: [TextButton(onPressed: _save, child: const Text('保存'))],
+      ),
+      body: Form(
+        key: _form,
+        child: ListView(
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+          children: [
+            SegmentedButton<HostProtocol>(
+              segments: const [
+                ButtonSegment(
+                  value: HostProtocol.ssh,
+                  label: Text('SSH'),
+                  icon: Icon(Icons.lock_outline),
+                ),
+                ButtonSegment(
+                  value: HostProtocol.telnet,
+                  label: Text('Telnet'),
+                  icon: Icon(Icons.cable),
+                ),
+                ButtonSegment(
+                  value: HostProtocol.mosh,
+                  label: Text('Mosh'),
+                  icon: Icon(Icons.wifi_tethering),
+                ),
+              ],
+              selected: {protocol},
+              onSelectionChanged: (value) => setState(() {
+                protocol = value.first;
+                if (port.text == '22' || port.text == '23') {
+                  port.text = protocol == HostProtocol.telnet ? '23' : '22';
+                }
+              }),
+            ),
+            _section('基本信息'),
+            TextFormField(
+              controller: label,
+              decoration: const InputDecoration(labelText: '名称'),
+              validator: _required,
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: hostname,
+              decoration: const InputDecoration(labelText: '主机名 / IP'),
+              keyboardType: TextInputType.url,
+              validator: _required,
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  flex: 2,
+                  child: TextFormField(
+                    controller: username,
+                    decoration: const InputDecoration(labelText: '用户名'),
+                    validator: _required,
                   ),
-                  ButtonSegment(
-                    value: HostProtocol.telnet,
-                    label: Text('Telnet'),
-                    icon: Icon(Icons.cable),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextFormField(
+                    controller: port,
+                    decoration: const InputDecoration(labelText: '端口'),
+                    keyboardType: TextInputType.number,
+                    validator: _validPort,
                   ),
-                  ButtonSegment(
-                    value: HostProtocol.mosh,
-                    label: Text('Mosh'),
-                    icon: Icon(Icons.wifi_tethering),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: group,
+              decoration: const InputDecoration(labelText: '分组（可选）'),
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: tags,
+              decoration: const InputDecoration(
+                labelText: '标签（逗号分隔）',
+              ),
+            ),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('置顶显示'),
+              value: pinned,
+              onChanged: (value) => setState(() => pinned = value),
+            ),
+            if (protocol != HostProtocol.telnet) ...[
+              _section('身份认证'),
+              DropdownButtonFormField<HostAuthMethod>(
+                initialValue: authMethod,
+                decoration: const InputDecoration(labelText: '认证方式'),
+                items: const [
+                  DropdownMenuItem(
+                    value: HostAuthMethod.auto,
+                    child: Text('自动（私钥 / 密码 / 交互式）'),
+                  ),
+                  DropdownMenuItem(
+                    value: HostAuthMethod.password,
+                    child: Text('密码'),
+                  ),
+                  DropdownMenuItem(
+                    value: HostAuthMethod.key,
+                    child: Text('私钥'),
                   ),
                 ],
-                selected: {protocol},
-                onSelectionChanged: (value) => setState(() {
-                  protocol = value.first;
-                  if (port.text == '22' || port.text == '23') {
-                    port.text = protocol == HostProtocol.telnet ? '23' : '22';
-                  }
-                }),
-              ),
-              _section('基本信息'),
-              TextFormField(
-                controller: label,
-                decoration: const InputDecoration(labelText: '名称'),
-                validator: _required,
+                onChanged: (value) =>
+                    setState(() => authMethod = value ?? HostAuthMethod.auto),
               ),
               const SizedBox(height: 12),
               TextFormField(
-                controller: hostname,
-                decoration: const InputDecoration(labelText: '主机名 / IP'),
-                keyboardType: TextInputType.url,
-                validator: _required,
+                controller: password,
+                obscureText: obscurePassword,
+                decoration: InputDecoration(
+                  labelText: '密码（可选）',
+                  suffixIcon: IconButton(
+                    onPressed: () =>
+                        setState(() => obscurePassword = !obscurePassword),
+                    icon: Icon(
+                      obscurePassword ? Icons.visibility : Icons.visibility_off,
+                    ),
+                  ),
+                ),
               ),
               const SizedBox(height: 12),
               Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   Expanded(
-                    flex: 2,
-                    child: TextFormField(
-                      controller: username,
-                      decoration: const InputDecoration(labelText: '用户名'),
-                      validator: _required,
+                    child: DropdownButtonFormField<String>(
+                      initialValue: identityFileId,
+                      decoration: const InputDecoration(labelText: 'SSH 私钥'),
+                      items: [
+                        const DropdownMenuItem(
+                          value: '',
+                          child: Text('不指定'),
+                        ),
+                        for (final key in keys)
+                          DropdownMenuItem(
+                            value: key.id,
+                            child: Text(key.label),
+                          ),
+                      ],
+                      onChanged: (value) => setState(
+                        () => identityFileId =
+                            value?.isEmpty == true ? null : value,
+                      ),
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: TextFormField(
-                      controller: port,
-                      decoration: const InputDecoration(labelText: '端口'),
-                      keyboardType: TextInputType.number,
-                      validator: _validPort,
-                    ),
+                  const SizedBox(width: 8),
+                  IconButton.filledTonal(
+                    tooltip: '管理私钥',
+                    onPressed: _openKeychain,
+                    icon: const Icon(Icons.key_outlined),
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: group,
-                decoration: const InputDecoration(labelText: '分组（可选）'),
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: tags,
-                decoration: const InputDecoration(
-                  labelText: '标签（逗号分隔）',
+              if (authMethod == HostAuthMethod.key && identityFileId == null)
+                const Padding(
+                  padding: EdgeInsets.only(top: 6),
+                  child: Text(
+                    '私钥认证需要选择或导入私钥。',
+                    style: TextStyle(color: Colors.redAccent, fontSize: 12),
+                  ),
                 ),
-              ),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('置顶显示'),
-                value: pinned,
-                onChanged: (value) => setState(() => pinned = value),
-              ),
-              if (protocol != HostProtocol.telnet) ...[
-                _section('身份认证'),
-                DropdownButtonFormField<HostAuthMethod>(
-                  initialValue: authMethod,
-                  decoration: const InputDecoration(labelText: '认证方式'),
-                  items: const [
+              _section('跳板机'),
+              if (jumpHostIds.isEmpty)
+                const ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.alt_route),
+                  title: Text('直接连接'),
+                  subtitle: Text('未设置 SSH 跳板机'),
+                )
+              else
+                ReorderableListView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: jumpHostIds.length,
+                  onReorderItem: (oldIndex, newIndex) => setState(() {
+                    final id = jumpHostIds.removeAt(oldIndex);
+                    jumpHostIds.insert(newIndex, id);
+                  }),
+                  itemBuilder: (context, index) {
+                    final id = jumpHostIds[index];
+                    final jump = vault?.hosts.cast<HostProfile?>().firstWhere(
+                          (value) => value?.id == id,
+                          orElse: () => null,
+                        );
+                    return ListTile(
+                      key: ValueKey(id),
+                      contentPadding: EdgeInsets.zero,
+                      leading: CircleAvatar(child: Text('${index + 1}')),
+                      title: Text(jump?.label ?? '缺失的主机'),
+                      subtitle: jump == null
+                          ? Text(id)
+                          : Text(
+                              '${jump.username}@${jump.hostname}:${jump.port}'),
+                      trailing: IconButton(
+                        onPressed: () =>
+                            setState(() => jumpHostIds.removeAt(index)),
+                        icon: const Icon(Icons.remove_circle_outline),
+                      ),
+                    );
+                  },
+                ),
+              if (availableHosts.isNotEmpty)
+                DropdownButtonFormField<String>(
+                  decoration: const InputDecoration(
+                    labelText: '添加跳板机',
+                    prefixIcon: Icon(Icons.add_road),
+                  ),
+                  items: [
+                    for (final value in availableHosts)
+                      DropdownMenuItem(
+                        value: value.id,
+                        child: Text(value.label),
+                      ),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) setState(() => jumpHostIds.add(value));
+                  },
+                ),
+              _section('代理'),
+              DropdownButtonFormField<String>(
+                initialValue: proxyMode,
+                decoration: const InputDecoration(labelText: '代理方式'),
+                items: [
+                  const DropdownMenuItem(
+                    value: 'none',
+                    child: Text('不使用代理'),
+                  ),
+                  const DropdownMenuItem(
+                    value: 'custom',
+                    child: Text('自定义 HTTP / SOCKS5 代理'),
+                  ),
+                  for (final profile in profiles)
                     DropdownMenuItem(
-                      value: HostAuthMethod.auto,
-                      child: Text('自动（私钥 / 密码 / 交互式）'),
+                      value: 'profile:${profile.id}',
+                      child: Text('已保存 · ${profile.label}'),
                     ),
-                    DropdownMenuItem(
-                      value: HostAuthMethod.password,
-                      child: Text('密码'),
-                    ),
-                    DropdownMenuItem(
-                      value: HostAuthMethod.key,
-                      child: Text('私钥'),
+                ],
+                onChanged: (value) =>
+                    setState(() => proxyMode = value ?? 'none'),
+              ),
+              if (proxyMode == 'custom') ...[
+                const SizedBox(height: 12),
+                SegmentedButton<ProxyType>(
+                  segments: const [
+                    ButtonSegment(value: ProxyType.http, label: Text('HTTP')),
+                    ButtonSegment(
+                      value: ProxyType.socks5,
+                      label: Text('SOCKS5'),
                     ),
                   ],
-                  onChanged: (value) =>
-                      setState(() => authMethod = value ?? HostAuthMethod.auto),
+                  selected: {proxyType},
+                  onSelectionChanged: (value) =>
+                      setState(() => proxyType = value.first),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      flex: 2,
+                      child: TextFormField(
+                        controller: proxyHost,
+                        decoration: const InputDecoration(labelText: '代理主机'),
+                        validator: proxyMode == 'custom' ? _required : null,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: TextFormField(
+                        controller: proxyPort,
+                        decoration: const InputDecoration(labelText: '端口'),
+                        keyboardType: TextInputType.number,
+                        validator: proxyMode == 'custom' ? _validPort : null,
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 12),
                 TextFormField(
-                  controller: password,
-                  obscureText: obscurePassword,
+                  controller: proxyUsername,
+                  decoration: const InputDecoration(labelText: '代理用户名（可选）'),
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: proxyPassword,
+                  obscureText: obscureProxyPassword,
                   decoration: InputDecoration(
-                    labelText: '密码（可选）',
+                    labelText: '代理密码（可选）',
                     suffixIcon: IconButton(
-                      onPressed: () =>
-                          setState(() => obscurePassword = !obscurePassword),
+                      onPressed: () => setState(
+                        () => obscureProxyPassword = !obscureProxyPassword,
+                      ),
                       icon: Icon(
-                        obscurePassword
+                        obscureProxyPassword
                             ? Icons.visibility
                             : Icons.visibility_off,
                       ),
                     ),
                   ),
                 ),
-                const SizedBox(height: 12),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Expanded(
-                      child: DropdownButtonFormField<String>(
-                        initialValue: identityFileId,
-                        decoration: const InputDecoration(labelText: 'SSH 私钥'),
-                        items: [
-                          const DropdownMenuItem(
-                            value: '',
-                            child: Text('不指定'),
-                          ),
-                          for (final key in keys)
-                            DropdownMenuItem(
-                              value: key.id,
-                              child: Text(key.label),
-                            ),
-                        ],
-                        onChanged: (value) => setState(
-                          () => identityFileId =
-                              value?.isEmpty == true ? null : value,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    IconButton.filledTonal(
-                      tooltip: '管理私钥',
-                      onPressed: _openKeychain,
-                      icon: const Icon(Icons.key_outlined),
-                    ),
-                  ],
-                ),
-                if (authMethod == HostAuthMethod.key && identityFileId == null)
-                  const Padding(
-                    padding: EdgeInsets.only(top: 6),
-                    child: Text(
-                      '私钥认证需要选择或导入私钥。',
-                      style: TextStyle(color: Colors.redAccent, fontSize: 12),
-                    ),
-                  ),
-                _section('跳板机'),
-                if (jumpHostIds.isEmpty)
-                  const ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: Icon(Icons.alt_route),
-                    title: Text('直接连接'),
-                    subtitle: Text('未设置 SSH 跳板机'),
-                  )
-                else
-                  ReorderableListView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: jumpHostIds.length,
-                    onReorderItem: (oldIndex, newIndex) => setState(() {
-                      final id = jumpHostIds.removeAt(oldIndex);
-                      jumpHostIds.insert(newIndex, id);
-                    }),
-                    itemBuilder: (context, index) {
-                      final id = jumpHostIds[index];
-                      final jump = vault?.hosts.cast<HostProfile?>().firstWhere(
-                            (value) => value?.id == id,
-                            orElse: () => null,
-                          );
-                      return ListTile(
-                        key: ValueKey(id),
-                        contentPadding: EdgeInsets.zero,
-                        leading: CircleAvatar(child: Text('${index + 1}')),
-                        title: Text(jump?.label ?? '缺失的主机'),
-                        subtitle: jump == null
-                            ? Text(id)
-                            : Text(
-                                '${jump.username}@${jump.hostname}:${jump.port}'),
-                        trailing: IconButton(
-                          onPressed: () =>
-                              setState(() => jumpHostIds.removeAt(index)),
-                          icon: const Icon(Icons.remove_circle_outline),
-                        ),
-                      );
-                    },
-                  ),
-                if (availableHosts.isNotEmpty)
-                  DropdownButtonFormField<String>(
-                    decoration: const InputDecoration(
-                      labelText: '添加跳板机',
-                      prefixIcon: Icon(Icons.add_road),
-                    ),
-                    items: [
-                      for (final value in availableHosts)
-                        DropdownMenuItem(
-                          value: value.id,
-                          child: Text(value.label),
-                        ),
-                    ],
-                    onChanged: (value) {
-                      if (value != null) setState(() => jumpHostIds.add(value));
-                    },
-                  ),
-                _section('代理'),
-                DropdownButtonFormField<String>(
-                  initialValue: proxyMode,
-                  decoration: const InputDecoration(labelText: '代理方式'),
-                  items: [
-                    const DropdownMenuItem(
-                      value: 'none',
-                      child: Text('不使用代理'),
-                    ),
-                    const DropdownMenuItem(
-                      value: 'custom',
-                      child: Text('自定义 HTTP / SOCKS5 代理'),
-                    ),
-                    for (final profile in profiles)
-                      DropdownMenuItem(
-                        value: 'profile:${profile.id}',
-                        child: Text('已保存 · ${profile.label}'),
-                      ),
-                  ],
-                  onChanged: (value) =>
-                      setState(() => proxyMode = value ?? 'none'),
-                ),
-                if (proxyMode == 'custom') ...[
-                  const SizedBox(height: 12),
-                  SegmentedButton<ProxyType>(
-                    segments: const [
-                      ButtonSegment(value: ProxyType.http, label: Text('HTTP')),
-                      ButtonSegment(
-                        value: ProxyType.socks5,
-                        label: Text('SOCKS5'),
-                      ),
-                    ],
-                    selected: {proxyType},
-                    onSelectionChanged: (value) =>
-                        setState(() => proxyType = value.first),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        flex: 2,
-                        child: TextFormField(
-                          controller: proxyHost,
-                          decoration: const InputDecoration(labelText: '代理主机'),
-                          validator: proxyMode == 'custom' ? _required : null,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: TextFormField(
-                          controller: proxyPort,
-                          decoration: const InputDecoration(labelText: '端口'),
-                          keyboardType: TextInputType.number,
-                          validator: proxyMode == 'custom' ? _validPort : null,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: proxyUsername,
-                    decoration: const InputDecoration(labelText: '代理用户名（可选）'),
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: proxyPassword,
-                    obscureText: obscureProxyPassword,
-                    decoration: InputDecoration(
-                      labelText: '代理密码（可选）',
-                      suffixIcon: IconButton(
-                        onPressed: () => setState(
-                          () => obscureProxyPassword = !obscureProxyPassword,
-                        ),
-                        icon: Icon(
-                          obscureProxyPassword
-                              ? Icons.visibility
-                              : Icons.visibility_off,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-                _section('高级选项'),
-                TextFormField(
-                  controller: startupCommand,
-                  minLines: 1,
-                  maxLines: 4,
-                  decoration: const InputDecoration(labelText: '连接后执行命令（可选）'),
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextFormField(
-                        controller: keepalive,
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          labelText: 'Keepalive（秒）',
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: TextFormField(
-                        controller: connectTimeout,
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          labelText: '连接超时（秒）',
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: TextFormField(
-                        controller: authTimeout,
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          labelText: '认证超时（秒）',
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
               ],
+              _section('高级选项'),
+              TextFormField(
+                controller: startupCommand,
+                minLines: 1,
+                maxLines: 4,
+                decoration: const InputDecoration(labelText: '连接后执行命令（可选）'),
+              ),
+              const SizedBox(height: 12),
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final fields = [
+                    _AdvancedNumberField(
+                      controller: keepalive,
+                      label: 'Keepalive 间隔',
+                      helper: '每隔多少秒发送一次保活消息',
+                    ),
+                    _AdvancedNumberField(
+                      controller: connectTimeout,
+                      label: '连接超时',
+                      helper: '建立 TCP 连接的最长等待时间',
+                    ),
+                    _AdvancedNumberField(
+                      controller: authTimeout,
+                      label: '认证超时',
+                      helper: 'SSH 身份认证的最长等待时间',
+                    ),
+                  ];
+                  if (constraints.maxWidth < 720) {
+                    return Column(
+                      children: [
+                        for (var index = 0; index < fields.length; index++) ...[
+                          fields[index],
+                          if (index < fields.length - 1)
+                            const SizedBox(height: 12),
+                        ],
+                      ],
+                    );
+                  }
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      for (var index = 0; index < fields.length; index++) ...[
+                        Expanded(child: fields[index]),
+                        if (index < fields.length - 1)
+                          const SizedBox(width: 12),
+                      ],
+                    ],
+                  );
+                },
+              ),
             ],
-          ),
+          ],
         ),
       ),
     );
@@ -587,4 +593,28 @@ class _HostEditorState extends ConsumerState<HostEditor> {
       data[key] = value;
     }
   }
+}
+
+class _AdvancedNumberField extends StatelessWidget {
+  const _AdvancedNumberField({
+    required this.controller,
+    required this.label,
+    required this.helper,
+  });
+
+  final TextEditingController controller;
+  final String label;
+  final String helper;
+
+  @override
+  Widget build(BuildContext context) => TextFormField(
+        controller: controller,
+        keyboardType: TextInputType.number,
+        decoration: InputDecoration(
+          labelText: label,
+          helperText: helper,
+          suffixText: '秒',
+          helperMaxLines: 2,
+        ),
+      );
 }

@@ -139,8 +139,12 @@ class SessionController extends StateNotifier<SessionState> {
         error: null,
       );
       _watchSession(session);
-      unawaited(vaultController.markConnected(host));
-      unawaited(_detectSystem(session, host));
+      if (host.data['_ephemeralTerminal'] == true) {
+        session.systemInfo = host.systemInfo;
+      } else {
+        unawaited(vaultController.markConnected(host));
+        unawaited(_detectSystem(session, host));
+      }
     } catch (error) {
       state = state.copyWith(
         pendingConnections: state.pendingConnections
@@ -157,6 +161,25 @@ class SessionController extends StateNotifier<SessionState> {
       );
       rethrow;
     }
+  }
+
+  Future<void> openManagedTerminal(
+    ActiveTerminalSession parent, {
+    required String label,
+    required String command,
+  }) {
+    final host = HostProfile({
+      ...parent.host.data,
+      'id': 'managed-${const Uuid().v4()}',
+      'label': label,
+      'startupCommand': command,
+      '_ephemeralTerminal': true,
+    });
+    return connect(
+      host,
+      parent.verifyHostKey,
+      keyboardInteractive: parent.keyboardInteractive,
+    );
   }
 
   Future<void> reconnectDisconnected() async {
@@ -222,6 +245,10 @@ class SessionController extends StateNotifier<SessionState> {
     HostProfile host,
   ) async {
     if (!session.isSsh) return;
+    if (host.data['_ephemeralTerminal'] == true) {
+      session.systemInfo = host.systemInfo;
+      return;
+    }
     try {
       final info = await ServerMonitorService().detect(session);
       session.systemInfo = info;

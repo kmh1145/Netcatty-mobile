@@ -5,6 +5,7 @@ import 'package:xterm/xterm.dart';
 
 import '../../application/session_controller.dart';
 import '../../application/settings_controller.dart';
+import '../../application/vault_controller.dart';
 import '../../infrastructure/ai/ai_service.dart';
 import '../../infrastructure/ssh/ssh_service.dart';
 import '../../infrastructure/storage/vault_repository.dart';
@@ -13,6 +14,7 @@ import '../widgets/host_system_icon.dart';
 import '../widgets/port_forward_sheet.dart';
 import '../widgets/server_monitor_sheet.dart';
 import '../widgets/terminal_special_keys.dart';
+import '../widgets/system_management/system_management_sheet.dart';
 
 class TerminalScreen extends ConsumerStatefulWidget {
   const TerminalScreen({super.key});
@@ -28,6 +30,8 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
   Widget build(BuildContext context) {
     final state = ref.watch(sessionControllerProvider);
     final settings = ref.watch(settingsControllerProvider);
+    final snippets =
+        ref.watch(vaultControllerProvider).data?.snippets ?? const [];
     final selectedPending = state.selectedPending;
     final visibleSession = selectedPending == null ? state.active : null;
     final tabHosts = [
@@ -227,6 +231,24 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
                             PortForwardSheet(session: visibleSession),
                       )
                   : null,
+              onSystemManagement: visibleSession.isSsh
+                  ? () => showModalBottomSheet<void>(
+                        context: context,
+                        useSafeArea: true,
+                        isScrollControlled: true,
+                        backgroundColor: Colors.transparent,
+                        builder: (_) => SystemManagementSheet(
+                          session: visibleSession,
+                          snippets: snippets,
+                          onOpenTerminal: (label, command) =>
+                              _openManagedTerminal(
+                            visibleSession,
+                            label,
+                            command,
+                          ),
+                        ),
+                      )
+                  : null,
               split: _split,
               onSplit: state.sessions.length > 1
                   ? () => setState(() => _split = !_split)
@@ -265,6 +287,25 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
         false;
     if (!close || !mounted) return;
     await ref.read(sessionControllerProvider.notifier).close(index);
+  }
+
+  Future<void> _openManagedTerminal(
+    ActiveTerminalSession parent,
+    String label,
+    String command,
+  ) async {
+    try {
+      await ref.read(sessionControllerProvider.notifier).openManagedTerminal(
+            parent,
+            label: label,
+            command: command,
+          );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('无法打开 $label：$error')),
+      );
+    }
   }
 
   Future<void> _openAi(ActiveTerminalSession session) async {
