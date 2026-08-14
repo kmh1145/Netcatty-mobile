@@ -13,6 +13,7 @@ import '../../application/vault_controller.dart';
 import '../../domain/models/settings.dart';
 import '../../domain/models/vault.dart';
 import '../../infrastructure/storage/vault_repository.dart';
+import '../../infrastructure/storage/vault_export_service.dart';
 import '../../infrastructure/sync/cloud_sync_service.dart';
 import '../../infrastructure/sync/github_auth_service.dart';
 import '../theme.dart';
@@ -558,17 +559,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _export() async {
-    final path = await FilePicker.platform.saveFile(
-      dialogTitle: '导出 Netcatty 保险库',
-      fileName: 'netcatty-mobile-export.json',
-    );
-    if (path == null) return;
     final vault = ref.read(vaultControllerProvider).data ?? VaultData.empty();
-    await File(path).writeAsString(
-      const JsonEncoder.withIndent('  ').convert(vault.toJson()),
-      flush: true,
-    );
-    _message('导出完成');
+    try {
+      final result = await VaultExportService().export(vault);
+      if (result == VaultExportResult.saved) _message('导出完成');
+    } catch (error) {
+      _message('导出失败：$error');
+    }
   }
 
   void _message(String value) {
