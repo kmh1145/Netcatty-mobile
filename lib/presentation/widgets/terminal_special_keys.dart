@@ -14,6 +14,8 @@ class TerminalSpecialKeys extends ConsumerStatefulWidget {
     required this.onAi,
     required this.onPortForward,
     required this.onSystemManagement,
+    required this.pictureInPicture,
+    required this.onPictureInPicture,
     required this.fullscreen,
     required this.onFullscreen,
     required this.split,
@@ -26,6 +28,8 @@ class TerminalSpecialKeys extends ConsumerStatefulWidget {
   final VoidCallback onAi;
   final VoidCallback? onPortForward;
   final VoidCallback? onSystemManagement;
+  final bool pictureInPicture;
+  final VoidCallback? onPictureInPicture;
   final bool fullscreen;
   final VoidCallback onFullscreen;
   final bool split;
@@ -113,6 +117,18 @@ class _TerminalSpecialKeysState extends ConsumerState<TerminalSpecialKeys> {
                   tooltip: '系统管理',
                   onPressed: widget.onSystemManagement,
                   icon: const Icon(Icons.admin_panel_settings_outlined),
+                ),
+                IconButton(
+                  key: const ValueKey('terminal-action-picture-in-picture'),
+                  visualDensity: VisualDensity.compact,
+                  tooltip: widget.pictureInPicture ? '退出画中画' : '画中画',
+                  isSelected: widget.pictureInPicture,
+                  onPressed: widget.onPictureInPicture,
+                  icon: Icon(
+                    widget.pictureInPicture
+                        ? Icons.picture_in_picture_alt
+                        : Icons.picture_in_picture,
+                  ),
                 ),
                 IconButton(
                   key: const ValueKey('terminal-action-fullscreen'),

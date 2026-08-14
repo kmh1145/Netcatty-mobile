@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../infrastructure/ssh/terminal_picture_in_picture_service.dart';
 import 'screens/settings_screen.dart';
 import 'screens/sftp_screen.dart';
 import 'screens/snippets_screen.dart';
@@ -24,12 +27,22 @@ class HomeShell extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final index = ref.watch(homeTabProvider);
     final terminalFullscreen = ref.watch(terminalFullscreenProvider);
-    final hideNavigation = shouldHideHomeNavigation(index, terminalFullscreen);
+    final terminalPictureInPicture =
+        ref.watch(terminalPictureInPictureProvider);
+    final hideNavigation = shouldHideHomeNavigation(
+      index,
+      terminalFullscreen || terminalPictureInPicture,
+    );
     return PopScope(
       canPop: !hideNavigation,
       onPopInvokedWithResult: (didPop, result) {
         if (!didPop && hideNavigation) {
-          ref.read(terminalFullscreenProvider.notifier).state = false;
+          if (terminalPictureInPicture) {
+            ref.read(terminalPictureInPictureProvider.notifier).state = false;
+            unawaited(TerminalPictureInPictureService.stop());
+          } else {
+            ref.read(terminalFullscreenProvider.notifier).state = false;
+          }
         }
       },
       child: Scaffold(

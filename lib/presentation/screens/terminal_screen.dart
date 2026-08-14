@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
@@ -8,6 +10,7 @@ import '../../application/settings_controller.dart';
 import '../../application/vault_controller.dart';
 import '../../infrastructure/ai/ai_service.dart';
 import '../../infrastructure/ssh/ssh_service.dart';
+import '../../infrastructure/ssh/terminal_picture_in_picture_service.dart';
 import '../../infrastructure/storage/vault_repository.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/host_system_icon.dart';
@@ -17,6 +20,7 @@ import '../widgets/terminal_special_keys.dart';
 import '../widgets/system_management/system_management_sheet.dart';
 
 final terminalFullscreenProvider = StateProvider<bool>((ref) => false);
+final terminalPictureInPictureProvider = StateProvider<bool>((ref) => false);
 
 class TerminalScreen extends ConsumerStatefulWidget {
   const TerminalScreen({super.key});
@@ -27,6 +31,23 @@ class TerminalScreen extends ConsumerStatefulWidget {
 
 class _TerminalScreenState extends ConsumerState<TerminalScreen> {
   var _split = false;
+  StreamSubscription<bool>? _pictureInPictureSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _pictureInPictureSubscription =
+        TerminalPictureInPictureService.stateChanges.listen((active) {
+      if (!mounted) return;
+      ref.read(terminalPictureInPictureProvider.notifier).state = active;
+    });
+  }
+
+  @override
+  void dispose() {
+    _pictureInPictureSubscription?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -37,10 +58,16 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
     final selectedPending = state.selectedPending;
     final visibleSession = selectedPending == null ? state.active : null;
     final fullscreen = ref.watch(terminalFullscreenProvider);
-    if (fullscreen && visibleSession == null) {
+    final pictureInPicture = ref.watch(terminalPictureInPictureProvider);
+    if ((fullscreen || pictureInPicture) && visibleSession == null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && ref.read(terminalFullscreenProvider)) {
+        if (!mounted) return;
+        if (ref.read(terminalFullscreenProvider)) {
           ref.read(terminalFullscreenProvider.notifier).state = false;
+        }
+        if (ref.read(terminalPictureInPictureProvider)) {
+          ref.read(terminalPictureInPictureProvider.notifier).state = false;
+          unawaited(TerminalPictureInPictureService.stop());
         }
       });
     }
@@ -54,7 +81,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
           Positioned.fill(
             child: Column(
               children: [
-                if (!fullscreen)
+                if (!fullscreen && !pictureInPicture)
                   SizedBox(
                     key: const ValueKey('terminal-tab-strip'),
                     height: 52,
@@ -178,6 +205,8 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
                       ],
                     ),
                   ),
+                if (pictureInPicture && visibleSession != null)
+                  _TerminalPictureInPictureHeader(session: visibleSession),
                 Expanded(
                   child: selectedPending != null
                       ? _ConnectionStatusPane(
@@ -202,11 +231,14 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
                             )
                           : LayoutBuilder(
                               builder: (context, constraints) {
-                                if (!_split || state.sessions.length < 2) {
+                                if (pictureInPicture ||
+                                    !_split ||
+                                    state.sessions.length < 2) {
                                   return _TerminalPane(
                                     key: ValueKey(state.active!.id),
                                     session: state.active!,
                                     fontSize: settings.terminalFontSize,
+                                    pictureInPicture: pictureInPicture,
                                   );
                                 }
                                 final secondIndex = (state.activeIndex + 1) %
@@ -217,6 +249,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
                                       key: ValueKey(state.active!.id),
                                       session: state.active!,
                                       fontSize: settings.terminalFontSize,
+                                      pictureInPicture: false,
                                     ),
                                   ),
                                   const Divider(height: 1, thickness: 1),
@@ -226,6 +259,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
                                           state.sessions[secondIndex].id),
                                       session: state.sessions[secondIndex],
                                       fontSize: settings.terminalFontSize,
+                                      pictureInPicture: false,
                                     ),
                                   ),
                                 ];
@@ -236,7 +270,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
                               },
                             ),
                 ),
-                if (visibleSession != null)
+                if (visibleSession != null && !pictureInPicture)
                   TerminalSpecialKeys(
                     order: settings.terminalQuickKeys,
                     customKeys: settings.terminalCustomKeys,
@@ -268,6 +302,9 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
                               ),
                             )
                         : null,
+                    pictureInPicture: pictureInPicture,
+                    onPictureInPicture: () =>
+                        _togglePictureInPicture(visibleSession),
                     fullscreen: fullscreen,
                     onFullscreen: () => ref
                         .read(terminalFullscreenProvider.notifier)
@@ -280,7 +317,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
               ],
             ),
           ),
-          if (fullscreen && visibleSession != null)
+          if (fullscreen && !pictureInPicture && visibleSession != null)
             Positioned(
               top: 4,
               right: 4,
@@ -304,6 +341,40 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
             ),
         ],
       ),
+    );
+  }
+
+  Future<void> _togglePictureInPicture(
+    ActiveTerminalSession session,
+  ) async {
+    if (ref.read(terminalPictureInPictureProvider)) {
+      await TerminalPictureInPictureService.stop();
+      return;
+    }
+    final supported = await TerminalPictureInPictureService.isSupported();
+    if (!supported) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('当前设备或系统版本不支持终端画中画')),
+      );
+      return;
+    }
+    ref.read(terminalPictureInPictureProvider.notifier).state = true;
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) return;
+    final scheme = Theme.of(context).colorScheme;
+    final entered = await TerminalPictureInPictureService.enter(
+      title: session.host.label,
+      text: terminalPictureInPictureText(session.terminal),
+      connected: session.connected,
+      backgroundColor: scheme.surface.toARGB32(),
+      foregroundColor: scheme.onSurface.toARGB32(),
+      accentColor: scheme.primary.toARGB32(),
+    );
+    if (entered || !mounted) return;
+    ref.read(terminalPictureInPictureProvider.notifier).state = false;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('无法启动画中画，请检查系统画中画权限')),
     );
   }
 
@@ -585,14 +656,54 @@ class _ConnectionStatusPane extends StatelessWidget {
   }
 }
 
+class _TerminalPictureInPictureHeader extends StatelessWidget {
+  const _TerminalPictureInPictureHeader({required this.session});
+
+  final ActiveTerminalSession session;
+
+  @override
+  Widget build(BuildContext context) => ColoredBox(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        child: SizedBox(
+          height: 30,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.circle,
+                  size: 8,
+                  color: session.connected
+                      ? Colors.greenAccent
+                      : Colors.orangeAccent,
+                ),
+                const SizedBox(width: 7),
+                Expanded(
+                  child: Text(
+                    session.host.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.labelMedium,
+                  ),
+                ),
+                const Icon(Icons.picture_in_picture, size: 15),
+              ],
+            ),
+          ),
+        ),
+      );
+}
+
 class _TerminalPane extends StatefulWidget {
   const _TerminalPane({
     super.key,
     required this.session,
     required this.fontSize,
+    required this.pictureInPicture,
   });
   final ActiveTerminalSession session;
   final double fontSize;
+  final bool pictureInPicture;
 
   @override
   State<_TerminalPane> createState() => _TerminalPaneState();
@@ -604,12 +715,67 @@ class _TerminalPaneState extends State<_TerminalPane> {
   final _terminalStackKey = GlobalKey();
   final _scrollController = ScrollController();
   Offset? _dragPointerToAnchor;
+  Timer? _pictureInPictureUpdateTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.session.terminal.addListener(_onTerminalChanged);
+    if (widget.pictureInPicture) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _sendPipUpdate());
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _TerminalPane oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.session.terminal != widget.session.terminal) {
+      oldWidget.session.terminal.removeListener(_onTerminalChanged);
+      widget.session.terminal.addListener(_onTerminalChanged);
+    }
+    if (!oldWidget.pictureInPicture && widget.pictureInPicture) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _sendPipUpdate());
+    } else if (oldWidget.pictureInPicture && !widget.pictureInPicture) {
+      _pictureInPictureUpdateTimer?.cancel();
+      _pictureInPictureUpdateTimer = null;
+    }
+  }
 
   @override
   void dispose() {
+    widget.session.terminal.removeListener(_onTerminalChanged);
+    _pictureInPictureUpdateTimer?.cancel();
     _controller.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  void _onTerminalChanged() {
+    if (!widget.pictureInPicture || _pictureInPictureUpdateTimer != null) {
+      return;
+    }
+    _pictureInPictureUpdateTimer = Timer(
+      const Duration(milliseconds: 350),
+      () {
+        _pictureInPictureUpdateTimer = null;
+        _sendPipUpdate();
+      },
+    );
+  }
+
+  void _sendPipUpdate() {
+    if (!mounted || !widget.pictureInPicture) return;
+    final scheme = Theme.of(context).colorScheme;
+    unawaited(
+      TerminalPictureInPictureService.update(
+        title: widget.session.host.label,
+        text: terminalPictureInPictureText(widget.session.terminal),
+        connected: widget.session.connected,
+        backgroundColor: scheme.surface.toARGB32(),
+        foregroundColor: scheme.onSurface.toARGB32(),
+        accentColor: scheme.primary.toARGB32(),
+      ),
+    );
   }
 
   @override
@@ -664,14 +830,14 @@ class _TerminalPaneState extends State<_TerminalPane> {
                 scrollController: _scrollController,
                 theme: terminalTheme,
                 keyboardAppearance: Theme.of(context).brightness,
-                autofocus: true,
+                autofocus: !widget.pictureInPicture,
                 padding: const EdgeInsets.all(8),
                 textStyle: TerminalStyle(
                   fontSize: widget.fontSize,
                   fontFamily: 'monospace',
                 ),
               ),
-              if (startHandle != null)
+              if (!widget.pictureInPicture && startHandle != null)
                 _TerminalSelectionHandle(
                   key: const ValueKey('terminal-selection-handle-start'),
                   anchor: startHandle,
@@ -680,7 +846,7 @@ class _TerminalPaneState extends State<_TerminalPane> {
                   onPanUpdate: (details) => _updateHandleDrag(true, details),
                   onPanEnd: _endHandleDrag,
                 ),
-              if (endHandle != null)
+              if (!widget.pictureInPicture && endHandle != null)
                 _TerminalSelectionHandle(
                   key: const ValueKey('terminal-selection-handle-end'),
                   anchor: endHandle,
@@ -689,7 +855,7 @@ class _TerminalPaneState extends State<_TerminalPane> {
                   onPanUpdate: (details) => _updateHandleDrag(false, details),
                   onPanEnd: _endHandleDrag,
                 ),
-              if (selection != null)
+              if (!widget.pictureInPicture && selection != null)
                 Positioned(
                   top: 10,
                   right: 10,
