@@ -16,6 +16,8 @@ import '../widgets/server_monitor_sheet.dart';
 import '../widgets/terminal_special_keys.dart';
 import '../widgets/system_management/system_management_sheet.dart';
 
+final terminalFullscreenProvider = StateProvider<bool>((ref) => false);
+
 class TerminalScreen extends ConsumerStatefulWidget {
   const TerminalScreen({super.key});
 
@@ -34,228 +36,283 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
         ref.watch(vaultControllerProvider).data?.snippets ?? const [];
     final selectedPending = state.selectedPending;
     final visibleSession = selectedPending == null ? state.active : null;
+    final fullscreen = ref.watch(terminalFullscreenProvider);
+    if (fullscreen && visibleSession == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && ref.read(terminalFullscreenProvider)) {
+          ref.read(terminalFullscreenProvider.notifier).state = false;
+        }
+      });
+    }
     final tabHosts = [
       ...state.sessions.map((value) => value.host),
       ...state.pendingConnections.map((value) => value.host),
     ];
     return SafeArea(
-      child: Column(
+      child: Stack(
         children: [
-          SizedBox(
-            height: 52,
-            child: Row(
+          Positioned.fill(
+            child: Column(
               children: [
-                const SizedBox(width: 12),
-                Icon(
-                  Icons.terminal,
-                  color: Theme.of(context).colorScheme.primary,
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: state.tabCount == 0
-                      ? const Text('终端')
-                      : ListView.builder(
-                          scrollDirection: Axis.horizontal,
-                          itemCount: state.tabCount,
-                          itemBuilder: (_, index) {
-                            final host = tabHosts[index];
-                            final occurrence = tabHosts
-                                .take(index + 1)
-                                .where((value) => value.id == host.id)
-                                .length;
-                            final duplicateCount = tabHosts
-                                .where((value) => value.id == host.id)
-                                .length;
-                            if (index >= state.sessions.length) {
-                              final pending = state.pendingConnections[
-                                  index - state.sessions.length];
-                              final failed = pending.phase ==
-                                  PendingConnectionPhase.failed;
-                              return Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 7,
-                                  horizontal: 2,
-                                ),
-                                child: InputChip(
-                                  selected: state.activePendingId == pending.id,
-                                  showCheckmark: false,
-                                  avatar: failed
-                                      ? const Icon(
-                                          Icons.error_outline,
-                                          size: 17,
-                                          color: Colors.redAccent,
-                                        )
-                                      : const SizedBox.square(
-                                          dimension: 14,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                          ),
-                                        ),
-                                  label: Text(
-                                    duplicateCount > 1
-                                        ? '${host.label} #$occurrence'
-                                        : host.label,
-                                  ),
-                                  onPressed: () => ref
-                                      .read(
-                                        sessionControllerProvider.notifier,
-                                      )
-                                      .activate(index),
-                                  onDeleted: failed
-                                      ? () => ref
-                                          .read(
-                                            sessionControllerProvider.notifier,
-                                          )
-                                          .dismissPending(pending.id)
-                                      : null,
-                                ),
-                              );
-                            }
-                            final session = state.sessions[index];
-                            return Padding(
-                              padding: const EdgeInsets.symmetric(
-                                vertical: 7,
-                                horizontal: 2,
-                              ),
-                              child: InputChip(
-                                selected: state.activeIndex == index,
-                                showCheckmark: false,
-                                avatar: Icon(
-                                  session.connected
-                                      ? Icons.circle
-                                      : Icons.error_outline,
-                                  size: session.connected ? 10 : 16,
-                                  color: session.connected
-                                      ? Colors.greenAccent
-                                      : Colors.orangeAccent,
-                                ),
-                                label: Text(
-                                  duplicateCount > 1
-                                      ? '${session.host.label} #$occurrence'
-                                      : session.host.label,
-                                ),
-                                onPressed: () => ref
-                                    .read(sessionControllerProvider.notifier)
-                                    .activate(index),
-                                onDeleted: () => _confirmClose(index, session),
-                              ),
-                            );
-                          },
+                if (!fullscreen)
+                  SizedBox(
+                    key: const ValueKey('terminal-tab-strip'),
+                    height: 52,
+                    child: Row(
+                      children: [
+                        const SizedBox(width: 12),
+                        Icon(
+                          Icons.terminal,
+                          color: Theme.of(context).colorScheme.primary,
                         ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: state.tabCount == 0
+                              ? const Text('终端')
+                              : ListView.builder(
+                                  scrollDirection: Axis.horizontal,
+                                  itemCount: state.tabCount,
+                                  itemBuilder: (_, index) {
+                                    final host = tabHosts[index];
+                                    final occurrence = tabHosts
+                                        .take(index + 1)
+                                        .where((value) => value.id == host.id)
+                                        .length;
+                                    final duplicateCount = tabHosts
+                                        .where((value) => value.id == host.id)
+                                        .length;
+                                    if (index >= state.sessions.length) {
+                                      final pending = state.pendingConnections[
+                                          index - state.sessions.length];
+                                      final failed = pending.phase ==
+                                          PendingConnectionPhase.failed;
+                                      return Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          vertical: 7,
+                                          horizontal: 2,
+                                        ),
+                                        child: InputChip(
+                                          selected: state.activePendingId ==
+                                              pending.id,
+                                          showCheckmark: false,
+                                          avatar: failed
+                                              ? const Icon(
+                                                  Icons.error_outline,
+                                                  size: 17,
+                                                  color: Colors.redAccent,
+                                                )
+                                              : const SizedBox.square(
+                                                  dimension: 14,
+                                                  child:
+                                                      CircularProgressIndicator(
+                                                    strokeWidth: 2,
+                                                  ),
+                                                ),
+                                          label: Text(
+                                            duplicateCount > 1
+                                                ? '${host.label} #$occurrence'
+                                                : host.label,
+                                          ),
+                                          onPressed: () => ref
+                                              .read(
+                                                sessionControllerProvider
+                                                    .notifier,
+                                              )
+                                              .activate(index),
+                                          onDeleted: failed
+                                              ? () => ref
+                                                  .read(
+                                                    sessionControllerProvider
+                                                        .notifier,
+                                                  )
+                                                  .dismissPending(pending.id)
+                                              : null,
+                                        ),
+                                      );
+                                    }
+                                    final session = state.sessions[index];
+                                    return Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 7,
+                                        horizontal: 2,
+                                      ),
+                                      child: InputChip(
+                                        selected: state.activeIndex == index,
+                                        showCheckmark: false,
+                                        avatar: Icon(
+                                          session.connected
+                                              ? Icons.circle
+                                              : Icons.error_outline,
+                                          size: session.connected ? 10 : 16,
+                                          color: session.connected
+                                              ? Colors.greenAccent
+                                              : Colors.orangeAccent,
+                                        ),
+                                        label: Text(
+                                          duplicateCount > 1
+                                              ? '${session.host.label} #$occurrence'
+                                              : session.host.label,
+                                        ),
+                                        onPressed: () => ref
+                                            .read(sessionControllerProvider
+                                                .notifier)
+                                            .activate(index),
+                                        onDeleted: () =>
+                                            _confirmClose(index, session),
+                                      ),
+                                    );
+                                  },
+                                ),
+                        ),
+                        if (visibleSession != null)
+                          IconButton(
+                            key: const ValueKey(
+                              'terminal-performance-monitor',
+                            ),
+                            tooltip: '性能监控',
+                            onPressed: visibleSession.isSsh
+                                ? () => _openPerformanceMonitor(visibleSession)
+                                : null,
+                            icon: const Icon(Icons.monitor_heart_outlined),
+                          ),
+                      ],
+                    ),
+                  ),
+                Expanded(
+                  child: selectedPending != null
+                      ? _ConnectionStatusPane(
+                          pending: selectedPending,
+                          onReturn: state.sessions.isEmpty
+                              ? null
+                              : () => ref
+                                  .read(sessionControllerProvider.notifier)
+                                  .activate(state.activeIndex),
+                          onClose: selectedPending.phase ==
+                                  PendingConnectionPhase.failed
+                              ? () => ref
+                                  .read(sessionControllerProvider.notifier)
+                                  .dismissPending(selectedPending.id)
+                              : null,
+                        )
+                      : state.sessions.isEmpty
+                          ? const EmptyState(
+                              icon: Icons.terminal_outlined,
+                              title: '没有活动会话',
+                              subtitle: '从“保险库”选择主机开始连接。',
+                            )
+                          : LayoutBuilder(
+                              builder: (context, constraints) {
+                                if (!_split || state.sessions.length < 2) {
+                                  return _TerminalPane(
+                                    key: ValueKey(state.active!.id),
+                                    session: state.active!,
+                                    fontSize: settings.terminalFontSize,
+                                  );
+                                }
+                                final secondIndex = (state.activeIndex + 1) %
+                                    state.sessions.length;
+                                final children = [
+                                  Expanded(
+                                    child: _TerminalPane(
+                                      key: ValueKey(state.active!.id),
+                                      session: state.active!,
+                                      fontSize: settings.terminalFontSize,
+                                    ),
+                                  ),
+                                  const Divider(height: 1, thickness: 1),
+                                  Expanded(
+                                    child: _TerminalPane(
+                                      key: ValueKey(
+                                          state.sessions[secondIndex].id),
+                                      session: state.sessions[secondIndex],
+                                      fontSize: settings.terminalFontSize,
+                                    ),
+                                  ),
+                                ];
+                                return constraints.maxWidth >
+                                        constraints.maxHeight
+                                    ? Row(children: children)
+                                    : Column(children: children);
+                              },
+                            ),
                 ),
                 if (visibleSession != null)
-                  IconButton(
-                    tooltip: '性能监控',
-                    onPressed: visibleSession.isSsh
+                  TerminalSpecialKeys(
+                    order: settings.terminalQuickKeys,
+                    customKeys: settings.terminalCustomKeys,
+                    onSend: ref.read(sessionControllerProvider.notifier).send,
+                    onAi: () => _openAi(visibleSession),
+                    onPortForward: visibleSession.isSsh
+                        ? () => showModalBottomSheet<void>(
+                              context: context,
+                              isScrollControlled: true,
+                              builder: (_) =>
+                                  PortForwardSheet(session: visibleSession),
+                            )
+                        : null,
+                    onSystemManagement: visibleSession.isSsh
                         ? () => showModalBottomSheet<void>(
                               context: context,
                               useSafeArea: true,
                               isScrollControlled: true,
-                              builder: (_) => ServerMonitorSheet(
+                              backgroundColor: Colors.transparent,
+                              builder: (_) => SystemManagementSheet(
                                 session: visibleSession,
+                                snippets: snippets,
+                                onOpenTerminal: (label, command) =>
+                                    _openManagedTerminal(
+                                  visibleSession,
+                                  label,
+                                  command,
+                                ),
                               ),
                             )
                         : null,
-                    icon: const Icon(Icons.monitor_heart_outlined),
+                    fullscreen: fullscreen,
+                    onFullscreen: () => ref
+                        .read(terminalFullscreenProvider.notifier)
+                        .state = !fullscreen,
+                    split: _split,
+                    onSplit: state.sessions.length > 1
+                        ? () => setState(() => _split = !_split)
+                        : null,
                   ),
               ],
             ),
           ),
-          Expanded(
-            child: selectedPending != null
-                ? _ConnectionStatusPane(
-                    pending: selectedPending,
-                    onReturn: state.sessions.isEmpty
-                        ? null
-                        : () => ref
-                            .read(sessionControllerProvider.notifier)
-                            .activate(state.activeIndex),
-                    onClose:
-                        selectedPending.phase == PendingConnectionPhase.failed
-                            ? () => ref
-                                .read(sessionControllerProvider.notifier)
-                                .dismissPending(selectedPending.id)
-                            : null,
-                  )
-                : state.sessions.isEmpty
-                    ? const EmptyState(
-                        icon: Icons.terminal_outlined,
-                        title: '没有活动会话',
-                        subtitle: '从“保险库”选择主机开始连接。',
-                      )
-                    : LayoutBuilder(
-                        builder: (context, constraints) {
-                          if (!_split || state.sessions.length < 2) {
-                            return _TerminalPane(
-                              key: ValueKey(state.active!.id),
-                              session: state.active!,
-                              fontSize: settings.terminalFontSize,
-                            );
-                          }
-                          final secondIndex =
-                              (state.activeIndex + 1) % state.sessions.length;
-                          final children = [
-                            Expanded(
-                              child: _TerminalPane(
-                                key: ValueKey(state.active!.id),
-                                session: state.active!,
-                                fontSize: settings.terminalFontSize,
-                              ),
-                            ),
-                            const Divider(height: 1, thickness: 1),
-                            Expanded(
-                              child: _TerminalPane(
-                                key: ValueKey(state.sessions[secondIndex].id),
-                                session: state.sessions[secondIndex],
-                                fontSize: settings.terminalFontSize,
-                              ),
-                            ),
-                          ];
-                          return constraints.maxWidth > constraints.maxHeight
-                              ? Row(children: children)
-                              : Column(children: children);
-                        },
-                      ),
-          ),
-          if (visibleSession != null)
-            TerminalSpecialKeys(
-              order: settings.terminalQuickKeys,
-              customKeys: settings.terminalCustomKeys,
-              onSend: ref.read(sessionControllerProvider.notifier).send,
-              onAi: () => _openAi(visibleSession),
-              onPortForward: visibleSession.isSsh
-                  ? () => showModalBottomSheet<void>(
-                        context: context,
-                        isScrollControlled: true,
-                        builder: (_) =>
-                            PortForwardSheet(session: visibleSession),
-                      )
-                  : null,
-              onSystemManagement: visibleSession.isSsh
-                  ? () => showModalBottomSheet<void>(
-                        context: context,
-                        useSafeArea: true,
-                        isScrollControlled: true,
-                        backgroundColor: Colors.transparent,
-                        builder: (_) => SystemManagementSheet(
-                          session: visibleSession,
-                          snippets: snippets,
-                          onOpenTerminal: (label, command) =>
-                              _openManagedTerminal(
-                            visibleSession,
-                            label,
-                            command,
-                          ),
-                        ),
-                      )
-                  : null,
-              split: _split,
-              onSplit: state.sessions.length > 1
-                  ? () => setState(() => _split = !_split)
-                  : null,
+          if (fullscreen && visibleSession != null)
+            Positioned(
+              top: 4,
+              right: 4,
+              child: Material(
+                key: const ValueKey('terminal-floating-performance'),
+                color: Theme.of(context)
+                    .colorScheme
+                    .surfaceContainerHighest
+                    .withValues(alpha: .82),
+                elevation: 2,
+                shape: const CircleBorder(),
+                child: IconButton(
+                  key: const ValueKey('terminal-performance-monitor'),
+                  tooltip: '性能监控',
+                  onPressed: visibleSession.isSsh
+                      ? () => _openPerformanceMonitor(visibleSession)
+                      : null,
+                  icon: const Icon(Icons.monitor_heart_outlined),
+                ),
+              ),
             ),
         ],
       ),
+    );
+  }
+
+  void _openPerformanceMonitor(ActiveTerminalSession session) {
+    showModalBottomSheet<void>(
+      context: context,
+      useSafeArea: true,
+      isScrollControlled: true,
+      builder: (_) => ServerMonitorSheet(session: session),
     );
   }
 

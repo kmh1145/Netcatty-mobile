@@ -14,6 +14,8 @@ class TerminalSpecialKeys extends ConsumerStatefulWidget {
     required this.onAi,
     required this.onPortForward,
     required this.onSystemManagement,
+    required this.fullscreen,
+    required this.onFullscreen,
     required this.split,
     required this.onSplit,
   });
@@ -24,6 +26,8 @@ class TerminalSpecialKeys extends ConsumerStatefulWidget {
   final VoidCallback onAi;
   final VoidCallback? onPortForward;
   final VoidCallback? onSystemManagement;
+  final bool fullscreen;
+  final VoidCallback onFullscreen;
   final bool split;
   final VoidCallback? onSplit;
 
@@ -88,6 +92,7 @@ class _TerminalSpecialKeysState extends ConsumerState<TerminalSpecialKeys> {
               children: [
                 IconButton(
                   key: const ValueKey('terminal-action-ai'),
+                  visualDensity: VisualDensity.compact,
                   tooltip: 'Catty Agent',
                   onPressed: widget.onAi,
                   icon: Icon(
@@ -97,18 +102,33 @@ class _TerminalSpecialKeysState extends ConsumerState<TerminalSpecialKeys> {
                 ),
                 IconButton(
                   key: const ValueKey('terminal-action-port-forward'),
+                  visualDensity: VisualDensity.compact,
                   tooltip: '端口转发',
                   onPressed: widget.onPortForward,
                   icon: const Icon(Icons.swap_horiz),
                 ),
                 IconButton(
                   key: const ValueKey('terminal-action-system-management'),
+                  visualDensity: VisualDensity.compact,
                   tooltip: '系统管理',
                   onPressed: widget.onSystemManagement,
                   icon: const Icon(Icons.admin_panel_settings_outlined),
                 ),
                 IconButton(
+                  key: const ValueKey('terminal-action-fullscreen'),
+                  visualDensity: VisualDensity.compact,
+                  tooltip: widget.fullscreen ? '退出全屏' : '全屏',
+                  isSelected: widget.fullscreen,
+                  onPressed: widget.onFullscreen,
+                  icon: Icon(
+                    widget.fullscreen
+                        ? Icons.fullscreen_exit
+                        : Icons.fullscreen,
+                  ),
+                ),
+                IconButton(
                   key: const ValueKey('terminal-action-split'),
+                  visualDensity: VisualDensity.compact,
                   tooltip: '分屏',
                   isSelected: widget.split,
                   onPressed: widget.onSplit,
@@ -116,12 +136,14 @@ class _TerminalSpecialKeysState extends ConsumerState<TerminalSpecialKeys> {
                 ),
                 IconButton(
                   key: const ValueKey('terminal-action-edit'),
+                  visualDensity: VisualDensity.compact,
                   tooltip: '编辑快捷键',
                   onPressed: () => _customize(context, normalized),
                   icon: const Icon(Icons.tune, size: 20),
                 ),
                 IconButton(
                   key: const ValueKey('terminal-action-hide-keyboard'),
+                  visualDensity: VisualDensity.compact,
                   tooltip: '收起键盘',
                   onPressed: () =>
                       FocusManager.instance.primaryFocus?.unfocus(),

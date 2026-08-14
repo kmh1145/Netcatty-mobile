@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:dartssh2/dartssh2.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'ssh_service.dart';
@@ -180,9 +181,22 @@ class SftpService extends FileTransferService {
 }
 
 class LocalFileTransferService extends MountableFileTransferService {
-  LocalFileTransferService._(this.rootPath);
+  LocalFileTransferService._(this.rootPath, {this.isMounted = false});
+
+  static const _iosStorageChannel = MethodChannel(
+    'app.netcatty.mobile/storage',
+  );
 
   static Future<LocalFileTransferService> create() async {
+    if (Platform.isIOS) {
+      final mount = await _iosStorageChannel.invokeMapMethod<String, dynamic>(
+        'getMount',
+      );
+      final path = mount?['path']?.toString();
+      if (mount?['mounted'] == true && path?.isNotEmpty == true) {
+        return LocalFileTransferService._(path!, isMounted: true);
+      }
+    }
     final documents = await getApplicationDocumentsDirectory();
     final root = Directory(
       '${documents.path}${Platform.pathSeparator}Netcatty',
@@ -194,7 +208,7 @@ class LocalFileTransferService extends MountableFileTransferService {
   @override
   String rootPath;
   @override
-  bool isMounted = false;
+  bool isMounted;
   @override
   String? get mountedDirectoryName => isMounted
       ? Uri.file(rootPath).pathSegments.where((value) => value.isNotEmpty).last
@@ -209,9 +223,17 @@ class LocalFileTransferService extends MountableFileTransferService {
 
   @override
   Future<bool> mount() async {
-    final selected = await FilePicker.platform.getDirectoryPath(
-      dialogTitle: '选择要挂载到 SFTP 的手机目录',
-    );
+    final String? selected;
+    if (Platform.isIOS) {
+      final mount = await _iosStorageChannel.invokeMapMethod<String, dynamic>(
+        'mount',
+      );
+      selected = mount?['path']?.toString();
+    } else {
+      selected = await FilePicker.platform.getDirectoryPath(
+        dialogTitle: '选择要挂载到 SFTP 的手机目录',
+      );
+    }
     if (selected == null || selected.isEmpty) return false;
     rootPath = selected;
     isMounted = true;

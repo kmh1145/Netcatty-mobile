@@ -34,7 +34,8 @@ class _NetcattyAppState extends ConsumerState<NetcattyApp>
     if (state == AppLifecycleState.resumed) {
       ConnectionPlatformService.endBackgroundGrace();
       ref.read(sessionControllerProvider.notifier).reconnectDisconnected();
-    } else if (state == AppLifecycleState.paused ||
+    } else if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden) {
       ConnectionPlatformService.beginBackgroundGrace();
     }

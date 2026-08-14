@@ -5,9 +5,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:netcatty_mobile/domain/models/settings.dart';
 import 'package:netcatty_mobile/infrastructure/ssh/sftp_service.dart';
+import 'package:netcatty_mobile/presentation/home_shell.dart';
 import 'package:netcatty_mobile/presentation/widgets/terminal_special_keys.dart';
 
 void main() {
+  test('home navigation only hides for a fullscreen terminal', () {
+    expect(shouldHideHomeNavigation(1, true), isTrue);
+    expect(shouldHideHomeNavigation(1, false), isFalse);
+    expect(shouldHideHomeNavigation(2, true), isFalse);
+  });
+
   test('legacy default quick keys migrate to the new mobile defaults', () {
     final settings = AppSettings.fromJson({
       'terminalQuickKeys': legacyDefaultTerminalQuickKeys,
@@ -102,6 +109,8 @@ void main() {
                   onAi: _ignore,
                   onPortForward: null,
                   onSystemManagement: null,
+                  fullscreen: false,
+                  onFullscreen: _ignore,
                   split: false,
                   onSplit: null,
                 ),
@@ -133,6 +142,7 @@ void main() {
       'terminal-action-ai',
       'terminal-action-port-forward',
       'terminal-action-system-management',
+      'terminal-action-fullscreen',
       'terminal-action-split',
       'terminal-action-edit',
       'terminal-action-hide-keyboard',
@@ -161,6 +171,7 @@ void main() {
       ),
       findsNothing,
     );
+    expect(find.byTooltip('全屏'), findsOneWidget);
   });
 }
 
