@@ -62,6 +62,7 @@ abstract class FileTransferService {
 abstract class MountableFileTransferService extends FileTransferService {
   bool get isMounted;
   String? get mountedDirectoryName;
+  bool get usesAppDocuments => false;
   Future<bool> mount();
 }
 
@@ -180,10 +181,22 @@ class SftpService extends FileTransferService {
 }
 
 class LocalFileTransferService extends MountableFileTransferService {
-  LocalFileTransferService._(this.rootPath);
+  LocalFileTransferService._(
+    this.rootPath, {
+    this.isMounted = false,
+    this.usesAppDocuments = false,
+  });
 
   static Future<LocalFileTransferService> create() async {
     final documents = await getApplicationDocumentsDirectory();
+    if (Platform.isIOS) {
+      await documents.create(recursive: true);
+      return LocalFileTransferService._(
+        documents.path,
+        isMounted: true,
+        usesAppDocuments: true,
+      );
+    }
     final root = Directory(
       '${documents.path}${Platform.pathSeparator}Netcatty',
     );
@@ -194,21 +207,37 @@ class LocalFileTransferService extends MountableFileTransferService {
   @override
   String rootPath;
   @override
-  bool isMounted = false;
+  bool isMounted;
   @override
-  String? get mountedDirectoryName => isMounted
-      ? Uri.file(rootPath).pathSegments.where((value) => value.isNotEmpty).last
-      : null;
+  final bool usesAppDocuments;
+  @override
+  String? get mountedDirectoryName {
+    if (!isMounted) return null;
+    if (usesAppDocuments) return 'Netcatty';
+    return Uri.file(rootPath)
+        .pathSegments
+        .where((value) => value.isNotEmpty)
+        .last;
+  }
+
   @override
   String get id => 'local';
   @override
-  String get displayName =>
-      isMounted ? '手机：${mountedDirectoryName ?? '已选目录'}' : '手机目录（未挂载）';
+  String get displayName => usesAppDocuments
+      ? '文件：Netcatty'
+      : isMounted
+          ? '手机：${mountedDirectoryName ?? '已选目录'}'
+          : '手机目录（未挂载）';
   @override
   bool get isLocal => true;
 
   @override
   Future<bool> mount() async {
+    if (usesAppDocuments) {
+      await Directory(rootPath).create(recursive: true);
+      isMounted = true;
+      return true;
+    }
     final selected = await FilePicker.platform.getDirectoryPath(
       dialogTitle: '选择要挂载到 SFTP 的手机目录',
     );

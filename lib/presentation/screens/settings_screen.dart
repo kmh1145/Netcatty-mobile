@@ -6,6 +6,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../application/settings_controller.dart';
@@ -13,6 +14,7 @@ import '../../application/vault_controller.dart';
 import '../../domain/models/settings.dart';
 import '../../domain/models/vault.dart';
 import '../../infrastructure/storage/vault_repository.dart';
+import '../../infrastructure/storage/vault_export_service.dart';
 import '../../infrastructure/sync/cloud_sync_service.dart';
 import '../../infrastructure/sync/github_auth_service.dart';
 import '../theme.dart';
@@ -26,6 +28,7 @@ class SettingsScreen extends ConsumerStatefulWidget {
 }
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
+  late final Future<PackageInfo> _packageInfo = PackageInfo.fromPlatform();
   final endpoint = TextEditingController();
   final username = TextEditingController();
   final providerSecret = TextEditingController();
@@ -389,9 +392,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
               ),
               const SizedBox(height: 20),
-              const Center(
-                child: Text(
-                  'Netcatty Mobile 1.0.0 · GPL-3.0-or-later',
+              Center(
+                child: FutureBuilder<PackageInfo>(
+                  future: _packageInfo,
+                  builder: (context, snapshot) => Text(
+                    snapshot.hasData
+                        ? 'Netcatty Mobile ${snapshot.data!.version} · GPL-3.0-or-later'
+                        : 'Netcatty Mobile · GPL-3.0-or-later',
+                  ),
                 ),
               ),
             ],
@@ -558,17 +566,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _export() async {
-    final path = await FilePicker.platform.saveFile(
-      dialogTitle: '导出 Netcatty 保险库',
-      fileName: 'netcatty-mobile-export.json',
-    );
-    if (path == null) return;
     final vault = ref.read(vaultControllerProvider).data ?? VaultData.empty();
-    await File(path).writeAsString(
-      const JsonEncoder.withIndent('  ').convert(vault.toJson()),
-      flush: true,
-    );
-    _message('导出完成');
+    try {
+      final result = await VaultExportService().export(vault);
+      if (result == VaultExportResult.saved) _message('导出完成');
+    } catch (error) {
+      _message('导出失败：$error');
+    }
   }
 
   void _message(String value) {

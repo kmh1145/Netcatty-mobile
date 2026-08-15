@@ -5,9 +5,18 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:netcatty_mobile/domain/models/settings.dart';
 import 'package:netcatty_mobile/infrastructure/ssh/sftp_service.dart';
+import 'package:netcatty_mobile/infrastructure/ssh/terminal_picture_in_picture_service.dart';
+import 'package:netcatty_mobile/presentation/home_shell.dart';
 import 'package:netcatty_mobile/presentation/widgets/terminal_special_keys.dart';
+import 'package:xterm/xterm.dart';
 
 void main() {
+  test('home navigation only hides for a fullscreen terminal', () {
+    expect(shouldHideHomeNavigation(1, true), isTrue);
+    expect(shouldHideHomeNavigation(1, false), isFalse);
+    expect(shouldHideHomeNavigation(2, true), isFalse);
+  });
+
   test('legacy default quick keys migrate to the new mobile defaults', () {
     final settings = AppSettings.fromJson({
       'terminalQuickKeys': legacyDefaultTerminalQuickKeys,
@@ -102,6 +111,10 @@ void main() {
                   onAi: _ignore,
                   onPortForward: null,
                   onSystemManagement: null,
+                  pictureInPicture: false,
+                  onPictureInPicture: _ignore,
+                  fullscreen: false,
+                  onFullscreen: _ignore,
                   split: false,
                   onSplit: null,
                 ),
@@ -133,6 +146,8 @@ void main() {
       'terminal-action-ai',
       'terminal-action-port-forward',
       'terminal-action-system-management',
+      'terminal-action-picture-in-picture',
+      'terminal-action-fullscreen',
       'terminal-action-split',
       'terminal-action-edit',
       'terminal-action-hide-keyboard',
@@ -160,6 +175,18 @@ void main() {
         matching: find.byType(Scrollable),
       ),
       findsNothing,
+    );
+    expect(find.byTooltip('全屏'), findsOneWidget);
+    expect(find.byTooltip('画中画'), findsOneWidget);
+  });
+
+  test('terminal PiP text keeps only the most recent visible lines', () {
+    final terminal = Terminal(maxLines: 100);
+    terminal.write('one\r\ntwo\r\nthree\r\nfour');
+
+    expect(
+      terminalPictureInPictureText(terminal, maxLines: 3),
+      'two\nthree\nfour',
     );
   });
 }

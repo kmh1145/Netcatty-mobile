@@ -128,6 +128,29 @@ void main() {
         find.byKey(const ValueKey('copy-terminal-selection')),
         findsOneWidget,
       );
+
+      expect(
+        find.byKey(const ValueKey('terminal-tab-strip')),
+        findsOneWidget,
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('terminal-action-fullscreen')),
+      );
+      await tester.pump();
+
+      expect(
+        find.byKey(const ValueKey('terminal-tab-strip')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey('terminal-floating-performance')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('terminal-performance-monitor')),
+        findsOneWidget,
+      );
+      expect(find.byTooltip('退出全屏'), findsOneWidget);
     },
   );
 }
