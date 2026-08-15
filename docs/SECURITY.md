@@ -1,9 +1,142 @@
-# Security notes
+# 安全与隐私约定
 
-- Verify a new server's SHA-256 fingerprint through a trusted channel before accepting it.
-- Android backups are disabled because credentials are device-bound. iOS Keychain entries use `first_unlock_this_device` accessibility and do not migrate to another device.
-- The regular local vault contains no host passwords, Telnet passwords, private keys, key passphrases, sync password, provider token, or AI API key.
-- Cloud payloads use the same zero-knowledge encryption format as desktop Netcatty. Provider credentials authenticate storage only and cannot decrypt the vault without the master password.
-- Catty produces a command but never silently executes it. The UI displays the exact command and requires a user choice.
-- WebDAV requires HTTPS. Android cleartext traffic is disabled. Do not weaken ATS/Network Security Config for production.
-- Manual plaintext JSON exports are intentionally explicit and should be deleted after migration.
+## 威胁边界
+
+Netcatty Mobile 会处理高敏感数据：服务器密码、私钥、主机指纹、同步主密码、GitHub/WebDAV 凭据、AI API Key、终端输出和远程文件。任何新功能都必须假设设备日志、截图、云端存储和 Git 历史可能被第三方读取。
+
+本项目的目标是：
+
+- 普通本地偏好设置和调试日志不包含凭据。
+- 云同步 Provider 无法在没有同步主密码时解密 Vault。
+- 用户能在首次连接时验证服务器身份。
+- AI 或远程管理功能不会静默执行破坏性命令。
+- 发布源码、截图、文档和安装包时不暴露维护者或测试服务器信息。
+
+## 本地凭据
+
+`VaultRepository` 将敏感字段与普通 Vault JSON 分离：
+
+- Android：通过 `FlutterSecureStorage` 使用 Keystore/Encrypted Shared Preferences。
+- iOS：使用 Keychain，凭据采用设备绑定的可访问级别，不随普通设备备份迁移。
+
+普通 `SharedPreferences` 不得保存：
+
+- SSH/Telnet 密码
+- 私钥与私钥口令
+- 同步主密码
+- GitHub Token / WebDAV 密码
+- AI API Key
+
+增加新的认证字段时，必须同步修改敏感字段拆分、恢复、删除和导出逻辑，并写迁移测试。
+
+Android 已禁用应用备份和明文 HTTP。iOS 文件共享目录只用于用户可见文件，不用于保存安全存储中的凭据。
+
+## 主机身份验证
+
+首次连接必须显示服务器主机密钥算法和 SHA-256 指纹。用户应通过可信渠道比对指纹；拒绝后立即终止握手。
+
+不要为了“连接方便”加入自动接受所有主机密钥的生产开关。测试替身只能存在于测试代码中。
+
+## 云同步加密
+
+`netcatty-vault.json` 使用：
+
+- 32 字节随机 Salt
+- PBKDF2-HMAC-SHA256，600,000 次
+- 256 位密钥
+- 12 字节随机 Nonce
+- AES-256-GCM 和 128 位认证 Tag
+
+Provider Token 只负责访问 WebDAV/Gist，不能替代同步主密码。同步主密码丢失后无法恢复加密内容。
+
+以下更改属于兼容性和安全敏感修改，必须经过单独审查：
+
+- KDF 算法或迭代次数
+- Nonce、Salt 或 Tag 长度
+- Ciphertext/Tag 拼接方式
+- JSON 编码、Base64 编码和字段名
+- 合并策略和版本回退
+
+必须保留仓库中的跨运行时兼容向量测试。
+
+## GitHub OAuth
+
+应用使用 OAuth Device Flow，请求 `gist read:user`。Client ID 属于客户端标识，可以编译进应用；Client Secret 和访问 Token 不能进入源码。
+
+Token 保存在系统安全存储中。错误信息和网络重试日志不得打印 Authorization Header、Device Code 或 Access Token。
+
+## AI 与远程命令
+
+Catty Agent 可以读取有限主机上下文并生成命令，但不能自动执行。UI 必须显示即将执行的完整命令并要求用户确认。
+
+进程 KILL、容器删除、镜像删除和其他破坏性系统管理操作必须二次确认。远程命令参数需正确 Shell 转义，禁止把用户输入直接拼接到未引用命令中。
+
+## 导入导出
+
+手动导出的保险库 JSON 可能包含凭据。导出界面必须继续显示明确警告，不能自动上传、分享或记录导出内容。
+
+导入内容是不可信输入：
+
+- 验证顶层 JSON 类型和字段类型。
+- 对缺失字段使用安全默认值。
+- 保留未知字段，但不能把未知字段当作可执行命令自动运行。
+- 导入失败信息不能回显整份含凭据 JSON。
+
+## 网络与日志
+
+- WebDAV 必须使用 HTTPS。
+- GitHub API 只使用 HTTPS 官方端点。
+- 不要放宽 Android Network Security Config 或 iOS ATS 来解决开发环境问题。
+- 日志不得包含密码、私钥、Token、主机指纹、完整授权响应或保险库明文。
+- 远程命令错误可以记录 Exit Code 和经过脱敏的 stderr，但不能包含 sudo 密码。
+
+## 截图和文档隐私
+
+公开截图前逐项检查：
+
+- 状态栏通知、运营商和设备标识
+- GitHub 用户名、邮箱和头像
+- 主机名称、IP、域名、端口、用户名和标签
+- SSH 指纹、密钥名称和终端 `last login` 来源
+- 文件名、目录路径、命令历史和 Token
+- EXIF 中的设备、时间、GPS 和软件信息
+
+必要时只使用已脱敏截图，或直接不发布相关图片。不要依赖涂抹层可以被安全还原；推荐在导出前把敏感区域栅格化，并在最终文件上再次检查。
+
+文档示例使用：
+
+- 域名：`example.com`
+- IPv4：`192.0.2.0/24`、`198.51.100.0/24`、`203.0.113.0/24`
+- 用户名：`demo`、`user`
+- Token：`<token>`
+
+不得写入维护者本机绝对路径或附件缓存路径。
+
+## Git 与 CI Secret
+
+禁止提交：
+
+- `.jks`、`.keystore`、`.p12`、`.mobileprovision`
+- `key.properties`、证书密码和 Base64 签名内容
+- `.env` 中的真实值
+- GitHub/WebDAV/AI Token
+- 私钥、主机配置导出和未脱敏日志
+- `.codex-remote-attachments` 或其他聊天附件缓存
+
+CI 只引用 Secret 名称，不把值回显到日志。Android Release 使用持久签名，因此签名材料丢失会导致后续 APK 无法覆盖升级；应在安全位置备份并限制访问。
+
+## 安全修改检查表
+
+提交前确认：
+
+- [ ] 普通 Vault/Preferences 不包含新增敏感字段
+- [ ] Token、密码和私钥不会进入日志或异常文本
+- [ ] 主机指纹验证没有被绕过
+- [ ] 破坏性远程操作有二次确认
+- [ ] Shell/URL/JSON 输入经过转义或验证
+- [ ] 加密兼容测试仍通过
+- [ ] 截图和文档已脱敏且不含个人环境路径
+- [ ] Git Diff 中没有签名、凭据或附件缓存
+- [ ] Android 与 iOS 权限声明没有被不必要放宽
+
+如果凭据已经提交到 Git 历史，仅删除文件不够：必须立即吊销/轮换凭据，并根据影响范围清理历史和发布产物。
