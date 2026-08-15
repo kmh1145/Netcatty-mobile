@@ -88,10 +88,31 @@ void main() {
       size: 0,
     );
 
-    await transferEntry(source, entry, target, '/incoming');
+    final progress = <int>[];
+    expect(await calculateTransferSize(source, entry), 4);
+    final transferred = await transferEntry(
+      source,
+      entry,
+      target,
+      '/incoming',
+      onProgress: progress.add,
+    );
 
     expect(target.directories, contains('/incoming/logs'));
     expect(target.files['/incoming/logs/app.log'], [1, 2, 3, 4]);
+    expect(transferred, 4);
+    expect(progress, isNotEmpty);
+    expect(progress.last, 4);
+  });
+
+  test('typed file chunks are reused without an extra memory copy', () async {
+    final chunk = Uint8List.fromList([1, 2, 3]);
+
+    final normalized = await asUint8ListStream(
+      Stream<List<int>>.value(chunk),
+    ).single;
+
+    expect(identical(normalized, chunk), isTrue);
   });
 
   testWidgets('quick key region wraps without horizontal scrolling',
@@ -258,13 +279,26 @@ class _MemoryTransferService extends FileTransferService {
   }
 
   @override
-  Stream<Uint8List> readStream(String path) => Stream.value(files[path]!);
+  Stream<Uint8List> readStream(
+    String path, {
+    TransferProgressCallback? onProgress,
+  }) {
+    final stream = Stream.value(files[path]!);
+    return onProgress == null
+        ? stream
+        : trackTransferProgress(stream, onProgress);
+  }
 
   @override
-  Future<void> writeStream(String path, Stream<Uint8List> stream) async {
+  Future<void> writeStream(
+    String path,
+    Stream<Uint8List> stream, {
+    TransferProgressCallback? onProgress,
+  }) async {
     final builder = BytesBuilder(copy: false);
     await for (final chunk in stream) {
       builder.add(chunk);
+      onProgress?.call(builder.length);
     }
     files[path] = builder.takeBytes();
   }

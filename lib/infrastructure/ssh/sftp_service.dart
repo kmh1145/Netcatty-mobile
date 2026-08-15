@@ -24,6 +24,8 @@ class RemoteEntry {
   final DateTime? modifiedAt;
 }
 
+typedef TransferProgressCallback = void Function(int transferredBytes);
+
 abstract class FileTransferService {
   String get id;
   String get displayName;
@@ -34,8 +36,15 @@ abstract class FileTransferService {
   String joinPath(String path, String name);
   String parentPath(String path);
   Future<List<RemoteEntry>> list(String path);
-  Stream<Uint8List> readStream(String path);
-  Future<void> writeStream(String path, Stream<Uint8List> stream);
+  Stream<Uint8List> readStream(
+    String path, {
+    TransferProgressCallback? onProgress,
+  });
+  Future<void> writeStream(
+    String path,
+    Stream<Uint8List> stream, {
+    TransferProgressCallback? onProgress,
+  });
   Future<void> mkdir(String path);
   Future<void> ensureDirectory(String path);
   Future<void> rename(String from, String to);
@@ -122,17 +131,26 @@ class SftpService extends FileTransferService {
   }
 
   @override
-  Stream<Uint8List> readStream(String path) async* {
+  Stream<Uint8List> readStream(
+    String path, {
+    TransferProgressCallback? onProgress,
+  }) async* {
     final file = await (await _sftp).open(path, mode: SftpFileOpenMode.read);
     try {
-      yield* file.read();
+      yield* Platform.isIOS
+          ? file.read(onProgress: onProgress, maxPendingRequests: 8)
+          : file.read(onProgress: onProgress);
     } finally {
       await file.close();
     }
   }
 
   @override
-  Future<void> writeStream(String path, Stream<Uint8List> stream) async {
+  Future<void> writeStream(
+    String path,
+    Stream<Uint8List> stream, {
+    TransferProgressCallback? onProgress,
+  }) async {
     final file = await (await _sftp).open(
       path,
       mode: SftpFileOpenMode.create |
@@ -140,7 +158,15 @@ class SftpService extends FileTransferService {
           SftpFileOpenMode.truncate,
     );
     try {
-      await file.write(stream).done;
+      if (Platform.isIOS) {
+        await _writeSftpStreamWithLimitedConcurrency(
+          file,
+          stream,
+          onProgress: onProgress,
+        );
+      } else {
+        await file.write(stream, onProgress: onProgress).done;
+      }
     } finally {
       await file.close();
     }
@@ -164,7 +190,7 @@ class SftpService extends FileTransferService {
       (await _sftp).rename(from, to);
 
   /// Retained for callers that copy within this SSH session.
-  Future<void> copyEntry(RemoteEntry entry, String targetDirectory) =>
+  Future<int> copyEntry(RemoteEntry entry, String targetDirectory) =>
       transferEntry(this, entry, this, targetDirectory);
 
   @override
@@ -288,16 +314,29 @@ class LocalFileTransferService extends MountableFileTransferService {
   }
 
   @override
-  Stream<Uint8List> readStream(String path) =>
-      File(path).openRead().map((chunk) => Uint8List.fromList(chunk));
+  Stream<Uint8List> readStream(
+    String path, {
+    TransferProgressCallback? onProgress,
+  }) {
+    final stream = asUint8ListStream(File(path).openRead());
+    return onProgress == null
+        ? stream
+        : trackTransferProgress(stream, onProgress);
+  }
 
   @override
-  Future<void> writeStream(String path, Stream<Uint8List> stream) async {
+  Future<void> writeStream(
+    String path,
+    Stream<Uint8List> stream, {
+    TransferProgressCallback? onProgress,
+  }) async {
     final file = File(path);
     await file.parent.create(recursive: true);
     final sink = file.openWrite(mode: FileMode.writeOnly);
     try {
-      await sink.addStream(stream);
+      await sink.addStream(
+        onProgress == null ? stream : trackTransferProgress(stream, onProgress),
+      );
     } finally {
       await sink.close();
     }
@@ -326,12 +365,25 @@ class LocalFileTransferService extends MountableFileTransferService {
       : File(entry.path).delete();
 }
 
-Future<void> transferEntry(
+Future<int> calculateTransferSize(
+  FileTransferService source,
+  RemoteEntry entry,
+) async {
+  if (!entry.isDirectory) return entry.size;
+  var total = 0;
+  for (final child in await source.list(entry.path)) {
+    total += await calculateTransferSize(source, child);
+  }
+  return total;
+}
+
+Future<int> transferEntry(
   FileTransferService source,
   RemoteEntry entry,
   FileTransferService target,
-  String targetDirectory,
-) async {
+  String targetDirectory, {
+  TransferProgressCallback? onProgress,
+}) async {
   final targetPath = target.joinPath(targetDirectory, entry.name);
   final separator = source.isLocal ? Platform.pathSeparator : '/';
   if (source.id == target.id &&
@@ -339,14 +391,96 @@ Future<void> transferEntry(
           targetPath.startsWith('${entry.path}$separator'))) {
     throw StateError('不能把文件或目录复制到自身');
   }
-  if (entry.isDirectory) {
-    await target.ensureDirectory(targetPath);
-    for (final child in await source.list(entry.path)) {
-      await transferEntry(source, child, target, targetPath);
+
+  var transferred = 0;
+
+  Future<void> copy(RemoteEntry current, String directory) async {
+    final currentTargetPath = target.joinPath(directory, current.name);
+    if (current.isDirectory) {
+      await target.ensureDirectory(currentTargetPath);
+      for (final child in await source.list(current.path)) {
+        await copy(child, currentTargetPath);
+      }
+      return;
     }
-    return;
+
+    final baseline = transferred;
+    var fileProgress = 0;
+    await target.writeStream(
+      currentTargetPath,
+      source.readStream(current.path),
+      onProgress: (value) {
+        fileProgress = value;
+        onProgress?.call(baseline + value);
+      },
+    );
+    transferred = baseline + fileProgress;
   }
-  await target.writeStream(targetPath, source.readStream(entry.path));
+
+  await copy(entry, targetDirectory);
+  return transferred;
+}
+
+Stream<Uint8List> asUint8ListStream(Stream<List<int>> source) => source.map(
+      (chunk) => chunk is Uint8List ? chunk : Uint8List.fromList(chunk),
+    );
+
+Stream<Uint8List> trackTransferProgress(
+  Stream<Uint8List> source,
+  TransferProgressCallback onProgress,
+) async* {
+  var transferred = 0;
+  await for (final chunk in source) {
+    yield chunk;
+    transferred += chunk.length;
+    onProgress(transferred);
+  }
+}
+
+Future<void> _writeSftpStreamWithLimitedConcurrency(
+  SftpFile file,
+  Stream<Uint8List> stream, {
+  TransferProgressCallback? onProgress,
+  int maxPendingWrites = 8,
+}) async {
+  const maxChunkSize = 16 * 1024;
+  var offset = 0;
+  var acknowledged = 0;
+  var batch = <Future<int>>[];
+
+  Future<void> flushBatch() async {
+    if (batch.isEmpty) return;
+    final completed = await Future.wait(batch);
+    acknowledged += completed.fold(0, (total, value) => total + value);
+    onProgress?.call(acknowledged);
+    batch = <Future<int>>[];
+  }
+
+  await for (final chunk in _splitByteChunks(stream, maxChunkSize)) {
+    final writeOffset = offset;
+    offset += chunk.length;
+    batch.add(
+      file.writeBytes(chunk, offset: writeOffset).then((_) => chunk.length),
+    );
+    if (batch.length >= maxPendingWrites) await flushBatch();
+  }
+  await flushBatch();
+}
+
+Stream<Uint8List> _splitByteChunks(
+  Stream<Uint8List> source,
+  int maxChunkSize,
+) async* {
+  await for (final chunk in source) {
+    if (chunk.length <= maxChunkSize) {
+      yield chunk;
+      continue;
+    }
+    for (var offset = 0; offset < chunk.length; offset += maxChunkSize) {
+      final end = (offset + maxChunkSize).clamp(0, chunk.length);
+      yield Uint8List.sublistView(chunk, offset, end);
+    }
+  }
 }
 
 String joinRemotePath(String path, String name) =>
