@@ -19,7 +19,33 @@ Netcatty 的 Android / iOS 移动端实现：一个面向服务器管理、SSH �
 - **安全优先**：密码、私钥、同步主密码和 API Key 分别保存到 Android Keystore / iOS Keychain；云端保险库采用 PBKDF2-SHA256 与 AES-256-GCM 加密。
 - **高度可定制**：网格、列表、树形三种主机视图，浅色/深色主题库，命令片段以及可排序的终端快捷键。
 
-## 界面预览
+## 特色功能预览
+
+### 画中画终端
+
+<p align="center">
+  <img src="docs/images/terminal-pip.jpg" width="720" alt="画中画终端">
+</p>
+
+将终端缩小为系统画中画窗口，在查看其他页面或切换应用时仍能观察 SSH 输出。Android 展示实时 Flutter 终端画面，iOS 通过原生文本帧保持文字清晰和方向正确。画中画也能提高会话在多任务场景中的可见性，但不会绕过移动系统本身的后台网络限制。
+
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <img src="docs/images/system-management.jpg" width="280" alt="系统管理面板"><br>
+      <sub>系统管理：进程、Docker、Compose 与 tmux 三合一工作台</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="docs/images/performance-monitor.jpg" width="280" alt="服务器性能监控面板"><br>
+      <sub>性能监控：CPU、内存、磁盘、网络、负载与运行时间</sub>
+    </td>
+  </tr>
+</table>
+
+- **系统管理面板**直接复用当前 SSH 会话，可搜索、筛选和操作远程进程，管理 Docker 容器、镜像与 Compose 项目，并创建或重新连接 tmux Session。危险操作会先进行二次确认。
+- **性能监控面板**连接后自动识别操作系统、发行版、主机名和内核，以卡片形式实时呈现资源占用和网络吞吐，不需要在多个命令之间来回切换。
+
+## 更多界面
 
 <table>
   <tr>
