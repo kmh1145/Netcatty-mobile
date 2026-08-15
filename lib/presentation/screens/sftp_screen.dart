@@ -283,9 +283,11 @@ class _SftpPaneState extends State<_SftpPane> {
                                 title: Text(source.displayName),
                                 subtitle: Text(
                                   source is MountableFileTransferService
-                                      ? source.isMounted
-                                          ? '已挂载：${source.mountedDirectoryName}'
-                                          : '点文件夹按钮选择手机目录'
+                                      ? source.usesAppDocuments
+                                          ? '文件 App：我的 iPhone/iPad/Netcatty'
+                                          : source.isMounted
+                                              ? '已挂载：${source.mountedDirectoryName}'
+                                              : '点文件夹按钮选择手机目录'
                                       : '已连接 SSH',
                                 ),
                               ),
@@ -356,7 +358,7 @@ class _SftpPaneState extends State<_SftpPane> {
                         !localReady || path == service.rootPath ? null : _up),
                     _toolbar(Icons.refresh, '刷新',
                         _loading || !localReady ? null : refresh),
-                    if (mountable != null)
+                    if (mountable != null && !mountable.usesAppDocuments)
                       _toolbar(
                         Icons.folder_open_outlined,
                         mountable.isMounted ? '更换挂载目录' : '挂载手机目录',
@@ -395,9 +397,11 @@ class _SftpPaneState extends State<_SftpPane> {
                         child: Text(
                           mountable != null && !mountable.isMounted
                               ? '尚未挂载手机目录\n点上方文件夹按钮选择目录'
-                              : service.isLocal
-                                  ? '挂载目录为空\n可直接上传或导入文件'
-                                  : '目录为空',
+                              : mountable?.usesAppDocuments == true
+                                  ? 'Netcatty 文件夹为空\n可从服务器下载或导入文件'
+                                  : service.isLocal
+                                      ? '挂载目录为空\n可直接上传或导入文件'
+                                      : '目录为空',
                           textAlign: TextAlign.center,
                           style: const TextStyle(fontSize: 11),
                         ),

@@ -4,7 +4,6 @@ import 'dart:typed_data';
 
 import 'package:dartssh2/dartssh2.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'ssh_service.dart';
@@ -63,6 +62,7 @@ abstract class FileTransferService {
 abstract class MountableFileTransferService extends FileTransferService {
   bool get isMounted;
   String? get mountedDirectoryName;
+  bool get usesAppDocuments => false;
   Future<bool> mount();
 }
 
@@ -181,23 +181,22 @@ class SftpService extends FileTransferService {
 }
 
 class LocalFileTransferService extends MountableFileTransferService {
-  LocalFileTransferService._(this.rootPath, {this.isMounted = false});
-
-  static const _iosStorageChannel = MethodChannel(
-    'app.netcatty.mobile/storage',
-  );
+  LocalFileTransferService._(
+    this.rootPath, {
+    this.isMounted = false,
+    this.usesAppDocuments = false,
+  });
 
   static Future<LocalFileTransferService> create() async {
-    if (Platform.isIOS) {
-      final mount = await _iosStorageChannel.invokeMapMethod<String, dynamic>(
-        'getMount',
-      );
-      final path = mount?['path']?.toString();
-      if (mount?['mounted'] == true && path?.isNotEmpty == true) {
-        return LocalFileTransferService._(path!, isMounted: true);
-      }
-    }
     final documents = await getApplicationDocumentsDirectory();
+    if (Platform.isIOS) {
+      await documents.create(recursive: true);
+      return LocalFileTransferService._(
+        documents.path,
+        isMounted: true,
+        usesAppDocuments: true,
+      );
+    }
     final root = Directory(
       '${documents.path}${Platform.pathSeparator}Netcatty',
     );
@@ -210,30 +209,38 @@ class LocalFileTransferService extends MountableFileTransferService {
   @override
   bool isMounted;
   @override
-  String? get mountedDirectoryName => isMounted
-      ? Uri.file(rootPath).pathSegments.where((value) => value.isNotEmpty).last
-      : null;
+  final bool usesAppDocuments;
+  @override
+  String? get mountedDirectoryName {
+    if (!isMounted) return null;
+    if (usesAppDocuments) return 'Netcatty';
+    return Uri.file(rootPath)
+        .pathSegments
+        .where((value) => value.isNotEmpty)
+        .last;
+  }
+
   @override
   String get id => 'local';
   @override
-  String get displayName =>
-      isMounted ? '手机：${mountedDirectoryName ?? '已选目录'}' : '手机目录（未挂载）';
+  String get displayName => usesAppDocuments
+      ? '文件：Netcatty'
+      : isMounted
+          ? '手机：${mountedDirectoryName ?? '已选目录'}'
+          : '手机目录（未挂载）';
   @override
   bool get isLocal => true;
 
   @override
   Future<bool> mount() async {
-    final String? selected;
-    if (Platform.isIOS) {
-      final mount = await _iosStorageChannel.invokeMapMethod<String, dynamic>(
-        'mount',
-      );
-      selected = mount?['path']?.toString();
-    } else {
-      selected = await FilePicker.platform.getDirectoryPath(
-        dialogTitle: '选择要挂载到 SFTP 的手机目录',
-      );
+    if (usesAppDocuments) {
+      await Directory(rootPath).create(recursive: true);
+      isMounted = true;
+      return true;
     }
+    final selected = await FilePicker.platform.getDirectoryPath(
+      dialogTitle: '选择要挂载到 SFTP 的手机目录',
+    );
     if (selected == null || selected.isEmpty) return false;
     rootPath = selected;
     isMounted = true;
