@@ -6,6 +6,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../application/settings_controller.dart';
@@ -27,6 +28,7 @@ class SettingsScreen extends ConsumerStatefulWidget {
 }
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
+  late final Future<PackageInfo> _packageInfo = PackageInfo.fromPlatform();
   final endpoint = TextEditingController();
   final username = TextEditingController();
   final providerSecret = TextEditingController();
@@ -390,9 +392,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
               ),
               const SizedBox(height: 20),
-              const Center(
-                child: Text(
-                  'Netcatty Mobile 1.0.0 · GPL-3.0-or-later',
+              Center(
+                child: FutureBuilder<PackageInfo>(
+                  future: _packageInfo,
+                  builder: (context, snapshot) => Text(
+                    snapshot.hasData
+                        ? 'Netcatty Mobile ${snapshot.data!.version} · GPL-3.0-or-later'
+                        : 'Netcatty Mobile · GPL-3.0-or-later',
+                  ),
                 ),
               ),
             ],
