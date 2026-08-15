@@ -98,6 +98,7 @@ Windows 无法完成原生 iOS 编译；涉及 Swift、Info.plist 或 iOS Plugin
 | `vault_model_test.dart` | Vault 字段、未知字段无损往返和模型迁移 |
 | `netcatty_crypto_test.dart` | 桌面端兼容加密向量与 AES-GCM 格式 |
 | `github_auth_service_test.dart` | Device Flow、轮询、重试、取消与网络错误 |
+| `update_check_service_test.dart` | GitHub Latest Release 解析、语义版本比较与网络错误 |
 | `vault_export_service_test.dart` | JSON 导出与取消路径 |
 | `host_editor_layout_test.dart` | 键盘弹出、滚动和窄屏表单布局 |
 | `terminal_connection_dialog_test.dart` | Pending 标签、连接弹窗和会话隔离 |

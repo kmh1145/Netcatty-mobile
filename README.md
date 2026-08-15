@@ -18,6 +18,7 @@ Netcatty 的 Android / iOS 移动端实现：一个面向服务器管理、SSH �
 - **与桌面端兼容的保险库**：支持 WebDAV 和 GitHub OAuth/Gist 云同步；未知字段无损保留，方便桌面端与移动端交替使用。
 - **安全优先**：密码、私钥、同步主密码和 API Key 分别保存到 Android Keystore / iOS Keychain；云端保险库采用 PBKDF2-SHA256 与 AES-256-GCM 加密。
 - **高度可定制**：网格、列表、树形三种主机视图，浅色/深色主题库，命令片段以及可排序的终端快捷键。
+- **内置更新检查**：设置页自动比较当前应用版本与 GitHub 最新正式 Release，发现新版本后可直接前往下载页面。
 
 ## 特色功能预览
 
@@ -130,6 +131,7 @@ Netcatty 的 Android / iOS 移动端实现：一个面向服务器管理、SSH �
 - 本地普通偏好设置不保存密码、私钥、同步密码、Token 或 API Key
 - Android 禁用明文网络和系统备份；iOS 凭据使用设备 Keychain
 - Catty Agent 只生成建议命令，执行前必须由用户确认
+- 设置页自动检查 GitHub 最新 Release，并显示当前是否为最新版本
 
 ## 平台差异
 

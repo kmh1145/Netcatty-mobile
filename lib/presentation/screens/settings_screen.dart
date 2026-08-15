@@ -17,6 +17,7 @@ import '../../infrastructure/storage/vault_repository.dart';
 import '../../infrastructure/storage/vault_export_service.dart';
 import '../../infrastructure/sync/cloud_sync_service.dart';
 import '../../infrastructure/sync/github_auth_service.dart';
+import '../../infrastructure/update_check_service.dart';
 import '../theme.dart';
 import '../widgets/keychain_sheet.dart';
 
@@ -28,7 +29,9 @@ class SettingsScreen extends ConsumerStatefulWidget {
 }
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
-  late final Future<PackageInfo> _packageInfo = PackageInfo.fromPlatform();
+  late final Future<PackageInfo> _packageInfo;
+  late final UpdateCheckService _updateCheckService;
+  late Future<UpdateCheckResult> _updateCheck;
   final endpoint = TextEditingController();
   final username = TextEditingController();
   final providerSecret = TextEditingController();
@@ -46,12 +49,34 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   String? _githubUser;
 
   @override
+  void initState() {
+    super.initState();
+    _packageInfo = PackageInfo.fromPlatform();
+    _updateCheckService = UpdateCheckService();
+    _updateCheck = _checkForUpdates();
+  }
+
+  @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (!_loaded) {
       _loaded = true;
       _load();
     }
+  }
+
+  @override
+  void dispose() {
+    _updateCheckService.close();
+    endpoint.dispose();
+    username.dispose();
+    providerSecret.dispose();
+    resourceId.dispose();
+    masterPassword.dispose();
+    aiEndpoint.dispose();
+    aiModel.dispose();
+    aiKey.dispose();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -391,6 +416,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ],
                 ),
               ),
+              _header('关于与更新', '自动检查 GitHub 上的最新正式版本'),
+              Card(child: _updateCheckTile()),
               const SizedBox(height: 20),
               Center(
                 child: FutureBuilder<PackageInfo>(
@@ -424,6 +451,82 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ],
         ),
       );
+
+  Widget _updateCheckTile() => FutureBuilder<UpdateCheckResult>(
+        future: _updateCheck,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const ListTile(
+              leading: SizedBox.square(
+                dimension: 24,
+                child: CircularProgressIndicator(strokeWidth: 2.5),
+              ),
+              title: Text('正在检查更新'),
+              subtitle: Text('正在查询 GitHub 最新 Release'),
+            );
+          }
+          if (snapshot.hasError) {
+            return ListTile(
+              leading: Icon(
+                Icons.error_outline,
+                color: Theme.of(context).colorScheme.error,
+              ),
+              title: const Text('检查更新失败'),
+              subtitle: Text('${snapshot.error}\n点按重试'),
+              isThreeLine: true,
+              trailing: const Icon(Icons.refresh),
+              onTap: _retryUpdateCheck,
+            );
+          }
+
+          final result = snapshot.requireData;
+          final title = result.updateAvailable
+              ? '发现新版本 ${result.latestVersion}'
+              : result.isLatest
+                  ? '已是最新版本'
+                  : '当前为开发版本';
+          final subtitle = result.updateAvailable
+              ? '当前版本 ${result.currentVersion} · 点按前往下载'
+              : result.isLatest
+                  ? '当前版本 ${result.currentVersion} · 点按查看最新 Release'
+                  : '当前 ${result.currentVersion} · 最新正式版 ${result.latestVersion}';
+          final icon = result.updateAvailable
+              ? Icons.system_update_alt
+              : result.isLatest
+                  ? Icons.check_circle_outline
+                  : Icons.science_outlined;
+          return ListTile(
+            leading: Icon(
+              icon,
+              color: result.updateAvailable
+                  ? Theme.of(context).colorScheme.primary
+                  : null,
+            ),
+            title: Text(title),
+            subtitle: Text(subtitle),
+            trailing: const Icon(Icons.open_in_new),
+            onTap: () => _openLatestRelease(result.releaseUri),
+          );
+        },
+      );
+
+  Future<UpdateCheckResult> _checkForUpdates() async {
+    final info = await _packageInfo;
+    return _updateCheckService.check(info.version);
+  }
+
+  void _retryUpdateCheck() {
+    setState(() => _updateCheck = _checkForUpdates());
+  }
+
+  Future<void> _openLatestRelease(Uri uri) async {
+    try {
+      final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!opened) _message('无法打开 GitHub Release 页面');
+    } on Object {
+      _message('无法打开 GitHub Release 页面');
+    }
+  }
 
   Future<void> _saveSync() async {
     final connection = SyncConnection(
