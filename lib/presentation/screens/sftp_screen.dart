@@ -25,7 +25,7 @@ class _SftpScreenState extends ConsumerState<SftpScreen> {
   var _rightKey = GlobalKey<_SftpPaneState>();
   String? _leftSourceId;
   String? _rightSourceId = 'local';
-  var _copying = false;
+  _TransferProgressSnapshot? _transfer;
 
   @override
   void initState() {
@@ -76,37 +76,34 @@ class _SftpScreenState extends ConsumerState<SftpScreen> {
             children: [
               Material(
                 color: Theme.of(context).colorScheme.surface,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 7, 12, 7),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.compare_arrows,
-                        color: Theme.of(context).colorScheme.primary,
+                child: Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 7, 12, 7),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.compare_arrows,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                          const SizedBox(width: 8),
+                          const Expanded(
+                            child: Text(
+                              '双栏文件传输',
+                              style: TextStyle(fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                          if (sessions.isEmpty)
+                            const Text(
+                              '连接 SSH 后可选择服务器',
+                              style: TextStyle(fontSize: 11),
+                            ),
+                        ],
                       ),
-                      const SizedBox(width: 8),
-                      const Expanded(
-                        child: Text(
-                          '双栏文件传输',
-                          style: TextStyle(fontWeight: FontWeight.w600),
-                        ),
-                      ),
-                      if (sessions.isEmpty)
-                        const Text(
-                          '连接 SSH 后可选择服务器',
-                          style: TextStyle(fontSize: 11),
-                        ),
-                      if (_copying) ...[
-                        const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        ),
-                        const SizedBox(width: 6),
-                        const Text('传输中', style: TextStyle(fontSize: 12)),
-                      ],
-                    ],
-                  ),
+                    ),
+                    if (_transfer != null)
+                      _TransferProgressView(progress: _transfer!),
+                  ],
                 ),
               ),
               Expanded(
@@ -178,15 +175,29 @@ class _SftpScreenState extends ConsumerState<SftpScreen> {
   ) async {
     final source = sourceKey.currentState;
     final target = targetKey.currentState;
-    if (source == null || target == null || _copying) return;
-    setState(() => _copying = true);
+    if (source == null || target == null || _transfer != null) return;
+    final tracker = _TransferProgressTracker(
+      title: '${entry.name} → ${target.service.displayName}',
+      totalBytes: entry.isDirectory ? null : entry.size,
+      onChanged: (progress) {
+        if (mounted) setState(() => _transfer = progress);
+      },
+    )..start(preparing: entry.isDirectory);
     try {
+      if (entry.isDirectory) {
+        tracker.setTotalBytes(await calculateTransferSize(
+          source.service,
+          entry,
+        ));
+      }
       await transferEntry(
         source.service,
         entry,
         target.service,
         target.path,
+        onProgress: tracker.update,
       );
+      tracker.finish();
       await target.refresh();
       _message(
         '已将 ${entry.name} 从 ${source.service.displayName} 传输到'
@@ -195,7 +206,7 @@ class _SftpScreenState extends ConsumerState<SftpScreen> {
     } catch (error) {
       _message('传输失败：$error');
     } finally {
-      if (mounted) setState(() => _copying = false);
+      if (mounted) setState(() => _transfer = null);
     }
   }
 
@@ -234,6 +245,7 @@ class _SftpPaneState extends State<_SftpPane> {
   var _loading = false;
   Object? _error;
   List<RemoteEntry> _entries = const [];
+  _TransferProgressSnapshot? _transfer;
 
   FileTransferService get service => widget.service;
 
@@ -354,27 +366,50 @@ class _SftpPaneState extends State<_SftpPane> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
-                    _toolbar(Icons.arrow_upward, '上级',
-                        !localReady || path == service.rootPath ? null : _up),
-                    _toolbar(Icons.refresh, '刷新',
-                        _loading || !localReady ? null : refresh),
-                    if (mountable != null && !mountable.usesAppDocuments)
-                      _toolbar(
-                        Icons.folder_open_outlined,
-                        mountable.isMounted ? '更换挂载目录' : '挂载手机目录',
-                        _mountPhoneDirectory,
+                    Expanded(
+                      child: _toolbar(
+                        Icons.arrow_upward,
+                        '上级',
+                        !localReady || path == service.rootPath ? null : _up,
                       ),
-                    _toolbar(
-                      service.isLocal ? Icons.add_to_photos : Icons.upload_file,
-                      service.isLocal ? '导入其他手机文件' : '上传文件',
-                      localReady ? _importFile : null,
                     ),
-                    _toolbar(Icons.create_new_folder_outlined, '新建',
-                        localReady ? _mkdir : null),
+                    Expanded(
+                      child: _toolbar(
+                        Icons.refresh,
+                        '刷新',
+                        _loading || !localReady ? null : refresh,
+                      ),
+                    ),
+                    if (mountable != null && !mountable.usesAppDocuments)
+                      Expanded(
+                        child: _toolbar(
+                          Icons.folder_open_outlined,
+                          mountable.isMounted ? '更换挂载目录' : '挂载手机目录',
+                          _mountPhoneDirectory,
+                        ),
+                      ),
+                    Expanded(
+                      child: _toolbar(
+                        service.isLocal
+                            ? Icons.add_to_photos
+                            : Icons.upload_file,
+                        service.isLocal ? '导入其他手机文件' : '上传文件',
+                        localReady && _transfer == null ? _importFile : null,
+                      ),
+                    ),
+                    Expanded(
+                      child: _toolbar(
+                        Icons.create_new_folder_outlined,
+                        '新建',
+                        localReady ? _mkdir : null,
+                      ),
+                    ),
                   ],
                 ),
               ),
               if (_loading) const LinearProgressIndicator(minHeight: 2),
+              if (_transfer != null)
+                _TransferProgressView(progress: _transfer!, compact: true),
               if (_error != null)
                 InkWell(
                   onTap: refresh,
@@ -482,6 +517,8 @@ class _SftpPaneState extends State<_SftpPane> {
       IconButton(
         tooltip: tooltip,
         onPressed: onPressed,
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
         visualDensity: VisualDensity.compact,
         iconSize: 20,
         icon: Icon(icon),
@@ -583,28 +620,41 @@ class _SftpPaneState extends State<_SftpPane> {
   }
 
   Future<void> _importFile() async {
+    if (_transfer != null) return;
     final result = await FilePicker.platform.pickFiles(withReadStream: true);
     if (result == null) return;
     final file = result.files.single;
     Stream<Uint8List>? stream;
     if (file.readStream != null) {
-      stream = file.readStream!.map(Uint8List.fromList);
+      stream = asUint8ListStream(file.readStream!);
     } else if (file.path != null) {
-      stream = File(file.path!).openRead().map(Uint8List.fromList);
+      stream = asUint8ListStream(File(file.path!).openRead());
     } else if (file.bytes != null) {
       stream = Stream.value(file.bytes!);
     }
     if (stream == null) return;
+    final tracker = _beginTransfer(
+      '${service.isLocal ? '导入' : '上传'} ${file.name}',
+      file.size,
+    );
     try {
-      await service.writeStream(service.joinPath(path, file.name), stream);
+      await service.writeStream(
+        service.joinPath(path, file.name),
+        stream,
+        onProgress: tracker.update,
+      );
+      tracker.finish();
       await refresh();
       _message(service.isLocal ? '已导入到挂载目录' : '上传完成');
     } catch (error) {
       _message('$error');
+    } finally {
+      _endTransfer();
     }
   }
 
   Future<void> _share(RemoteEntry entry) async {
+    if (_transfer != null) return;
     try {
       late final File file;
       if (service is LocalFileTransferService) {
@@ -615,10 +665,15 @@ class _SftpPaneState extends State<_SftpPane> {
           '${directory.path}/${DateTime.now().millisecondsSinceEpoch}-${entry.name}',
         );
         final sink = file.openWrite(mode: FileMode.writeOnly);
+        final tracker = _beginTransfer('下载 ${entry.name}', entry.size);
         try {
-          await sink.addStream(service.readStream(entry.path));
+          await sink.addStream(
+            service.readStream(entry.path, onProgress: tracker.update),
+          );
+          tracker.finish();
         } finally {
           await sink.close();
+          _endTransfer();
         }
       }
       await SharePlus.instance.share(
@@ -711,6 +766,192 @@ class _SftpPaneState extends State<_SftpPane> {
           .showSnackBar(SnackBar(content: Text(value)));
     }
   }
+
+  _TransferProgressTracker _beginTransfer(String title, int totalBytes) {
+    final tracker = _TransferProgressTracker(
+      title: title,
+      totalBytes: totalBytes,
+      onChanged: (progress) {
+        if (mounted) setState(() => _transfer = progress);
+      },
+    )..start();
+    return tracker;
+  }
+
+  void _endTransfer() {
+    if (mounted) setState(() => _transfer = null);
+  }
+}
+
+class _TransferProgressSnapshot {
+  const _TransferProgressSnapshot({
+    required this.title,
+    required this.transferredBytes,
+    required this.totalBytes,
+    required this.bytesPerSecond,
+    required this.preparing,
+  });
+
+  final String title;
+  final int transferredBytes;
+  final int? totalBytes;
+  final double bytesPerSecond;
+  final bool preparing;
+
+  double? get value {
+    final total = totalBytes;
+    if (preparing || total == null || total <= 0) return null;
+    return (transferredBytes / total).clamp(0.0, 1.0).toDouble();
+  }
+}
+
+class _TransferProgressTracker {
+  _TransferProgressTracker({
+    required this.title,
+    required int? totalBytes,
+    required ValueChanged<_TransferProgressSnapshot> onChanged,
+  })  : _totalBytes = totalBytes,
+        _onChanged = onChanged;
+
+  static const _minimumUpdateInterval = Duration(milliseconds: 200);
+  static const _minimumByteDelta = 256 * 1024;
+
+  final String title;
+  final ValueChanged<_TransferProgressSnapshot> _onChanged;
+  final Stopwatch _watch = Stopwatch();
+  int? _totalBytes;
+  int _transferredBytes = 0;
+  int _lastEmittedBytes = 0;
+  Duration _lastEmittedAt = Duration.zero;
+  double _bytesPerSecond = 0;
+  bool _preparing = false;
+
+  void start({bool preparing = false}) {
+    _preparing = preparing;
+    _watch.start();
+    _emit(0, force: true);
+  }
+
+  void setTotalBytes(int value) {
+    _totalBytes = value;
+    _preparing = false;
+    _emit(_transferredBytes, force: true);
+  }
+
+  void update(int value) {
+    _preparing = false;
+    _emit(value);
+  }
+
+  void finish() {
+    _emit(_totalBytes ?? _transferredBytes, force: true);
+  }
+
+  void _emit(int value, {bool force = false}) {
+    final now = _watch.elapsed;
+    final elapsedSinceUpdate = now - _lastEmittedAt;
+    final byteDelta = value - _lastEmittedBytes;
+    final complete = _totalBytes != null && value >= _totalBytes!;
+    if (!force &&
+        !complete &&
+        elapsedSinceUpdate < _minimumUpdateInterval &&
+        byteDelta < _minimumByteDelta) {
+      return;
+    }
+
+    final micros = elapsedSinceUpdate.inMicroseconds;
+    if (micros > 0 && byteDelta >= 0) {
+      final instantSpeed = byteDelta * Duration.microsecondsPerSecond / micros;
+      _bytesPerSecond = _bytesPerSecond == 0
+          ? instantSpeed
+          : (_bytesPerSecond * .7) + (instantSpeed * .3);
+    }
+    _transferredBytes = value;
+    _lastEmittedBytes = value;
+    _lastEmittedAt = now;
+    _onChanged(
+      _TransferProgressSnapshot(
+        title: title,
+        transferredBytes: value,
+        totalBytes: _totalBytes,
+        bytesPerSecond: _bytesPerSecond,
+        preparing: _preparing,
+      ),
+    );
+  }
+}
+
+class _TransferProgressView extends StatelessWidget {
+  const _TransferProgressView({
+    required this.progress,
+    this.compact = false,
+  });
+
+  final _TransferProgressSnapshot progress;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final total = progress.totalBytes;
+    final percent = progress.value == null
+        ? null
+        : '${(progress.value! * 100).toStringAsFixed(0)}%';
+    final speed = progress.bytesPerSecond <= 0
+        ? null
+        : '${_formatBytes(progress.bytesPerSecond.round())}/s';
+    final details = progress.preparing
+        ? '正在计算文件大小…'
+        : [
+            if (percent != null) percent,
+            total == null || total <= 0
+                ? _formatBytes(progress.transferredBytes)
+                : '${_formatBytes(progress.transferredBytes)} / ${_formatBytes(total)}',
+            if (speed != null) speed,
+          ].join(' · ');
+    return Semantics(
+      label: '${progress.title} $details',
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(8, compact ? 2 : 0, 8, 6),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  flex: 2,
+                  child: Text(
+                    progress.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: compact ? 10 : 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  flex: 3,
+                  child: Text(
+                    details,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.end,
+                    style: TextStyle(fontSize: compact ? 9 : 10),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            LinearProgressIndicator(
+              value: progress.value,
+              minHeight: compact ? 3 : 4,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 IconData _fileIcon(String name) =>
@@ -727,4 +968,6 @@ String _formatBytes(int value) => value < 1024
     ? '$value B'
     : value < 1024 * 1024
         ? '${(value / 1024).toStringAsFixed(1)} KB'
-        : '${(value / 1024 / 1024).toStringAsFixed(1)} MB';
+        : value < 1024 * 1024 * 1024
+            ? '${(value / 1024 / 1024).toStringAsFixed(1)} MB'
+            : '${(value / 1024 / 1024 / 1024).toStringAsFixed(1)} GB';

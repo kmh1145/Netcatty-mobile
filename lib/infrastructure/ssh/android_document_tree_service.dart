@@ -98,7 +98,10 @@ class AndroidDocumentTreeTransferService extends MountableFileTransferService {
   }
 
   @override
-  Stream<Uint8List> readStream(String path) async* {
+  Stream<Uint8List> readStream(
+    String path, {
+    TransferProgressCallback? onProgress,
+  }) async* {
     _requireMounted();
     final cachePath = await _channel.invokeMethod<String>(
       'copyToCache',
@@ -107,14 +110,21 @@ class AndroidDocumentTreeTransferService extends MountableFileTransferService {
     if (cachePath == null) throw StateError('无法读取手机文件');
     final cache = File(cachePath);
     try {
-      yield* cache.openRead().map(Uint8List.fromList);
+      final stream = asUint8ListStream(cache.openRead());
+      yield* onProgress == null
+          ? stream
+          : trackTransferProgress(stream, onProgress);
     } finally {
       if (await cache.exists()) await cache.delete();
     }
   }
 
   @override
-  Future<void> writeStream(String path, Stream<Uint8List> stream) async {
+  Future<void> writeStream(
+    String path,
+    Stream<Uint8List> stream, {
+    TransferProgressCallback? onProgress,
+  }) async {
     _requireMounted();
     final cacheDirectory = await getTemporaryDirectory();
     final cache = File(
@@ -124,7 +134,11 @@ class AndroidDocumentTreeTransferService extends MountableFileTransferService {
     try {
       final sink = cache.openWrite(mode: FileMode.writeOnly);
       try {
-        await sink.addStream(stream);
+        await sink.addStream(
+          onProgress == null
+              ? stream
+              : trackTransferProgress(stream, onProgress),
+        );
       } finally {
         await sink.close();
       }
