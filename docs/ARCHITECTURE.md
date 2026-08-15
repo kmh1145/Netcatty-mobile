@@ -161,6 +161,17 @@ Docker 调用会探测直接访问、免密 sudo 和需要密码的 sudo。破�
 
 合并策略以记录的更新时间为主，同时保留远端未知字段。不要把“同步成功”等同于简单覆盖上传。
 
+## 更新检查
+
+`UpdateCheckService` 调用 GitHub REST API 的 `releases/latest` 端点，读取最新正式 Release 的 `tag_name` 和 `html_url`。设置页使用 `package_info_plus` 获取当前应用版本，忽略 Tag 的 `v` 前缀和 Build Metadata 后进行语义版本比较：
+
+- 版本相同：显示“已是最新版本”。
+- GitHub 版本更高：显示可用更新和最新版本号。
+- 当前版本更高：标记为开发版本，不错误提示降级更新。
+- 网络或响应异常：显示可重试错误，不影响设置页其他功能。
+
+成功状态的卡片始终可跳转到对应 GitHub Release；返回 URL 只接受 `https://github.com`，否则回退到仓库固定的 `/releases/latest` 页面。检查请求不携带 GitHub Token，也不应因为版本检查失败阻塞应用启动。
+
 ## 主题与资源
 
 `presentation/theme.dart` 保存桌面端迁移的主题预设；发行版和 Docker 图标分别位于 `assets/distro` 与 `assets/docker`。主题颜色会同时影响应用组件、终端和 iOS PiP 文本帧。

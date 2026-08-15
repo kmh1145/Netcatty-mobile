@@ -86,6 +86,7 @@ Netcatty-mobile/
 | `sync/netcatty_crypto.dart` | 桌面兼容 PBKDF2 + AES-GCM 加密格式 |
 | `sync/cloud_sync_service.dart` | WebDAV/Gist 下载、解密、合并、加密上传与 Gist 发现 |
 | `sync/github_auth_service.dart` | GitHub OAuth Device Flow、轮询、网络重试和用户信息读取 |
+| `update_check_service.dart` | GitHub Latest Release 查询、版本比较和安全下载链接 |
 
 ### AI
 
@@ -176,6 +177,7 @@ assets/
 - 模型与 Vault 无损往返
 - 桌面端加密兼容
 - GitHub Device Flow
+- GitHub Release 更新检查与版本比较
 - 主机编辑器和终端连接 UI
 - SFTP/快捷键/PiP 可用性
 - 系统管理命令与解析
