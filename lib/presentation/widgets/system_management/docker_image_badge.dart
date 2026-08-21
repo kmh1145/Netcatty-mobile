@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:netcatty_mobile/presentation/localization/localized_widgets.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 class DockerImageBadge extends StatelessWidget {
@@ -20,7 +21,7 @@ class DockerImageBadge extends StatelessWidget {
           borderRadius: BorderRadius.circular(11),
         ),
         child: brand.asset == null
-            ? Text(
+            ? LText(
                 brand.mark,
                 style: TextStyle(
                   color: Colors.white,

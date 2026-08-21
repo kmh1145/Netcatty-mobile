@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:netcatty_mobile/presentation/localization/localized_widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:uuid/uuid.dart';
 
 import '../../application/session_controller.dart';
 import '../../application/settings_controller.dart';
@@ -50,7 +50,7 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
               children: [
                 Icon(Icons.pets, color: Theme.of(context).colorScheme.primary),
                 const SizedBox(width: 10),
-                Text(
+                LText(
                   'Netcatty',
                   style: Theme.of(
                     context,
@@ -58,7 +58,7 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
                 ),
                 const Spacer(),
                 PopupMenuButton<String>(
-                  tooltip: '服务器视图',
+                  tooltip: localized('服务器视图'),
                   initialValue: viewMode,
                   onSelected: (value) => ref
                       .read(settingsControllerProvider.notifier)
@@ -68,21 +68,21 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
                       value: 'grid',
                       child: ListTile(
                         leading: Icon(Icons.grid_view_outlined),
-                        title: Text('网格视图'),
+                        title: LText('网格视图'),
                       ),
                     ),
                     PopupMenuItem(
                       value: 'list',
                       child: ListTile(
                         leading: Icon(Icons.view_list_outlined),
-                        title: Text('列表视图'),
+                        title: LText('列表视图'),
                       ),
                     ),
                     PopupMenuItem(
                       value: 'tree',
                       child: ListTile(
                         leading: Icon(Icons.account_tree_outlined),
-                        title: Text('树形视图'),
+                        title: LText('树形视图'),
                       ),
                     ),
                   ],
@@ -93,7 +93,7 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
                   }),
                 ),
                 IconButton(
-                  tooltip: '添加主机',
+                  tooltip: localized('添加主机'),
                   onPressed: () => _editHost(),
                   icon: const Icon(Icons.add_circle_outline),
                 ),
@@ -105,7 +105,7 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
             child: TextField(
               controller: _search,
               onChanged: (_) => setState(() {}),
-              decoration: const InputDecoration(
+              decoration: LInputDecoration(
                 prefixIcon: Icon(Icons.search),
                 hintText: '搜索主机、地址或标签',
                 isDense: true,
@@ -123,14 +123,14 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
                 scrollDirection: Axis.horizontal,
                 children: [
                   ChoiceChip(
-                    label: const Text('全部'),
+                    label: const LText('全部'),
                     selected: _group == null,
                     onSelected: (_) => setState(() => _group = null),
                   ),
                   const SizedBox(width: 8),
                   for (final group in vault!.customGroups) ...[
                     ChoiceChip(
-                      label: Text(group),
+                      label: LText(group),
                       selected: _group == group,
                       onSelected: (_) => setState(() => _group = group),
                     ),
@@ -150,7 +150,7 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
                         action: FilledButton.icon(
                           onPressed: () => _editHost(),
                           icon: const Icon(Icons.add),
-                          label: const Text('添加主机'),
+                          label: const LText('添加主机'),
                         ),
                       )
                     : RefreshIndicator(
@@ -208,13 +208,13 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('${host.label} 已连接')));
+        ).showSnackBar(SnackBar(content: LText('${host.label} 已连接')));
       }
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('连接失败：$error')));
+        ).showSnackBar(SnackBar(content: LText('连接失败：$error')));
       }
     }
   }
@@ -241,7 +241,7 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
       context: context,
       builder: (context) => AlertDialog(
         icon: HostSystemIcon(host: host, size: 52),
-        title: Text(host.label),
+        title: LText(host.label),
         content: SizedBox(
           width: 440,
           child: Column(
@@ -304,12 +304,12 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
           TextButton.icon(
             onPressed: () => Navigator.pop(context, _HostAction.edit),
             icon: const Icon(Icons.edit_outlined),
-            label: const Text('编辑'),
+            label: const LText('编辑'),
           ),
           FilledButton.icon(
             onPressed: () => Navigator.pop(context, _HostAction.connect),
             icon: const Icon(Icons.terminal),
-            label: const Text('连接'),
+            label: const LText('连接'),
           ),
         ],
       ),
@@ -353,19 +353,19 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
               changed ? Icons.warning_amber : Icons.verified_user_outlined,
               color: changed ? Colors.redAccent : null,
             ),
-            title: Text(changed ? '服务器指纹已变化' : '确认服务器指纹'),
-            content: SelectableText(
+            title: LText(changed ? '服务器指纹已变化' : '确认服务器指纹'),
+            content: LSelectableText(
               '${host.hostname}:${host.port}\n$algorithm\n$fingerprint\n\n'
               '${changed ? '这可能表示服务器重装，也可能是中间人攻击。请重新向管理员核对。' : '首次连接前请与管理员核对。'}',
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context, false),
-                child: const Text('拒绝'),
+                child: const LText('拒绝'),
               ),
               FilledButton(
                 onPressed: () => Navigator.pop(context, true),
-                child: Text(changed ? '确认更新' : '接受并记住'),
+                child: LText(changed ? '确认更新' : '接受并记住'),
               ),
             ],
           ),
@@ -401,14 +401,14 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
-        title: Text(name.isEmpty ? '交互式认证' : name),
+        title: LText(name.isEmpty ? '交互式认证' : name),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               if (instruction.isNotEmpty) ...[
-                Text(instruction),
+                LText(instruction),
                 const SizedBox(height: 12),
               ],
               for (var index = 0; index < prompts.length; index++) ...[
@@ -416,7 +416,7 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
                   controller: controllers[index],
                   obscureText: !prompts[index].echo,
                   autofocus: index == 0,
-                  decoration: InputDecoration(labelText: prompts[index].text),
+                  decoration: LInputDecoration(labelText: prompts[index].text),
                 ),
                 const SizedBox(height: 10),
               ],
@@ -426,14 +426,14 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
+            child: const LText('取消'),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(
               context,
               controllers.map((value) => value.text).toList(),
             ),
-            child: const Text('继续'),
+            child: const LText('继续'),
           ),
         ],
       ),
@@ -445,11 +445,39 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      builder: (_) => HostEditor(host: host),
+      builder: (_) => HostEditor(
+        host: host,
+        onDelete: host == null ? null : () => _confirmDeleteHost(host),
+      ),
     );
     if (result != null) {
       await ref.read(vaultControllerProvider.notifier).upsertHost(result);
     }
+  }
+
+  Future<bool> _confirmDeleteHost(HostProfile host) async {
+    final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            icon: const Icon(Icons.delete_outline),
+            title: const LText('删除服务器？'),
+            content: LText('将从保险库中删除“${host.label}”，此操作可通过云同步传播到其他设备。'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const LText('取消'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const LText('删除'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (!confirmed || !mounted) return false;
+    await ref.read(vaultControllerProvider.notifier).deleteHost(host.id);
+    return true;
   }
 }
 
@@ -499,19 +527,19 @@ class _HostTree extends StatelessWidget {
                   : Icons.folder_outlined,
               color: Theme.of(context).colorScheme.primary,
             ),
-            title: Text(group),
-            subtitle: Text('${children.length} 台服务器'),
+            title: LText(group),
+            subtitle: LText('${children.length} 台服务器'),
             children: [
               for (final host in children)
                 ListTile(
                   contentPadding: const EdgeInsets.only(left: 28, right: 8),
                   onTap: () => onConnect(host),
                   leading: HostSystemIcon(host: host, size: 38),
-                  title: Text(host.label),
+                  title: LText(host.label),
                   subtitle:
-                      Text('${host.username}@${host.hostname}:${host.port}'),
+                      LText('${host.username}@${host.hostname}:${host.port}'),
                   trailing: IconButton(
-                    tooltip: '编辑',
+                    tooltip: localized('编辑'),
                     onPressed: () => onEdit(host),
                     icon: const Icon(Icons.more_vert),
                   ),
@@ -558,7 +586,7 @@ class _HostCard extends StatelessWidget {
                   ],
                 ),
                 const Spacer(),
-                Text(
+                LText(
                   host.label,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -566,14 +594,14 @@ class _HostCard extends StatelessWidget {
                       fontWeight: FontWeight.w600, fontSize: 16),
                 ),
                 const SizedBox(height: 4),
-                Text(
+                LText(
                   '${host.username}@${host.hostname}:${host.port}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
                 if (host.group?.isNotEmpty == true)
-                  Text(
+                  LText(
                     host.group!,
                     style: TextStyle(
                       color: Theme.of(context).colorScheme.primary,
@@ -601,8 +629,8 @@ class _HostTile extends StatelessWidget {
         child: ListTile(
           onTap: onConnect,
           leading: HostSystemIcon(host: host, size: 42),
-          title: Text(host.label),
-          subtitle: Text('${host.username}@${host.hostname}:${host.port}'),
+          title: LText(host.label),
+          subtitle: LText('${host.username}@${host.hostname}:${host.port}'),
           trailing: IconButton(
             onPressed: onEdit,
             icon: const Icon(Icons.more_vert),
@@ -634,177 +662,13 @@ class _DetailRow extends StatelessWidget {
             const SizedBox(width: 12),
             SizedBox(
               width: 62,
-              child: Text(
+              child: LText(
                 label,
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ),
-            Expanded(child: SelectableText(value)),
+            Expanded(child: LSelectableText(value)),
           ],
         ),
       );
-}
-
-class _LegacyHostEditor extends StatefulWidget {
-  const _LegacyHostEditor({required this.host});
-  final HostProfile? host;
-
-  @override
-  State<_LegacyHostEditor> createState() => _LegacyHostEditorState();
-}
-
-class _LegacyHostEditorState extends State<_LegacyHostEditor> {
-  final _form = GlobalKey<FormState>();
-  late final TextEditingController label;
-  late final TextEditingController hostname;
-  late final TextEditingController username;
-  late final TextEditingController port;
-  late final TextEditingController password;
-  late final TextEditingController group;
-  late HostProtocol protocol;
-  var obscure = true;
-
-  @override
-  void initState() {
-    super.initState();
-    final host = widget.host;
-    label = TextEditingController(text: host?.label);
-    hostname = TextEditingController(text: host?.hostname);
-    username = TextEditingController(text: host?.username);
-    port = TextEditingController(text: (host?.port ?? 22).toString());
-    password = TextEditingController(text: host?.password);
-    group = TextEditingController(text: host?.group);
-    protocol = host?.protocol ?? HostProtocol.ssh;
-  }
-
-  @override
-  Widget build(BuildContext context) => Padding(
-        padding:
-            EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
-        child: Scaffold(
-          appBar: AppBar(
-            leading: IconButton(
-              onPressed: () => Navigator.pop(context),
-              icon: const Icon(Icons.close),
-            ),
-            title: Text(widget.host == null ? '新建连接' : '编辑连接'),
-            actions: [TextButton(onPressed: _save, child: const Text('保存'))],
-          ),
-          body: Form(
-            key: _form,
-            child: ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                SegmentedButton<HostProtocol>(
-                  segments: const [
-                    ButtonSegment(
-                      value: HostProtocol.ssh,
-                      label: Text('SSH'),
-                      icon: Icon(Icons.lock_outline),
-                    ),
-                    ButtonSegment(
-                      value: HostProtocol.telnet,
-                      label: Text('Telnet'),
-                      icon: Icon(Icons.cable),
-                    ),
-                    ButtonSegment(
-                      value: HostProtocol.mosh,
-                      label: Text('Mosh'),
-                      icon: Icon(Icons.wifi_tethering),
-                    ),
-                  ],
-                  selected: {protocol},
-                  onSelectionChanged: (value) =>
-                      setState(() => protocol = value.first),
-                ),
-                const SizedBox(height: 20),
-                TextFormField(
-                  controller: label,
-                  decoration: const InputDecoration(labelText: '名称'),
-                  validator: _required,
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: hostname,
-                  decoration: const InputDecoration(labelText: '主机名 / IP'),
-                  keyboardType: TextInputType.url,
-                  validator: _required,
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      flex: 2,
-                      child: TextFormField(
-                        controller: username,
-                        decoration: const InputDecoration(labelText: '用户名'),
-                        validator: _required,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: TextFormField(
-                        controller: port,
-                        decoration: const InputDecoration(labelText: '端口'),
-                        keyboardType: TextInputType.number,
-                        validator: _required,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: password,
-                  obscureText: obscure,
-                  decoration: InputDecoration(
-                    labelText: '密码（可选）',
-                    suffixIcon: IconButton(
-                      onPressed: () => setState(() => obscure = !obscure),
-                      icon: Icon(
-                          obscure ? Icons.visibility : Icons.visibility_off),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: group,
-                  decoration: const InputDecoration(labelText: '分组（可选）'),
-                ),
-                const SizedBox(height: 12),
-                const Text(
-                  '私钥、跳板机、代理、环境变量和高级算法参数可由桌面端同步导入，移动端会完整保留。',
-                  style: TextStyle(fontSize: 12, color: Colors.white54),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-
-  String? _required(String? value) =>
-      value == null || value.trim().isEmpty ? '必填' : null;
-
-  void _save() {
-    if (!(_form.currentState?.validate() ?? false)) return;
-    final base = widget.host ??
-        HostProfile.create(
-          id: const Uuid().v4(),
-          label: label.text.trim(),
-          hostname: hostname.text.trim(),
-          username: username.text.trim(),
-        );
-    Navigator.pop(
-      context,
-      base.copyWith(
-        label: label.text.trim(),
-        hostname: hostname.text.trim(),
-        username: username.text.trim(),
-        port: int.tryParse(port.text) ??
-            (protocol == HostProtocol.telnet ? 23 : 22),
-        password: password.text,
-        group: group.text,
-        protocol: protocol,
-      ),
-    );
-  }
 }

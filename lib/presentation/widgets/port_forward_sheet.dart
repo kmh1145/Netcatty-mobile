@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:netcatty_mobile/presentation/localization/localized_widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/port_forward_controller.dart';
@@ -34,14 +35,14 @@ class _PortForwardSheetState extends ConsumerState<PortForwardSheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('端口转发', style: Theme.of(context).textTheme.titleLarge),
+            LText('端口转发', style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 12),
             SegmentedButton<ForwardKind>(
               segments: const [
-                ButtonSegment(value: ForwardKind.local, label: Text('本地转发')),
+                ButtonSegment(value: ForwardKind.local, label: LText('本地转发')),
                 ButtonSegment(
                   value: ForwardKind.dynamic,
-                  label: Text('SOCKS5'),
+                  label: LText('SOCKS5'),
                 ),
               ],
               selected: {kind},
@@ -51,7 +52,7 @@ class _PortForwardSheetState extends ConsumerState<PortForwardSheet> {
             TextField(
               controller: localPort,
               keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: '本地端口（0 为自动）'),
+              decoration: LInputDecoration(labelText: '本地端口（0 为自动）'),
             ),
             if (kind == ForwardKind.local) ...[
               const SizedBox(height: 10),
@@ -61,7 +62,7 @@ class _PortForwardSheetState extends ConsumerState<PortForwardSheet> {
                     flex: 2,
                     child: TextField(
                       controller: remoteHost,
-                      decoration: const InputDecoration(labelText: '远端主机'),
+                      decoration: LInputDecoration(labelText: '远端主机'),
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -69,7 +70,7 @@ class _PortForwardSheetState extends ConsumerState<PortForwardSheet> {
                     child: TextField(
                       controller: remotePort,
                       keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(labelText: '端口'),
+                      decoration: LInputDecoration(labelText: '端口'),
                     ),
                   ),
                 ],
@@ -81,19 +82,19 @@ class _PortForwardSheetState extends ConsumerState<PortForwardSheet> {
               child: FilledButton.icon(
                 onPressed: busy ? null : _start,
                 icon: const Icon(Icons.play_arrow),
-                label: const Text('启动'),
+                label: const LText('启动'),
               ),
             ),
             if (forwards.isNotEmpty) ...[
               const Padding(
                 padding: EdgeInsets.only(top: 18, bottom: 6),
-                child: Text('运行中'),
+                child: LText('运行中'),
               ),
               for (final item in forwards)
                 ListTile(
                   contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.swap_horiz),
-                  title: Text(
+                  title: LText(
                     item.kind == ForwardKind.dynamic
                         ? 'SOCKS5 127.0.0.1:${item.localPort}'
                         : '127.0.0.1:${item.localPort} → ${item.remoteHost}:${item.remotePort}',
@@ -133,7 +134,7 @@ class _PortForwardSheetState extends ConsumerState<PortForwardSheet> {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('$error')));
+        ).showSnackBar(SnackBar(content: LText('$error')));
       }
     } finally {
       if (mounted) setState(() => busy = false);

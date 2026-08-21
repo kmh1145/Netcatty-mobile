@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:netcatty_mobile/presentation/localization/localized_widgets.dart';
 
 import '../../../domain/models/system_management.dart';
 import '../../../infrastructure/ssh/ssh_service.dart';
@@ -98,11 +99,11 @@ class _DockerManagerPanelState extends State<DockerManagerPanel>
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
           icon: const Icon(Icons.lock_outline),
-          title: const Text('需要 sudo 权限'),
+          title: const LText('需要 sudo 权限'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(message),
+              LText(message),
               const SizedBox(height: 12),
               TextField(
                 controller: controller,
@@ -111,7 +112,7 @@ class _DockerManagerPanelState extends State<DockerManagerPanel>
                 onSubmitted: (value) {
                   if (value.isNotEmpty) Navigator.pop(context, value);
                 },
-                decoration: InputDecoration(
+                decoration: LInputDecoration(
                   labelText: 'sudo 密码',
                   helperText: '密码仅在本次系统管理面板打开期间保留',
                   suffixIcon: IconButton(
@@ -127,7 +128,7 @@ class _DockerManagerPanelState extends State<DockerManagerPanel>
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('取消'),
+              child: const LText('取消'),
             ),
             FilledButton(
               onPressed: () {
@@ -135,7 +136,7 @@ class _DockerManagerPanelState extends State<DockerManagerPanel>
                   Navigator.pop(context, controller.text);
                 }
               },
-              child: const Text('继续'),
+              child: const LText('继续'),
             ),
           ],
         ),
@@ -221,11 +222,11 @@ class _DockerManagerPanelState extends State<DockerManagerPanel>
     final reference = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('拉取镜像'),
+        title: const LText('拉取镜像'),
         content: TextField(
           controller: controller,
           autofocus: true,
-          decoration: const InputDecoration(
+          decoration: LInputDecoration(
             labelText: '镜像',
             hintText: '例如 nginx:latest',
           ),
@@ -234,11 +235,11 @@ class _DockerManagerPanelState extends State<DockerManagerPanel>
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
+            child: const LText('取消'),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, controller.text),
-            child: const Text('拉取'),
+            child: const LText('拉取'),
           ),
         ],
       ),
@@ -262,7 +263,7 @@ class _DockerManagerPanelState extends State<DockerManagerPanel>
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('$error')),
+          SnackBar(content: LText('$error')),
         );
       }
     } finally {
@@ -279,16 +280,16 @@ class _DockerManagerPanelState extends State<DockerManagerPanel>
         context: context,
         builder: (context) => AlertDialog(
           icon: const Icon(Icons.warning_amber_outlined),
-          title: Text(title),
-          content: Text(message),
+          title: LText(title),
+          content: LText(message),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: const Text('取消'),
+              child: const LText('取消'),
             ),
             FilledButton(
               onPressed: () => Navigator.pop(context, true),
-              child: Text(action),
+              child: LText(action),
             ),
           ],
         ),
@@ -311,7 +312,7 @@ class _DockerManagerPanelState extends State<DockerManagerPanel>
                 ),
               ),
               IconButton(
-                tooltip: '刷新 Docker',
+                tooltip: localized('刷新 Docker'),
                 onPressed: _loading ? null : _refresh,
                 icon: const Icon(Icons.refresh),
               ),
@@ -320,9 +321,9 @@ class _DockerManagerPanelState extends State<DockerManagerPanel>
           if (_loading) const LinearProgressIndicator(minHeight: 2),
           if (_error != null)
             MaterialBanner(
-              content: Text('Docker 读取失败：$_error'),
+              content: LText('Docker 读取失败：$_error'),
               actions: [
-                TextButton(onPressed: _refresh, child: const Text('重试')),
+                TextButton(onPressed: _refresh, child: const LText('重试')),
               ],
             ),
           Expanded(
@@ -351,7 +352,7 @@ class _DockerManagerPanelState extends State<DockerManagerPanel>
           padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
           child: TextField(
             controller: _containerSearch,
-            decoration: const InputDecoration(
+            decoration: LInputDecoration(
               isDense: true,
               prefixIcon: Icon(Icons.search),
               hintText: '搜索名称、镜像或容器 ID',
@@ -372,7 +373,7 @@ class _DockerManagerPanelState extends State<DockerManagerPanel>
         ),
         Expanded(
           child: values.isEmpty && !_loading
-              ? const Center(child: Text('没有符合条件的容器'))
+              ? const Center(child: LText('没有符合条件的容器'))
               : ListView.builder(
                   padding: const EdgeInsets.fromLTRB(8, 2, 8, 20),
                   itemCount: values.length,
@@ -405,7 +406,7 @@ class _DockerManagerPanelState extends State<DockerManagerPanel>
   }
 
   Widget _filterChip(String label, _ContainerFilter value) => ChoiceChip(
-        label: Text(label),
+        label: LText(label),
         selected: _filter == value,
         onSelected: (_) => setState(() => _filter = value),
       );
@@ -421,7 +422,7 @@ class _DockerManagerPanelState extends State<DockerManagerPanel>
               Expanded(
                 child: TextField(
                   controller: _imageSearch,
-                  decoration: const InputDecoration(
+                  decoration: LInputDecoration(
                     isDense: true,
                     prefixIcon: Icon(Icons.search),
                     hintText: '搜索镜像名称、ID 或 digest',
@@ -432,14 +433,14 @@ class _DockerManagerPanelState extends State<DockerManagerPanel>
               FilledButton.icon(
                 onPressed: _busy.contains('pull') ? null : _pullImage,
                 icon: const Icon(Icons.download),
-                label: const Text('拉取'),
+                label: const LText('拉取'),
               ),
             ],
           ),
         ),
         Expanded(
           child: values.isEmpty && !_loading
-              ? const Center(child: Text('没有符合条件的镜像'))
+              ? const Center(child: LText('没有符合条件的镜像'))
               : ListView.builder(
                   padding: const EdgeInsets.fromLTRB(8, 2, 8, 20),
                   itemCount: values.length,
@@ -448,12 +449,12 @@ class _DockerManagerPanelState extends State<DockerManagerPanel>
                     return Card(
                       child: ListTile(
                         leading: DockerImageBadge(imageName: image.name),
-                        title: Text(
+                        title: LText(
                           image.name,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
-                        subtitle: Text(
+                        subtitle: LText(
                           '${image.shortId} · ${image.size}\n${image.createdAt}',
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
@@ -465,7 +466,7 @@ class _DockerManagerPanelState extends State<DockerManagerPanel>
                                     CircularProgressIndicator(strokeWidth: 2),
                               )
                             : IconButton(
-                                tooltip: '删除镜像',
+                                tooltip: localized('删除镜像'),
                                 onPressed: () => _removeImage(image),
                                 icon: const Icon(Icons.delete_outline),
                               ),
@@ -501,12 +502,12 @@ class _ContainerCard extends StatelessWidget {
           children: [
             ExpansionTile(
               leading: DockerImageBadge(imageName: container.image),
-              title: Text(
+              title: LText(
                 container.name,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
-              subtitle: Text(
+              subtitle: LText(
                 '${container.image} · ${container.shortId}\n${container.status}',
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
@@ -523,14 +524,14 @@ class _ContainerCard extends StatelessWidget {
                   ListTile(
                     dense: true,
                     leading: const Icon(Icons.lan_outlined),
-                    title: const Text('端口'),
-                    subtitle: Text(container.ports),
+                    title: const LText('端口'),
+                    subtitle: LText(container.ports),
                   )
                 else
                   const ListTile(
                     dense: true,
                     leading: Icon(Icons.lan_outlined),
-                    title: Text('没有公开端口'),
+                    title: LText('没有公开端口'),
                   ),
               ],
             ),
@@ -576,7 +577,7 @@ class _ContainerCard extends StatelessWidget {
                     ),
                   ],
                   IconButton(
-                    tooltip: '进入容器终端',
+                    tooltip: localized('进入容器终端'),
                     onPressed:
                         busy || container.state == DockerContainerState.stopped
                             ? null
@@ -584,12 +585,12 @@ class _ContainerCard extends StatelessWidget {
                     icon: const Icon(Icons.terminal),
                   ),
                   IconButton(
-                    tooltip: '查看实时日志',
+                    tooltip: localized('查看实时日志'),
                     onPressed: busy ? null : onLogs,
                     icon: const Icon(Icons.article_outlined),
                   ),
                   IconButton(
-                    tooltip: '强杀',
+                    tooltip: localized('强杀'),
                     onPressed:
                         busy || container.state == DockerContainerState.stopped
                             ? null
@@ -600,7 +601,7 @@ class _ContainerCard extends StatelessWidget {
                     icon: const Icon(Icons.dangerous_outlined),
                   ),
                   IconButton(
-                    tooltip: '删除',
+                    tooltip: localized('删除'),
                     onPressed: busy
                         ? null
                         : () => onAction(

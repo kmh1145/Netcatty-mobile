@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../domain/models/host.dart';
 import '../domain/models/vault.dart';
+import '../domain/models/vault_sync_state.dart';
 import '../infrastructure/storage/vault_repository.dart';
 
 class VaultState {
@@ -33,9 +34,12 @@ class VaultController extends StateNotifier<VaultState> {
     }
   }
 
-  Future<void> replace(VaultData vault) async {
-    await repository.saveVault(vault);
-    state = VaultState(data: vault);
+  Future<void> replace(VaultData vault, {bool remote = false}) async {
+    final next = remote
+        ? vault
+        : stampLocalVaultChanges(state.data ?? VaultData.empty(), vault);
+    await repository.saveVault(next);
+    state = VaultState(data: next);
   }
 
   Future<void> upsertHost(HostProfile host) async {

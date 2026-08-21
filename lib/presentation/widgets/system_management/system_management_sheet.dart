@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:netcatty_mobile/presentation/localization/localized_widgets.dart';
 
 import '../../../domain/models/host.dart';
 import '../../../infrastructure/ssh/ssh_service.dart';
@@ -71,14 +72,14 @@ class _SystemManagementSheetState extends State<SystemManagementSheet>
                 foregroundColor: colors.onPrimaryContainer,
                 child: const Icon(Icons.admin_panel_settings_outlined),
               ),
-              title: const Text('系统管理'),
-              subtitle: Text(
+              title: const LText('系统管理'),
+              subtitle: LText(
                 '${widget.session.host.username}@${widget.session.host.hostname}',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
               trailing: IconButton(
-                tooltip: '关闭',
+                tooltip: localized('关闭'),
                 onPressed: () => Navigator.pop(context),
                 icon: const Icon(Icons.close),
               ),

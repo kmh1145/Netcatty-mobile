@@ -161,6 +161,14 @@ private final class TerminalPictureInPictureController: NSObject {
   private var pictureInPictureController: AVPictureInPictureController?
   private var startCompletion: ((Bool) -> Void)?
   private var starting = false
+  private let renderQueue = DispatchQueue(
+    label: "app.netcatty.mobile.pip-render",
+    qos: .utility
+  )
+  private var renderGeneration = 0
+  private var lastFrameSignature: Int?
+  private var pixelBufferPool: CVPixelBufferPool?
+  private var formatDescription: CMVideoFormatDescription?
 
   init(onStateChanged: @escaping (Bool) -> Void) {
     self.onStateChanged = onStateChanged
@@ -228,18 +236,40 @@ private final class TerminalPictureInPictureController: NSObject {
       arguments["accentColor"],
       fallback: 0xffff8a3d
     )
-    guard let pixelBuffer = renderFrame(
-      title: title?.isEmpty == false ? title! : "SSH Terminal",
-      text: text.isEmpty ? "等待终端输出…" : text,
-      connected: connected,
-      background: background,
-      foreground: foreground,
-      accent: accent
-    ) else { return }
-    enqueue(pixelBuffer)
+    let resolvedTitle = title?.isEmpty == false ? title! : "SSH Terminal"
+    let resolvedText = text.isEmpty ? "等待终端输出…" : text
+    var hasher = Hasher()
+    hasher.combine(resolvedTitle)
+    hasher.combine(resolvedText)
+    hasher.combine(connected)
+    hasher.combine(arguments["backgroundColor"] as? Int ?? 0)
+    hasher.combine(arguments["foregroundColor"] as? Int ?? 0)
+    hasher.combine(arguments["accentColor"] as? Int ?? 0)
+    let signature = hasher.finalize()
+    guard signature != lastFrameSignature else { return }
+    lastFrameSignature = signature
+    renderGeneration += 1
+    let generation = renderGeneration
+    renderQueue.async { [weak self] in
+      guard let self,
+            let pixelBuffer = self.renderFrame(
+              title: resolvedTitle,
+              text: resolvedText,
+              connected: connected,
+              background: background,
+              foreground: foreground,
+              accent: accent
+            ) else { return }
+      DispatchQueue.main.async { [weak self] in
+        guard let self, generation == self.renderGeneration else { return }
+        self.enqueue(pixelBuffer)
+      }
+    }
   }
 
   func stop() {
+    renderGeneration += 1
+    lastFrameSignature = nil
     starting = false
     finishStart(false)
     if pictureInPictureController?.isPictureInPictureActive == true {
@@ -362,18 +392,36 @@ private final class TerminalPictureInPictureController: NSObject {
     }
     guard let cgImage = image.cgImage else { return nil }
 
-    let attributes: [CFString: Any] = [
-      kCVPixelBufferCGImageCompatibilityKey: true,
-      kCVPixelBufferCGBitmapContextCompatibilityKey: true,
-      kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary,
-    ]
+    if pixelBufferPool == nil {
+      let attributes: [CFString: Any] = [
+        kCVPixelBufferCGImageCompatibilityKey: true,
+        kCVPixelBufferCGBitmapContextCompatibilityKey: true,
+        kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary,
+      ]
+      let poolAttributes: [CFString: Any] = [
+        kCVPixelBufferPoolMinimumBufferCountKey: 3,
+      ]
+      let bufferAttributes: [CFString: Any] = [
+        kCVPixelBufferWidthKey: width,
+        kCVPixelBufferHeightKey: height,
+        kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_32BGRA,
+        kCVPixelBufferIOSurfacePropertiesKey:
+          attributes[kCVPixelBufferIOSurfacePropertiesKey] as Any,
+        kCVPixelBufferCGImageCompatibilityKey: true,
+        kCVPixelBufferCGBitmapContextCompatibilityKey: true,
+      ]
+      CVPixelBufferPoolCreate(
+        kCFAllocatorDefault,
+        poolAttributes as CFDictionary,
+        bufferAttributes as CFDictionary,
+        &pixelBufferPool
+      )
+    }
+    guard let pixelBufferPool else { return nil }
     var pixelBuffer: CVPixelBuffer?
-    let status = CVPixelBufferCreate(
+    let status = CVPixelBufferPoolCreatePixelBuffer(
       kCFAllocatorDefault,
-      width,
-      height,
-      kCVPixelFormatType_32BGRA,
-      attributes as CFDictionary,
+      pixelBufferPool,
       &pixelBuffer
     )
     guard status == kCVReturnSuccess, let pixelBuffer else { return nil }
@@ -399,12 +447,14 @@ private final class TerminalPictureInPictureController: NSObject {
       displayLayer.flush()
     }
     guard displayLayer.isReadyForMoreMediaData else { return }
-    var formatDescription: CMVideoFormatDescription?
-    guard CMVideoFormatDescriptionCreateForImageBuffer(
-      allocator: kCFAllocatorDefault,
-      imageBuffer: pixelBuffer,
-      formatDescriptionOut: &formatDescription
-    ) == noErr, let formatDescription else { return }
+    if formatDescription == nil {
+      guard CMVideoFormatDescriptionCreateForImageBuffer(
+        allocator: kCFAllocatorDefault,
+        imageBuffer: pixelBuffer,
+        formatDescriptionOut: &formatDescription
+      ) == noErr else { return }
+    }
+    guard let formatDescription else { return }
     var timing = CMSampleTimingInfo(
       duration: CMTime(value: 1, timescale: 2),
       presentationTimeStamp: CMClockGetTime(CMClockGetHostTimeClock()),

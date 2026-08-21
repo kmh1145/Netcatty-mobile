@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:netcatty_mobile/presentation/localization/localized_widgets.dart';
 
 class EmptyState extends StatelessWidget {
   const EmptyState({
@@ -23,9 +24,9 @@ class EmptyState extends StatelessWidget {
               Icon(icon,
                   size: 48, color: Theme.of(context).colorScheme.primary),
               const SizedBox(height: 16),
-              Text(title, style: Theme.of(context).textTheme.titleLarge),
+              LText(title, style: Theme.of(context).textTheme.titleLarge),
               const SizedBox(height: 8),
-              Text(
+              LText(
                 subtitle,
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.bodyMedium,

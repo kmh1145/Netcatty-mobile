@@ -15,11 +15,15 @@ import '../../domain/models/settings.dart';
 import '../../domain/models/vault.dart';
 import '../../infrastructure/storage/vault_repository.dart';
 import '../../infrastructure/storage/vault_export_service.dart';
+import '../../infrastructure/http_client_provider.dart';
 import '../../infrastructure/sync/cloud_sync_service.dart';
 import '../../infrastructure/sync/github_auth_service.dart';
 import '../../infrastructure/update_check_service.dart';
 import '../theme.dart';
+import '../localization/localized_widgets.dart';
 import '../widgets/keychain_sheet.dart';
+
+part 'settings_screen_dialogs.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -44,6 +48,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   var themeMode = 'dark';
   var uiThemeId = 'tokyo-night';
   var terminalFontSize = 14.0;
+  var terminalSecureKeyboard = false;
+  var language = 'zh-CN';
   var _loaded = false;
   var _busy = false;
   String? _githubUser;
@@ -52,7 +58,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   void initState() {
     super.initState();
     _packageInfo = PackageInfo.fromPlatform();
-    _updateCheckService = UpdateCheckService();
+    _updateCheckService = UpdateCheckService(
+      client: ref.read(httpClientProvider),
+    );
     _updateCheck = _checkForUpdates();
   }
 
@@ -93,6 +101,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     themeMode = settings.themeMode;
     uiThemeId = settings.uiThemeId;
     terminalFontSize = settings.terminalFontSize;
+    terminalSecureKeyboard = settings.terminalSecureKeyboard;
+    language = settings.language;
     aiKey.text = await repository.readAiApiKey() ?? '';
     _githubUser =
         sync?.type == SyncProviderType.githubGist ? sync?.username : null;
@@ -104,7 +114,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   @override
   Widget build(BuildContext context) => SafeArea(
         child: Scaffold(
-          appBar: AppBar(title: const Text('设置')),
+          appBar: AppBar(title: const LText('设置')),
           body: ListView(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
             children: [
@@ -118,17 +128,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         segments: const [
                           ButtonSegment(
                             value: 'dark',
-                            label: Text('深色'),
+                            label: LText('深色'),
                             icon: Icon(Icons.dark_mode_outlined),
                           ),
                           ButtonSegment(
                             value: 'light',
-                            label: Text('浅色'),
+                            label: LText('浅色'),
                             icon: Icon(Icons.light_mode_outlined),
                           ),
                           ButtonSegment(
                             value: 'system',
-                            label: Text('系统'),
+                            label: LText('系统'),
                             icon: Icon(Icons.brightness_auto_outlined),
                           ),
                         ],
@@ -155,8 +165,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                 color: selected.primary,
                               ),
                             ),
-                            title: const Text('界面主题'),
-                            subtitle: Text(
+                            title: const LText('界面主题'),
+                            subtitle: LText(
                               '${selected.name} · ${NetcattyTheme.presets(brightness).length} 种可选',
                             ),
                             trailing: const Icon(Icons.chevron_right),
@@ -166,7 +176,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       ),
                       Row(
                         children: [
-                          const Text('终端字号'),
+                          const LText('终端字号'),
                           Expanded(
                             child: Slider(
                               value: terminalFontSize,
@@ -178,14 +188,40 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                   setState(() => terminalFontSize = value),
                             ),
                           ),
-                          Text(terminalFontSize.toStringAsFixed(0)),
+                          LText(terminalFontSize.toStringAsFixed(0)),
                         ],
+                      ),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const LText('系统安全键盘'),
+                        subtitle: const LText(
+                          '使用系统密码键盘并关闭联想学习；终端快捷键仍可输入 Ctrl 组合键',
+                        ),
+                        value: terminalSecureKeyboard,
+                        onChanged: (value) =>
+                            setState(() => terminalSecureKeyboard = value),
+                      ),
+                      const SizedBox(height: 8),
+                      SegmentedButton<String>(
+                        segments: const [
+                          ButtonSegment(
+                            value: 'zh-CN',
+                            label: LText('中文'),
+                          ),
+                          ButtonSegment(
+                            value: 'en',
+                            label: LText('英文'),
+                          ),
+                        ],
+                        selected: {language},
+                        onSelectionChanged: (value) =>
+                            setState(() => language = value.first),
                       ),
                       SizedBox(
                         width: double.infinity,
                         child: OutlinedButton(
                           onPressed: _saveAppearance,
-                          child: const Text('保存外观设置'),
+                          child: const LText('保存外观设置'),
                         ),
                       ),
                     ],
@@ -202,12 +238,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         segments: const [
                           ButtonSegment(
                             value: SyncProviderType.webdav,
-                            label: Text('WebDAV'),
+                            label: LText('WebDAV'),
                             icon: Icon(Icons.cloud_outlined),
                           ),
                           ButtonSegment(
                             value: SyncProviderType.githubGist,
-                            label: Text('GitHub Gist'),
+                            label: LText('GitHub Gist'),
                             icon: Icon(Icons.code),
                           ),
                         ],
@@ -220,7 +256,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         TextField(
                           controller: endpoint,
                           keyboardType: TextInputType.url,
-                          decoration: const InputDecoration(
+                          decoration: LInputDecoration(
                             labelText: 'WebDAV 地址',
                             hintText: 'https://dav.example.com/netcatty',
                           ),
@@ -228,14 +264,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         const SizedBox(height: 10),
                         TextField(
                           controller: username,
-                          decoration: const InputDecoration(labelText: '用户名'),
+                          decoration: LInputDecoration(labelText: '用户名'),
                         ),
                         const SizedBox(height: 10),
                         TextField(
                           controller: providerSecret,
                           obscureText: true,
-                          decoration:
-                              const InputDecoration(labelText: '密码 / 应用密码'),
+                          decoration: LInputDecoration(labelText: '密码 / 应用密码'),
                         ),
                       ] else ...[
                         ListTile(
@@ -247,12 +282,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                   : Icons.check,
                             ),
                           ),
-                          title: Text(
+                          title: LText(
                             providerSecret.text.isEmpty
                                 ? '尚未登录 GitHub'
                                 : '已连接 GitHub',
                           ),
-                          subtitle: Text(
+                          subtitle: LText(
                             _githubUser == null
                                 ? '登录后自动查找或创建 Netcatty Gist'
                                 : '@$_githubUser · 自动同步私有 Gist',
@@ -264,22 +299,22 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               ? FilledButton.icon(
                                   onPressed: _busy ? null : _connectGitHub,
                                   icon: const Icon(Icons.login),
-                                  label: const Text('登录 GitHub'),
+                                  label: const LText('登录 GitHub'),
                                 )
                               : OutlinedButton.icon(
                                   onPressed: _busy ? null : _logoutGitHub,
                                   icon: const Icon(Icons.logout),
-                                  label: const Text('退出 GitHub'),
+                                  label: const LText('退出 GitHub'),
                                 ),
                         ),
                         ExpansionTile(
                           tilePadding: EdgeInsets.zero,
-                          title: const Text('高级 / 手动配置'),
-                          subtitle: const Text('仅用于迁移或登录故障排查'),
+                          title: const LText('高级 / 手动配置'),
+                          subtitle: const LText('仅用于迁移或登录故障排查'),
                           children: [
                             TextField(
                               controller: resourceId,
-                              decoration: const InputDecoration(
+                              decoration: LInputDecoration(
                                 labelText: 'Gist ID（通常自动识别）',
                               ),
                             ),
@@ -288,7 +323,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               controller: providerSecret,
                               obscureText: true,
                               onChanged: (_) => setState(() {}),
-                              decoration: const InputDecoration(
+                              decoration: LInputDecoration(
                                 labelText: 'GitHub Token（备用）',
                               ),
                             ),
@@ -299,7 +334,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       TextField(
                         controller: masterPassword,
                         obscureText: true,
-                        decoration: const InputDecoration(
+                        decoration: LInputDecoration(
                           labelText: 'Netcatty 同步主密码',
                         ),
                       ),
@@ -311,7 +346,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               onPressed:
                                   _busy ? null : () => _sync(push: false),
                               icon: const Icon(Icons.cloud_download_outlined),
-                              label: const Text('拉取并合并'),
+                              label: const LText('拉取并合并'),
                             ),
                           ),
                           const SizedBox(width: 10),
@@ -319,7 +354,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             child: FilledButton.icon(
                               onPressed: _busy ? null : () => _sync(push: true),
                               icon: const Icon(Icons.cloud_upload_outlined),
-                              label: const Text('上传'),
+                              label: const LText('上传'),
                             ),
                           ),
                         ],
@@ -341,25 +376,25 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     children: [
                       TextField(
                         controller: aiEndpoint,
-                        decoration: const InputDecoration(labelText: 'API 地址'),
+                        decoration: LInputDecoration(labelText: 'API 地址'),
                       ),
                       const SizedBox(height: 10),
                       TextField(
                         controller: aiModel,
-                        decoration: const InputDecoration(labelText: '模型'),
+                        decoration: LInputDecoration(labelText: '模型'),
                       ),
                       const SizedBox(height: 10),
                       TextField(
                         controller: aiKey,
                         obscureText: true,
-                        decoration: const InputDecoration(labelText: 'API Key'),
+                        decoration: LInputDecoration(labelText: 'API Key'),
                       ),
                       const SizedBox(height: 12),
                       SizedBox(
                         width: double.infinity,
                         child: OutlinedButton(
                           onPressed: _saveAi,
-                          child: const Text('保存 AI 设置'),
+                          child: const LText('保存 AI 设置'),
                         ),
                       ),
                     ],
@@ -372,8 +407,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   children: [
                     ListTile(
                       leading: const Icon(Icons.key_outlined),
-                      title: const Text('SSH 密钥库'),
-                      subtitle: const Text('导入私钥与口令'),
+                      title: const LText('SSH 密钥库'),
+                      subtitle: const LText('导入私钥与口令'),
                       onTap: () => showModalBottomSheet<void>(
                         context: context,
                         isScrollControlled: true,
@@ -384,15 +419,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     const Divider(height: 1),
                     ListTile(
                       leading: const Icon(Icons.file_upload_outlined),
-                      title: const Text('导入 Netcatty JSON'),
-                      subtitle: const Text('支持桌面端解密后的保险库数据'),
+                      title: const LText('导入 Netcatty JSON'),
+                      subtitle: const LText('支持桌面端解密后的保险库数据'),
                       onTap: _import,
                     ),
                     const Divider(height: 1),
                     ListTile(
                       leading: const Icon(Icons.file_download_outlined),
-                      title: const Text('导出保险库 JSON'),
-                      subtitle: const Text('导出包含凭据，请妥善保存'),
+                      title: const LText('导出保险库 JSON'),
+                      subtitle: const LText('导出包含凭据，请妥善保存'),
                       onTap: _export,
                     ),
                   ],
@@ -404,14 +439,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   children: [
                     ListTile(
                       leading: Icon(Icons.security),
-                      title: Text('系统安全存储'),
-                      subtitle: Text('Android Keystore / iOS Keychain'),
+                      title: LText('系统安全存储'),
+                      subtitle: LText('Android Keystore / iOS Keychain'),
                     ),
                     Divider(height: 1),
                     ListTile(
                       leading: Icon(Icons.fingerprint),
-                      title: Text('服务器身份验证'),
-                      subtitle: Text('每次首次连接显示 SHA-256 主机指纹'),
+                      title: LText('服务器身份验证'),
+                      subtitle: LText('每次首次连接显示 SHA-256 主机指纹'),
                     ),
                   ],
                 ),
@@ -422,7 +457,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               Center(
                 child: FutureBuilder<PackageInfo>(
                   future: _packageInfo,
-                  builder: (context, snapshot) => Text(
+                  builder: (context, snapshot) => LText(
                     snapshot.hasData
                         ? 'Netcatty Mobile ${snapshot.data!.version} · GPL-3.0-or-later'
                         : 'Netcatty Mobile · GPL-3.0-or-later',
@@ -439,9 +474,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+            LText(title, style: const TextStyle(fontWeight: FontWeight.w600)),
             if (subtitle != null)
-              Text(
+              LText(
                 subtitle,
                 style: TextStyle(
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -461,8 +496,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 dimension: 24,
                 child: CircularProgressIndicator(strokeWidth: 2.5),
               ),
-              title: Text('正在检查更新'),
-              subtitle: Text('正在查询 GitHub 最新 Release'),
+              title: LText('正在检查更新'),
+              subtitle: LText('正在查询 GitHub 最新 Release'),
             );
           }
           if (snapshot.hasError) {
@@ -471,8 +506,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 Icons.error_outline,
                 color: Theme.of(context).colorScheme.error,
               ),
-              title: const Text('检查更新失败'),
-              subtitle: Text('${snapshot.error}\n点按重试'),
+              title: const LText('检查更新失败'),
+              subtitle: LText('${snapshot.error}\n点按重试'),
               isThreeLine: true,
               trailing: const Icon(Icons.refresh),
               onTap: _retryUpdateCheck,
@@ -502,8 +537,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ? Theme.of(context).colorScheme.primary
                   : null,
             ),
-            title: Text(title),
-            subtitle: Text(subtitle),
+            title: LText(title),
+            subtitle: LText(subtitle),
             trailing: const Icon(Icons.open_in_new),
             onTap: () => _openLatestRelease(result.releaseUri),
           );
@@ -547,7 +582,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Future<void> _connectGitHub() async {
     setState(() => _busy = true);
     try {
-      final auth = GitHubAuthService();
+      final auth = GitHubAuthService(client: ref.read(httpClientProvider));
       final authorization = await auth.start();
       if (!mounted) return;
       final token = await showDialog<String>(
@@ -591,15 +626,23 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     setState(() => _busy = true);
     try {
       await _saveSync();
-      final service = CloudSyncService(ref.read(vaultRepositoryProvider));
+      final service = CloudSyncService(
+        ref.read(vaultRepositoryProvider),
+        client: ref.read(httpClientProvider),
+      );
       final vault = ref.read(vaultControllerProvider).data ?? VaultData.empty();
       String message;
       if (push) {
-        await service.push(vault);
-        message = '加密上传完成';
+        final result = await service.push(vault);
+        await ref
+            .read(vaultControllerProvider.notifier)
+            .replace(result.vault, remote: true);
+        message = result.message;
       } else {
         final result = await service.pullAndMerge(vault);
-        await ref.read(vaultControllerProvider.notifier).replace(result.vault);
+        await ref
+            .read(vaultControllerProvider.notifier)
+            .replace(result.vault, remote: true);
         message = result.message;
       }
       _message(message);
@@ -630,6 +673,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             themeMode: themeMode,
             uiThemeId: uiThemeId,
             terminalFontSize: terminalFontSize,
+            terminalSecureKeyboard: terminalSecureKeyboard,
+            language: language,
           ),
         );
     _message('外观设置已保存');
@@ -682,236 +727,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     if (mounted) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text(value)));
+      ).showSnackBar(SnackBar(content: LText(value)));
     }
   }
-}
-
-class _ThemePicker extends StatefulWidget {
-  const _ThemePicker({
-    required this.brightness,
-    required this.selectedId,
-  });
-
-  final Brightness brightness;
-  final String selectedId;
-
-  @override
-  State<_ThemePicker> createState() => _ThemePickerState();
-}
-
-class _ThemePickerState extends State<_ThemePicker> {
-  String query = '';
-
-  @override
-  Widget build(BuildContext context) {
-    final themes = NetcattyTheme.presets(widget.brightness)
-        .where(
-          (theme) =>
-              query.isEmpty ||
-              theme.name.toLowerCase().contains(query.toLowerCase()) ||
-              theme.id.contains(query.toLowerCase()),
-        )
-        .toList(growable: false);
-    return DraggableScrollableSheet(
-      expand: false,
-      initialChildSize: 0.8,
-      minChildSize: 0.45,
-      maxChildSize: 0.95,
-      builder: (context, controller) => Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  widget.brightness == Brightness.dark ? '选择深色主题' : '选择浅色主题',
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  autofocus: false,
-                  decoration: const InputDecoration(
-                    prefixIcon: Icon(Icons.search),
-                    hintText: '搜索 62 种主题',
-                  ),
-                  onChanged: (value) => setState(() => query = value.trim()),
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: GridView.builder(
-              controller: controller,
-              padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
-              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                maxCrossAxisExtent: 210,
-                mainAxisExtent: 88,
-                crossAxisSpacing: 10,
-                mainAxisSpacing: 10,
-              ),
-              itemCount: themes.length,
-              itemBuilder: (context, index) {
-                final theme = themes[index];
-                final selected = theme.id == widget.selectedId;
-                return InkWell(
-                  borderRadius: BorderRadius.circular(12),
-                  onTap: () => Navigator.pop(context, theme.id),
-                  child: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: theme.background,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: selected ? theme.primary : theme.border,
-                        width: selected ? 2 : 1,
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 12,
-                          decoration: BoxDecoration(
-                            color: theme.primary,
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            theme.name,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: theme.foreground,
-                              fontWeight:
-                                  selected ? FontWeight.bold : FontWeight.w500,
-                            ),
-                          ),
-                        ),
-                        if (selected)
-                          Icon(Icons.check_circle, color: theme.primary),
-                      ],
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _GitHubDeviceFlowDialog extends StatefulWidget {
-  const _GitHubDeviceFlowDialog({
-    required this.authorization,
-    required this.auth,
-  });
-
-  final GitHubDeviceAuthorization authorization;
-  final GitHubAuthService auth;
-
-  @override
-  State<_GitHubDeviceFlowDialog> createState() =>
-      _GitHubDeviceFlowDialogState();
-}
-
-class _GitHubDeviceFlowDialogState extends State<_GitHubDeviceFlowDialog> {
-  Object? error;
-  GitHubAuthPollState state = GitHubAuthPollState.waitingForAuthorization;
-  bool cancelled = false;
-
-  @override
-  void initState() {
-    super.initState();
-    unawaited(Clipboard.setData(
-      ClipboardData(text: widget.authorization.userCode),
-    ));
-    unawaited(_openGitHub());
-    unawaited(_poll());
-  }
-
-  @override
-  void dispose() {
-    cancelled = true;
-    super.dispose();
-  }
-
-  Future<void> _poll() async {
-    try {
-      final token = await widget.auth.poll(
-        widget.authorization,
-        isCancelled: () => cancelled,
-        onStateChanged: (value) {
-          if (mounted) setState(() => state = value);
-        },
-      );
-      if (mounted) Navigator.pop(context, token);
-    } on GitHubAuthCancelledException {
-      // Closing the dialog intentionally stops the pending device flow.
-    } on Object catch (value) {
-      if (mounted) setState(() => error = value);
-    }
-  }
-
-  Future<void> _openGitHub() => launchUrl(
-        widget.authorization.verificationUri,
-        mode: LaunchMode.externalApplication,
-      );
-
-  @override
-  Widget build(BuildContext context) => AlertDialog(
-        icon: const Icon(Icons.code, size: 34),
-        title: const Text('登录 GitHub'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('验证码已复制。请在浏览器中登录 GitHub 并确认授权。'),
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: SelectableText(
-                widget.authorization.userCode,
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      letterSpacing: 3,
-                      fontWeight: FontWeight.bold,
-                    ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            if (error == null) ...[
-              const LinearProgressIndicator(),
-              const SizedBox(height: 8),
-              Text(
-                state == GitHubAuthPollState.retryingNetwork
-                    ? '网络连接发生变化，正在自动重试…'
-                    : '正在等待 GitHub 授权…',
-                textAlign: TextAlign.center,
-              ),
-            ] else
-              Text(
-                '$error',
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
-              ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
-          ),
-          OutlinedButton.icon(
-            onPressed: _openGitHub,
-            icon: const Icon(Icons.open_in_browser),
-            label: const Text('打开 GitHub'),
-          ),
-        ],
-      );
 }

@@ -13,6 +13,7 @@ class TerminalPictureInPictureService {
   static final _stateChanges = StreamController<bool>.broadcast();
   static var _initialized = false;
   static var _active = false;
+  static int? _lastUpdateSignature;
 
   static bool get active => _active;
   static Stream<bool> get stateChanges {
@@ -51,6 +52,14 @@ class TerminalPictureInPictureService {
     required int accentColor,
   }) async {
     _initialize();
+    _lastUpdateSignature = Object.hash(
+      title,
+      text,
+      connected,
+      backgroundColor,
+      foregroundColor,
+      accentColor,
+    );
     try {
       final entered = await _channel.invokeMethod<bool>('enter', {
             'title': title,
@@ -81,6 +90,16 @@ class TerminalPictureInPictureService {
     required int accentColor,
   }) async {
     if (!_active) return;
+    final signature = Object.hash(
+      title,
+      text,
+      connected,
+      backgroundColor,
+      foregroundColor,
+      accentColor,
+    );
+    if (_lastUpdateSignature == signature) return;
+    _lastUpdateSignature = signature;
     try {
       await _channel.invokeMethod<void>('update', {
         'title': title,
@@ -105,6 +124,7 @@ class TerminalPictureInPictureService {
     } on PlatformException {
       // The system may already have dismissed Picture in Picture.
     } finally {
+      _lastUpdateSignature = null;
       _setActive(false);
     }
   }

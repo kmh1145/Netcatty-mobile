@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:netcatty_mobile/presentation/localization/localized_widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
@@ -7,9 +8,10 @@ import '../../domain/models/host.dart';
 import 'keychain_sheet.dart';
 
 class HostEditor extends ConsumerStatefulWidget {
-  const HostEditor({super.key, this.host});
+  const HostEditor({super.key, this.host, this.onDelete});
 
   final HostProfile? host;
+  final Future<bool> Function()? onDelete;
 
   @override
   ConsumerState<HostEditor> createState() => _HostEditorState();
@@ -137,8 +139,8 @@ class _HostEditorState extends ConsumerState<HostEditor> {
           onPressed: () => Navigator.pop(context),
           icon: const Icon(Icons.close),
         ),
-        title: Text(widget.host == null ? '新建连接' : '编辑连接'),
-        actions: [TextButton(onPressed: _save, child: const Text('保存'))],
+        title: LText(widget.host == null ? '新建连接' : '编辑连接'),
+        actions: [TextButton(onPressed: _save, child: const LText('保存'))],
       ),
       body: Form(
         key: _form,
@@ -150,17 +152,17 @@ class _HostEditorState extends ConsumerState<HostEditor> {
               segments: const [
                 ButtonSegment(
                   value: HostProtocol.ssh,
-                  label: Text('SSH'),
+                  label: LText('SSH'),
                   icon: Icon(Icons.lock_outline),
                 ),
                 ButtonSegment(
                   value: HostProtocol.telnet,
-                  label: Text('Telnet'),
+                  label: LText('Telnet'),
                   icon: Icon(Icons.cable),
                 ),
                 ButtonSegment(
                   value: HostProtocol.mosh,
-                  label: Text('Mosh'),
+                  label: LText('Mosh'),
                   icon: Icon(Icons.wifi_tethering),
                 ),
               ],
@@ -175,13 +177,13 @@ class _HostEditorState extends ConsumerState<HostEditor> {
             _section('基本信息'),
             TextFormField(
               controller: label,
-              decoration: const InputDecoration(labelText: '名称'),
+              decoration: LInputDecoration(labelText: '名称'),
               validator: _required,
             ),
             const SizedBox(height: 12),
             TextFormField(
               controller: hostname,
-              decoration: const InputDecoration(labelText: '主机名 / IP'),
+              decoration: LInputDecoration(labelText: '主机名 / IP'),
               keyboardType: TextInputType.url,
               validator: _required,
             ),
@@ -192,7 +194,7 @@ class _HostEditorState extends ConsumerState<HostEditor> {
                   flex: 2,
                   child: TextFormField(
                     controller: username,
-                    decoration: const InputDecoration(labelText: '用户名'),
+                    decoration: LInputDecoration(labelText: '用户名'),
                     validator: _required,
                   ),
                 ),
@@ -200,7 +202,7 @@ class _HostEditorState extends ConsumerState<HostEditor> {
                 Expanded(
                   child: TextFormField(
                     controller: port,
-                    decoration: const InputDecoration(labelText: '端口'),
+                    decoration: LInputDecoration(labelText: '端口'),
                     keyboardType: TextInputType.number,
                     validator: _validPort,
                   ),
@@ -210,18 +212,18 @@ class _HostEditorState extends ConsumerState<HostEditor> {
             const SizedBox(height: 12),
             TextFormField(
               controller: group,
-              decoration: const InputDecoration(labelText: '分组（可选）'),
+              decoration: LInputDecoration(labelText: '分组（可选）'),
             ),
             const SizedBox(height: 12),
             TextFormField(
               controller: tags,
-              decoration: const InputDecoration(
+              decoration: LInputDecoration(
                 labelText: '标签（逗号分隔）',
               ),
             ),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
-              title: const Text('置顶显示'),
+              title: const LText('置顶显示'),
               value: pinned,
               onChanged: (value) => setState(() => pinned = value),
             ),
@@ -229,19 +231,19 @@ class _HostEditorState extends ConsumerState<HostEditor> {
               _section('身份认证'),
               DropdownButtonFormField<HostAuthMethod>(
                 initialValue: authMethod,
-                decoration: const InputDecoration(labelText: '认证方式'),
+                decoration: LInputDecoration(labelText: '认证方式'),
                 items: const [
                   DropdownMenuItem(
                     value: HostAuthMethod.auto,
-                    child: Text('自动（私钥 / 密码 / 交互式）'),
+                    child: LText('自动（私钥 / 密码 / 交互式）'),
                   ),
                   DropdownMenuItem(
                     value: HostAuthMethod.password,
-                    child: Text('密码'),
+                    child: LText('密码'),
                   ),
                   DropdownMenuItem(
                     value: HostAuthMethod.key,
-                    child: Text('私钥'),
+                    child: LText('私钥'),
                   ),
                 ],
                 onChanged: (value) =>
@@ -251,7 +253,7 @@ class _HostEditorState extends ConsumerState<HostEditor> {
               TextFormField(
                 controller: password,
                 obscureText: obscurePassword,
-                decoration: InputDecoration(
+                decoration: LInputDecoration(
                   labelText: '密码（可选）',
                   suffixIcon: IconButton(
                     onPressed: () =>
@@ -269,16 +271,16 @@ class _HostEditorState extends ConsumerState<HostEditor> {
                   Expanded(
                     child: DropdownButtonFormField<String>(
                       initialValue: identityFileId,
-                      decoration: const InputDecoration(labelText: 'SSH 私钥'),
+                      decoration: LInputDecoration(labelText: 'SSH 私钥'),
                       items: [
                         const DropdownMenuItem(
                           value: '',
-                          child: Text('不指定'),
+                          child: LText('不指定'),
                         ),
                         for (final key in keys)
                           DropdownMenuItem(
                             value: key.id,
-                            child: Text(key.label),
+                            child: LText(key.label),
                           ),
                       ],
                       onChanged: (value) => setState(
@@ -289,7 +291,7 @@ class _HostEditorState extends ConsumerState<HostEditor> {
                   ),
                   const SizedBox(width: 8),
                   IconButton.filledTonal(
-                    tooltip: '管理私钥',
+                    tooltip: localized('管理私钥'),
                     onPressed: _openKeychain,
                     icon: const Icon(Icons.key_outlined),
                   ),
@@ -298,7 +300,7 @@ class _HostEditorState extends ConsumerState<HostEditor> {
               if (authMethod == HostAuthMethod.key && identityFileId == null)
                 const Padding(
                   padding: EdgeInsets.only(top: 6),
-                  child: Text(
+                  child: LText(
                     '私钥认证需要选择或导入私钥。',
                     style: TextStyle(color: Colors.redAccent, fontSize: 12),
                   ),
@@ -308,8 +310,8 @@ class _HostEditorState extends ConsumerState<HostEditor> {
                 const ListTile(
                   contentPadding: EdgeInsets.zero,
                   leading: Icon(Icons.alt_route),
-                  title: Text('直接连接'),
-                  subtitle: Text('未设置 SSH 跳板机'),
+                  title: LText('直接连接'),
+                  subtitle: LText('未设置 SSH 跳板机'),
                 )
               else
                 ReorderableListView.builder(
@@ -329,11 +331,11 @@ class _HostEditorState extends ConsumerState<HostEditor> {
                     return ListTile(
                       key: ValueKey(id),
                       contentPadding: EdgeInsets.zero,
-                      leading: CircleAvatar(child: Text('${index + 1}')),
-                      title: Text(jump?.label ?? '缺失的主机'),
+                      leading: CircleAvatar(child: LText('${index + 1}')),
+                      title: LText(jump?.label ?? '缺失的主机'),
                       subtitle: jump == null
-                          ? Text(id)
-                          : Text(
+                          ? LText(id)
+                          : LText(
                               '${jump.username}@${jump.hostname}:${jump.port}'),
                       trailing: IconButton(
                         onPressed: () =>
@@ -345,7 +347,7 @@ class _HostEditorState extends ConsumerState<HostEditor> {
                 ),
               if (availableHosts.isNotEmpty)
                 DropdownButtonFormField<String>(
-                  decoration: const InputDecoration(
+                  decoration: LInputDecoration(
                     labelText: '添加跳板机',
                     prefixIcon: Icon(Icons.add_road),
                   ),
@@ -353,7 +355,7 @@ class _HostEditorState extends ConsumerState<HostEditor> {
                     for (final value in availableHosts)
                       DropdownMenuItem(
                         value: value.id,
-                        child: Text(value.label),
+                        child: LText(value.label),
                       ),
                   ],
                   onChanged: (value) {
@@ -363,20 +365,20 @@ class _HostEditorState extends ConsumerState<HostEditor> {
               _section('代理'),
               DropdownButtonFormField<String>(
                 initialValue: proxyMode,
-                decoration: const InputDecoration(labelText: '代理方式'),
+                decoration: LInputDecoration(labelText: '代理方式'),
                 items: [
                   const DropdownMenuItem(
                     value: 'none',
-                    child: Text('不使用代理'),
+                    child: LText('不使用代理'),
                   ),
                   const DropdownMenuItem(
                     value: 'custom',
-                    child: Text('自定义 HTTP / SOCKS5 代理'),
+                    child: LText('自定义 HTTP / SOCKS5 代理'),
                   ),
                   for (final profile in profiles)
                     DropdownMenuItem(
                       value: 'profile:${profile.id}',
-                      child: Text('已保存 · ${profile.label}'),
+                      child: LText('已保存 · ${profile.label}'),
                     ),
                 ],
                 onChanged: (value) =>
@@ -386,10 +388,10 @@ class _HostEditorState extends ConsumerState<HostEditor> {
                 const SizedBox(height: 12),
                 SegmentedButton<ProxyType>(
                   segments: const [
-                    ButtonSegment(value: ProxyType.http, label: Text('HTTP')),
+                    ButtonSegment(value: ProxyType.http, label: LText('HTTP')),
                     ButtonSegment(
                       value: ProxyType.socks5,
-                      label: Text('SOCKS5'),
+                      label: LText('SOCKS5'),
                     ),
                   ],
                   selected: {proxyType},
@@ -403,7 +405,7 @@ class _HostEditorState extends ConsumerState<HostEditor> {
                       flex: 2,
                       child: TextFormField(
                         controller: proxyHost,
-                        decoration: const InputDecoration(labelText: '代理主机'),
+                        decoration: LInputDecoration(labelText: '代理主机'),
                         validator: proxyMode == 'custom' ? _required : null,
                       ),
                     ),
@@ -411,7 +413,7 @@ class _HostEditorState extends ConsumerState<HostEditor> {
                     Expanded(
                       child: TextFormField(
                         controller: proxyPort,
-                        decoration: const InputDecoration(labelText: '端口'),
+                        decoration: LInputDecoration(labelText: '端口'),
                         keyboardType: TextInputType.number,
                         validator: proxyMode == 'custom' ? _validPort : null,
                       ),
@@ -421,13 +423,13 @@ class _HostEditorState extends ConsumerState<HostEditor> {
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: proxyUsername,
-                  decoration: const InputDecoration(labelText: '代理用户名（可选）'),
+                  decoration: LInputDecoration(labelText: '代理用户名（可选）'),
                 ),
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: proxyPassword,
                   obscureText: obscureProxyPassword,
-                  decoration: InputDecoration(
+                  decoration: LInputDecoration(
                     labelText: '代理密码（可选）',
                     suffixIcon: IconButton(
                       onPressed: () => setState(
@@ -447,7 +449,7 @@ class _HostEditorState extends ConsumerState<HostEditor> {
                 controller: startupCommand,
                 minLines: 1,
                 maxLines: 4,
-                decoration: const InputDecoration(labelText: '连接后执行命令（可选）'),
+                decoration: LInputDecoration(labelText: '连接后执行命令（可选）'),
               ),
               const SizedBox(height: 12),
               LayoutBuilder(
@@ -492,6 +494,20 @@ class _HostEditorState extends ConsumerState<HostEditor> {
                   );
                 },
               ),
+              if (widget.host != null && widget.onDelete != null) ...[
+                const SizedBox(height: 28),
+                OutlinedButton.icon(
+                  key: const ValueKey('delete-host-from-editor'),
+                  onPressed: _delete,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Theme.of(context).colorScheme.error,
+                    side:
+                        BorderSide(color: Theme.of(context).colorScheme.error),
+                  ),
+                  icon: const Icon(Icons.delete_outline),
+                  label: const LText('删除此服务器'),
+                ),
+              ],
             ],
           ],
         ),
@@ -501,7 +517,7 @@ class _HostEditorState extends ConsumerState<HostEditor> {
 
   Widget _section(String title) => Padding(
         padding: const EdgeInsets.fromLTRB(2, 22, 2, 10),
-        child: Text(
+        child: LText(
           title,
           style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
         ),
@@ -522,11 +538,16 @@ class _HostEditorState extends ConsumerState<HostEditor> {
         builder: (_) => const KeychainSheet(),
       );
 
+  Future<void> _delete() async {
+    FocusManager.instance.primaryFocus?.unfocus();
+    if (await widget.onDelete!() && mounted) Navigator.pop(context);
+  }
+
   void _save() {
     if (!(_form.currentState?.validate() ?? false)) return;
     if (authMethod == HostAuthMethod.key && identityFileId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('请选择用于认证的 SSH 私钥')),
+        const SnackBar(content: LText('请选择用于认证的 SSH 私钥')),
       );
       return;
     }
@@ -610,7 +631,7 @@ class _AdvancedNumberField extends StatelessWidget {
   Widget build(BuildContext context) => TextFormField(
         controller: controller,
         keyboardType: TextInputType.number,
-        decoration: InputDecoration(
+        decoration: LInputDecoration(
           labelText: label,
           helperText: helper,
           suffixText: '秒',

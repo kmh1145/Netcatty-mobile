@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:netcatty_mobile/domain/models/settings.dart';
 import 'package:netcatty_mobile/infrastructure/ssh/sftp_service.dart';
+import 'package:netcatty_mobile/infrastructure/ssh/ssh_service.dart';
 import 'package:netcatty_mobile/infrastructure/ssh/terminal_picture_in_picture_service.dart';
 import 'package:netcatty_mobile/presentation/home_shell.dart';
 import 'package:netcatty_mobile/presentation/widgets/terminal_special_keys.dart';
@@ -118,7 +119,7 @@ void main() {
   testWidgets('quick key region wraps without horizontal scrolling',
       (tester) async {
     await tester.pumpWidget(
-      const ProviderScope(
+      ProviderScope(
         child: MaterialApp(
           home: Scaffold(
             body: Align(
@@ -128,6 +129,7 @@ void main() {
                 child: TerminalSpecialKeys(
                   order: defaultTerminalQuickKeys,
                   customKeys: [],
+                  inputController: TerminalInputController(),
                   onSend: _ignoreSend,
                   onAi: _ignore,
                   onPortForward: null,
@@ -281,9 +283,16 @@ class _MemoryTransferService extends FileTransferService {
   @override
   Stream<Uint8List> readStream(
     String path, {
+    int startOffset = 0,
     TransferProgressCallback? onProgress,
   }) {
-    final stream = Stream.value(files[path]!);
+    final value = files[path]!;
+    final stream = Stream.value(
+      Uint8List.sublistView(
+        value,
+        startOffset.clamp(0, value.length),
+      ),
+    );
     return onProgress == null
         ? stream
         : trackTransferProgress(stream, onProgress);
@@ -293,15 +302,23 @@ class _MemoryTransferService extends FileTransferService {
   Future<void> writeStream(
     String path,
     Stream<Uint8List> stream, {
+    int startOffset = 0,
+    bool truncate = true,
     TransferProgressCallback? onProgress,
   }) async {
     final builder = BytesBuilder(copy: false);
+    if (!truncate && startOffset > 0 && files[path] != null) {
+      builder.add(Uint8List.sublistView(files[path]!, 0, startOffset));
+    }
     await for (final chunk in stream) {
       builder.add(chunk);
       onProgress?.call(builder.length);
     }
     files[path] = builder.takeBytes();
   }
+
+  @override
+  Future<int?> fileSize(String path) async => files[path]?.length;
 
   @override
   Future<void> mkdir(String path) async => directories.add(path);

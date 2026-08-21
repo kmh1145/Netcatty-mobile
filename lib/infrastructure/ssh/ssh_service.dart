@@ -1,9 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:dartssh2/dartssh2.dart';
+import 'package:flutter/foundation.dart';
 import 'package:xterm/xterm.dart';
 
 import '../../domain/models/host.dart';
@@ -21,6 +21,49 @@ typedef KeyboardInteractiveHandler = Future<List<String>?> Function(
   List<({String text, bool echo})> prompts,
 );
 
+/// Applies one-shot toolbar modifiers to the next system-keyboard input.
+/// This bridges Flutter's soft keyboard and the terminal toolbar, which do
+/// not share hardware modifier state on Android or iOS.
+class TerminalInputController extends ChangeNotifier {
+  Set<String> modifiers = const {};
+
+  void setModifiers(Iterable<String> value) {
+    final next = Set<String>.unmodifiable(value);
+    if (setEquals(next, modifiers)) return;
+    modifiers = next;
+    notifyListeners();
+  }
+
+  void clearModifiers() => setModifiers(const {});
+
+  String consume(String value) {
+    final active = modifiers;
+    if (active.isEmpty || value.isEmpty) return value;
+    modifiers = const {};
+    notifyListeners();
+    final shift = active.contains('shift');
+    final alt = active.contains('alt');
+    final ctrl = active.contains('ctrl');
+    final parameter = 1 + (shift ? 1 : 0) + (alt ? 2 : 0) + (ctrl ? 4 : 0);
+    var result = value;
+    if (result.length == 3 &&
+        result.startsWith('\x1b[') &&
+        'ABCDHF'.contains(result[2])) {
+      result = '\x1b[1;$parameter${result[2]}';
+    } else {
+      if (shift && result.length == 1) result = result.toUpperCase();
+      if (ctrl && result.length == 1) {
+        final code = result.toUpperCase().codeUnitAt(0);
+        if (code >= 64 && code <= 95) {
+          result = String.fromCharCode(code & 0x1f);
+        }
+      }
+      if (alt) result = '\x1b$result';
+    }
+    return result;
+  }
+}
+
 class ActiveTerminalSession {
   ActiveTerminalSession({
     required this.id,
@@ -28,16 +71,18 @@ class ActiveTerminalSession {
     required this.terminal,
     required this.verifyHostKey,
     required this.keyboardInteractive,
+    TerminalInputController? input,
     this.sshClients = const [],
     this.sshSession,
     this.telnetSocket,
-  });
+  }) : input = input ?? TerminalInputController();
 
   final String id;
   final HostProfile host;
   final Terminal terminal;
   final HostKeyVerifier verifyHostKey;
   final KeyboardInteractiveHandler? keyboardInteractive;
+  final TerminalInputController input;
   final List<SSHClient> sshClients;
   final SSHSession? sshSession;
   final Socket? telnetSocket;
@@ -58,6 +103,7 @@ class ActiveTerminalSession {
       client.close();
     }
     await telnetSocket?.close();
+    input.dispose();
   }
 }
 
@@ -117,8 +163,10 @@ class SshService {
         environment: _environment(host),
       );
       final output = terminal ?? Terminal(maxLines: 10000);
-      output.onOutput =
-          (value) => session.write(Uint8List.fromList(utf8.encode(value)));
+      final input = TerminalInputController();
+      output.onOutput = (value) => session.write(
+            Uint8List.fromList(utf8.encode(input.consume(value))),
+          );
       output.onResize = (width, height, pixelWidth, pixelHeight) {
         session.resizeTerminal(width, height, pixelWidth, pixelHeight);
       };
@@ -138,6 +186,7 @@ class SshService {
         terminal: output,
         verifyHostKey: verifyHostKey,
         keyboardInteractive: keyboardInteractive,
+        input: input,
         sshClients: clients,
         sshSession: session,
       );
@@ -366,7 +415,9 @@ class SshService {
       timeout: const Duration(seconds: 15),
     );
     final terminal = existingTerminal ?? Terminal(maxLines: 10000);
-    terminal.onOutput = (value) => socket.add(utf8.encode(value));
+    final input = TerminalInputController();
+    terminal.onOutput =
+        (value) => socket.add(utf8.encode(input.consume(value)));
     socket.listen((bytes) {
       final visible = <int>[];
       for (var i = 0; i < bytes.length; i++) {
@@ -387,6 +438,7 @@ class SshService {
       terminal: terminal,
       verifyHostKey: verifyHostKey,
       keyboardInteractive: keyboardInteractive,
+      input: input,
       telnetSocket: socket,
     );
   }
