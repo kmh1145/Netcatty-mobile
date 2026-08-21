@@ -31,6 +31,25 @@ const englishTranslations = <String, String>{
   'Netcatty 同步主密码': 'Netcatty sync master password',
   '拉取并合并': 'Pull & merge',
   '上传': 'Upload',
+  '本地版本': 'Local version',
+  '云端版本': 'Cloud version',
+  '待同步': 'Pending',
+  '刷新同步版本': 'Refresh sync versions',
+  '登录 GitHub 后查看同步版本': 'Sign in to GitHub to view sync versions',
+  '正在读取本地与云端版本…': 'Reading local and cloud versions…',
+  '点按刷新以确认当前同步版本': 'Tap refresh to confirm the current sync versions',
+  '本地与云端尚无共同版本，请先拉取并合并':
+      'Local and cloud have no shared version yet. Pull and merge first',
+  '云端已有版本，建议拉取并合并': 'A cloud version exists. Pull and merge is recommended',
+  '本地数据尚未上传': 'Local data has not been uploaded',
+  '尚未建立同步版本': 'No sync version has been established',
+  '本地和云端均有更新，请拉取并合并': 'Both local and cloud have changes. Pull and merge',
+  '本地有待上传的更改': 'Local changes are waiting to be uploaded',
+  '云端有新版本，建议拉取并合并':
+      'A newer cloud version is available. Pull and merge is recommended',
+  '云端版本与上次同步记录不一致，请先拉取并合并':
+      'The cloud version differs from the last sync record. Pull and merge first',
+  '本地与云端版本一致': 'Local and cloud versions match',
   '使用 OpenAI 兼容接口生成命令，执行前始终确认':
       'Generate commands through an OpenAI-compatible API and always confirm before execution',
   'API 地址': 'API endpoint',
@@ -409,6 +428,9 @@ const englishReplacements = <(String, String)>[
   ('已退出 GitHub', 'Signed out of GitHub'),
   ('自动同步私有 Gist', 'Automatically sync a private Gist'),
   ('云同步请求超时，请检查网络后重试', 'Cloud sync timed out. Check the network and retry'),
+  ('版本信息读取失败', 'Unable to read version information'),
+  ('无法确认云端版本', 'Unable to verify the cloud version'),
+  ('云端写入失败', 'Unable to write the cloud vault'),
   ('云端保险库在同步期间发生变化，请重试', 'The remote vault changed during sync. Retry'),
   ('云端保险库超过', 'The remote vault exceeds'),
   (

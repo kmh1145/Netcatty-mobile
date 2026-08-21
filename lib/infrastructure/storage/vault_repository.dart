@@ -19,6 +19,7 @@ class VaultRepository {
   static const _vaultKey = 'netcatty_mobile_vault_v1';
   static const _settingsKey = 'netcatty_mobile_settings_v1';
   static const _syncKey = 'netcatty_mobile_sync_v1';
+  static const _syncVersionKey = 'netcatty_mobile_sync_version_v1';
   static const _masterPasswordKey = 'netcatty.mobile.sync.masterPassword';
   static const _aiApiKey = 'netcatty.mobile.ai.apiKey';
   static const _deviceIdKey = 'netcatty_mobile_device_id_v1';
@@ -180,6 +181,34 @@ class VaultRepository {
     await _preferences.setString(_syncKey, jsonEncode(connection.toJson()));
     await _writeSecret('sync.provider.secret', connection.secret);
   }
+
+  Future<SyncVersionCheckpoint?> loadSyncVersionCheckpoint() async {
+    final raw = _preferences.getString(_syncVersionKey);
+    if (raw == null) return null;
+    try {
+      final checkpoint = SyncVersionCheckpoint.fromJson(
+        jsonDecode(raw) as Map<String, dynamic>,
+      );
+      return checkpoint.target.isEmpty ||
+              checkpoint.version < 0 ||
+              checkpoint.vaultFingerprint.isEmpty
+          ? null
+          : checkpoint;
+    } on Object {
+      return null;
+    }
+  }
+
+  Future<void> saveSyncVersionCheckpoint(
+    SyncVersionCheckpoint checkpoint,
+  ) =>
+      _preferences.setString(
+        _syncVersionKey,
+        jsonEncode(checkpoint.toJson()),
+      );
+
+  Future<void> clearSyncVersionCheckpoint() =>
+      _preferences.remove(_syncVersionKey);
 
   Future<String?> readMasterPassword() =>
       _secureStorage.read(key: _masterPasswordKey);

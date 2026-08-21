@@ -52,7 +52,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   var language = 'zh-CN';
   var _loaded = false;
   var _busy = false;
+  var _checkingSyncVersions = false;
   String? _githubUser;
+  CloudSyncVersions? _syncVersions;
+  Object? _syncVersionsError;
 
   @override
   void initState() {
@@ -108,6 +111,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         sync?.type == SyncProviderType.githubGist ? sync?.username : null;
     if (mounted) {
       setState(() => provider = sync?.type ?? SyncProviderType.webdav);
+      if (sync?.type == SyncProviderType.githubGist &&
+          sync?.secret?.isNotEmpty == true &&
+          masterPassword.text.isNotEmpty) {
+        unawaited(_refreshSyncVersions());
+      }
     }
   }
 
@@ -248,8 +256,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           ),
                         ],
                         selected: {provider},
-                        onSelectionChanged: (value) =>
-                            setState(() => provider = value.first),
+                        onSelectionChanged: (value) => setState(() {
+                          provider = value.first;
+                          _syncVersions = null;
+                          _syncVersionsError = null;
+                        }),
                       ),
                       const SizedBox(height: 14),
                       if (provider == SyncProviderType.webdav) ...[
@@ -307,6 +318,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                   label: const LText('退出 GitHub'),
                                 ),
                         ),
+                        const SizedBox(height: 10),
+                        _githubSyncVersionsCard(),
                         ExpansionTile(
                           tilePadding: EdgeInsets.zero,
                           title: const LText('高级 / 手动配置'),
@@ -487,6 +500,136 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         ),
       );
 
+  Widget _githubSyncVersionsCard() {
+    final colors = Theme.of(context).colorScheme;
+    final versions = _syncVersions;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: colors.surfaceContainerHighest.withValues(alpha: 0.45),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: colors.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: _syncVersionMetric(
+                  icon: Icons.smartphone_outlined,
+                  label: '本地版本',
+                  version: versions?.localVersion,
+                  pending: versions?.hasLocalChanges == true,
+                ),
+              ),
+              Container(
+                width: 1,
+                height: 42,
+                margin: const EdgeInsets.symmetric(horizontal: 10),
+                color: colors.outlineVariant,
+              ),
+              Expanded(
+                child: _syncVersionMetric(
+                  icon: Icons.cloud_outlined,
+                  label: '云端版本',
+                  version: versions?.cloudVersion,
+                ),
+              ),
+              IconButton(
+                tooltip: localized('刷新同步版本'),
+                onPressed: _busy ||
+                        _checkingSyncVersions ||
+                        providerSecret.text.isEmpty
+                    ? null
+                    : () => _refreshSyncVersions(saveConfiguration: true),
+                icon: _checkingSyncVersions
+                    ? const SizedBox.square(
+                        dimension: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.refresh),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          LText(
+            _syncVersionStatus(),
+            style: TextStyle(
+              color: _syncVersionsError == null
+                  ? colors.onSurfaceVariant
+                  : colors.error,
+              fontSize: 12,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _syncVersionMetric({
+    required IconData icon,
+    required String label,
+    required int? version,
+    bool pending = false,
+  }) =>
+      Row(
+        children: [
+          Icon(icon, size: 20),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                LText(label, style: const TextStyle(fontSize: 12)),
+                Row(
+                  children: [
+                    Text(
+                      version == null ? '—' : 'v$version',
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    if (pending) ...[
+                      const SizedBox(width: 5),
+                      const LText('待同步', style: TextStyle(fontSize: 11)),
+                    ],
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+
+  String _syncVersionStatus() {
+    if (providerSecret.text.isEmpty) return '登录 GitHub 后查看同步版本';
+    if (_checkingSyncVersions) return '正在读取本地与云端版本…';
+    if (_syncVersionsError != null) {
+      return '版本信息读取失败：$_syncVersionsError';
+    }
+    final versions = _syncVersions;
+    if (versions == null) return '点按刷新以确认当前同步版本';
+    final base = versions.baseVersion;
+    if (base == null) {
+      if (versions.cloudVersion > 0 && versions.hasLocalChanges) {
+        return '本地与云端尚无共同版本，请先拉取并合并';
+      }
+      if (versions.cloudVersion > 0) return '云端已有版本，建议拉取并合并';
+      if (versions.hasLocalChanges) return '本地数据尚未上传';
+      return '尚未建立同步版本';
+    }
+    final cloudChanged = versions.cloudVersion != base;
+    if (cloudChanged && versions.hasLocalChanges) {
+      return '本地和云端均有更新，请拉取并合并';
+    }
+    if (versions.hasLocalChanges) return '本地有待上传的更改';
+    if (versions.cloudVersion > base) return '云端有新版本，建议拉取并合并';
+    if (versions.cloudVersion < base) {
+      return '云端版本与上次同步记录不一致，请先拉取并合并';
+    }
+    return '本地与云端版本一致';
+  }
+
   Widget _updateCheckTile() => FutureBuilder<UpdateCheckResult>(
         future: _updateCheck,
         builder: (context, snapshot) {
@@ -579,6 +722,43 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     await repository.saveMasterPassword(masterPassword.text);
   }
 
+  Future<void> _refreshSyncVersions({
+    bool saveConfiguration = false,
+  }) async {
+    if (provider != SyncProviderType.githubGist ||
+        providerSecret.text.isEmpty) {
+      return;
+    }
+    if (mounted) {
+      setState(() {
+        _checkingSyncVersions = true;
+        _syncVersionsError = null;
+      });
+    }
+    try {
+      if (saveConfiguration) await _saveSync();
+      final repository = ref.read(vaultRepositoryProvider);
+      final service = CloudSyncService(
+        repository,
+        client: ref.read(httpClientProvider),
+      );
+      final vault = ref.read(vaultControllerProvider).data ??
+          await repository.loadVault();
+      final versions = await service.inspectVersions(vault);
+      final updatedConnection = await repository.loadSyncConnection();
+      if (mounted) {
+        setState(() {
+          _syncVersions = versions;
+          resourceId.text = updatedConnection?.resourceId ?? resourceId.text;
+        });
+      }
+    } on Object catch (error) {
+      if (mounted) setState(() => _syncVersionsError = error);
+    } finally {
+      if (mounted) setState(() => _checkingSyncVersions = false);
+    }
+  }
+
   Future<void> _connectGitHub() async {
     setState(() => _busy = true);
     try {
@@ -605,6 +785,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       }
       await _saveSync();
       if (mounted) setState(() {});
+      await _refreshSyncVersions();
       _message('GitHub 登录成功，将自动查找 Netcatty Gist');
     } catch (error) {
       _message('$error');
@@ -618,7 +799,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     resourceId.clear();
     _githubUser = null;
     await _saveSync();
-    if (mounted) setState(() {});
+    if (mounted) {
+      setState(() {
+        _syncVersions = null;
+        _syncVersionsError = null;
+      });
+    }
     _message('已退出 GitHub');
   }
 
@@ -637,14 +823,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         await ref
             .read(vaultControllerProvider.notifier)
             .replace(result.vault, remote: true);
+        _syncVersions = result.versions;
         message = result.message;
       } else {
         final result = await service.pullAndMerge(vault);
         await ref
             .read(vaultControllerProvider.notifier)
             .replace(result.vault, remote: true);
+        _syncVersions = result.versions;
         message = result.message;
       }
+      final updatedConnection =
+          await ref.read(vaultRepositoryProvider).loadSyncConnection();
+      resourceId.text = updatedConnection?.resourceId ?? resourceId.text;
+      if (mounted) setState(() {});
       _message(message);
     } catch (error) {
       _message('$error');
