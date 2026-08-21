@@ -229,3 +229,28 @@ class SyncConnection {
         'resourceId': resourceId,
       };
 }
+
+class SyncVersionCheckpoint {
+  const SyncVersionCheckpoint({
+    required this.target,
+    required this.version,
+    required this.vaultFingerprint,
+  });
+
+  factory SyncVersionCheckpoint.fromJson(Map<String, dynamic> json) =>
+      SyncVersionCheckpoint(
+        target: json['target']?.toString() ?? '',
+        version: (json['version'] as num?)?.toInt() ?? 0,
+        vaultFingerprint: json['vaultFingerprint']?.toString() ?? '',
+      );
+
+  final String target;
+  final int version;
+  final String vaultFingerprint;
+
+  Map<String, dynamic> toJson() => {
+        'target': target,
+        'version': version,
+        'vaultFingerprint': vaultFingerprint,
+      };
+}
