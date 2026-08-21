@@ -124,6 +124,22 @@ PID   USER     TIME  COMMAND
     expect(sessions.last.attachedClients, 0);
   });
 
+  test('recognizes missing tmux command errors', () {
+    expect(
+      isTmuxCommandMissing('/bin/sh: tmux: command not found', exitCode: 127),
+      isTrue,
+    );
+    expect(
+      isTmuxCommandMissing('sh: tmux: not found', exitCode: 1),
+      isTrue,
+    );
+    expect(
+      isTmuxCommandMissing('no server running on /tmp/tmux-1000/default'),
+      isFalse,
+    );
+    expect(tmuxNotFoundMessage, '未找到 tmux 命令，请先安装 tmux 后再重试。');
+  });
+
   test('shellQuote safely escapes apostrophes', () {
     expect(shellQuote("team's work"), "'team'\\''s work'");
   });

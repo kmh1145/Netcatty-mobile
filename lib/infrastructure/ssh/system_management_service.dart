@@ -24,6 +24,8 @@ class DockerSudoPasswordRequired implements Exception {
   String toString() => message;
 }
 
+const tmuxNotFoundMessage = '未找到 tmux 命令，请先安装 tmux 后再重试。';
+
 enum ProcessSignal { stop, cont, term, kill }
 
 enum DockerContainerAction {
@@ -461,7 +463,7 @@ class SystemManagementService {
   }
 
   Future<String> tmuxVersion(ActiveTerminalSession session) async {
-    final result = await _executeSession(session, 'tmux -V');
+    final result = await _executeTmuxSession(session, 'tmux -V');
     return result.stdout.trim();
   }
 
@@ -471,7 +473,7 @@ class SystemManagementService {
     const format = '#{session_name}\t#{session_windows}\t'
         '#{session_attached}\t#{session_created}\t'
         '#{session_activity}\t#{session_group}';
-    final output = await _executeSession(
+    final output = await _executeTmuxSession(
       session,
       'tmux list-sessions -F ${shellQuote(format)}',
       acceptedExitCodes: const {0, 1},
@@ -522,11 +524,11 @@ class SystemManagementService {
         '#{window_panes}\t#{window_active}\t#{window_layout}';
     const clientFormat = '#{client_name}\t#{client_tty}\t'
         '#{client_session}\t#{client_activity}';
-    final windowsOutput = await _executeSession(
+    final windowsOutput = await _executeTmuxSession(
       session,
       'tmux list-windows -t ${shellQuote(name)} -F ${shellQuote(windowFormat)}',
     );
-    final clientsOutput = await _executeSession(
+    final clientsOutput = await _executeTmuxSession(
       session,
       'tmux list-clients -t ${shellQuote(name)} -F ${shellQuote(clientFormat)}',
       acceptedExitCodes: const {0, 1},
@@ -576,20 +578,46 @@ class SystemManagementService {
       command += ' && tmux send-keys -t ${shellQuote(value)} '
           '${shellQuote(startup)} C-m';
     }
-    await _executeSession(session, command);
+    await _executeTmuxSession(session, command);
   }
 
   Future<void> killTmuxSession(
     ActiveTerminalSession session,
     String name,
   ) =>
-      _executeSession(
+      _executeTmuxSession(
         session,
         'tmux kill-session -t ${shellQuote(name)}',
       ).then((_) {});
 
   String tmuxAttachCommand(String name) =>
       'tmux attach-session -t ${shellQuote(name)}';
+
+  Future<_RemoteResult> _executeTmuxSession(
+    ActiveTerminalSession session,
+    String command, {
+    String? stdinText,
+    Duration timeout = const Duration(seconds: 15),
+    Set<int> acceptedExitCodes = const {0},
+  }) async {
+    try {
+      return await _executeSession(
+        session,
+        command,
+        stdinText: stdinText,
+        timeout: timeout,
+        acceptedExitCodes: acceptedExitCodes,
+      );
+    } on RemoteCommandException catch (error) {
+      if (isTmuxCommandMissing(error.message, exitCode: error.exitCode)) {
+        throw RemoteCommandException(
+          tmuxNotFoundMessage,
+          exitCode: error.exitCode,
+        );
+      }
+      rethrow;
+    }
+  }
 
   Future<_DockerComposeBackend> _dockerComposeBackend(
     ActiveTerminalSession session,
@@ -955,6 +983,16 @@ class SystemManagementService {
       throw const FormatException('容器或镜像 ID 无效');
     }
   }
+}
+
+bool isTmuxCommandMissing(String message, {int? exitCode}) {
+  if (exitCode == 127) return true;
+  final value = message.toLowerCase();
+  if (!value.contains('tmux')) return false;
+  return value.contains('command not found') ||
+      value.contains('not found') ||
+      value.contains('not recognized') ||
+      value.contains('no such file or directory');
 }
 
 class _RemoteResult {

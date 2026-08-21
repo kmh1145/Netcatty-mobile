@@ -374,6 +374,10 @@ const englishReplacements = <(String, String)>[
     'Performance monitoring is available only for SSH connections'
   ),
   ('系统管理仅支持 SSH 连接', 'System management is available only for SSH connections'),
+  (
+    '未找到 tmux 命令，请先安装 tmux 后再重试。',
+    'tmux was not found. Install tmux and try again.'
+  ),
   ('需要活动 SSH 会话', 'An active SSH session is required'),
   ('读取服务器性能信息超时', 'Timed out while reading server performance'),
   ('远程监控命令失败', 'Remote monitoring command failed'),

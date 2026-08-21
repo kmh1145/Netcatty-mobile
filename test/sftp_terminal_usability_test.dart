@@ -116,7 +116,7 @@ void main() {
     expect(identical(normalized, chunk), isTrue);
   });
 
-  testWidgets('quick key region wraps without horizontal scrolling',
+  testWidgets('quick key region keeps exactly six adaptive columns',
       (tester) async {
     await tester.pumpWidget(
       ProviderScope(
@@ -125,7 +125,7 @@ void main() {
             body: Align(
               alignment: Alignment.topLeft,
               child: SizedBox(
-                width: 360,
+                width: 320,
                 child: TerminalSpecialKeys(
                   order: defaultTerminalQuickKeys,
                   customKeys: [],
@@ -148,11 +148,23 @@ void main() {
       ),
     );
 
-    expect(find.byType(Wrap), findsOneWidget);
+    final firstRow = ['Esc', 'Alt', 'Home', '↑', 'End'];
+    final firstRowY = [
+      for (final label in firstRow) tester.getCenter(find.text(label)).dy,
+      tester.getCenter(find.byTooltip('粘贴')).dy,
+    ];
     expect(
-      tester.getTopLeft(find.byTooltip('粘贴')).dy,
-      closeTo(tester.getTopLeft(find.text('Esc')).dy, 1),
+      firstRowY.every((y) => (y - firstRowY.first).abs() < 1),
+      isTrue,
     );
+    final secondRowY = ['Tab', 'Ctrl', '←', '↓', '→', 'Shift']
+        .map((label) => tester.getCenter(find.text(label)).dy)
+        .toList();
+    expect(
+      secondRowY.every((y) => (y - secondRowY.first).abs() < 1),
+      isTrue,
+    );
+    expect(secondRowY.first, greaterThan(firstRowY.first));
     final escButton = find.ancestor(
       of: find.text('Esc'),
       matching: find.byType(TextButton),
@@ -199,6 +211,7 @@ void main() {
       ),
       findsNothing,
     );
+    expect(tester.takeException(), isNull);
     expect(find.byTooltip('全屏'), findsOneWidget);
     expect(find.byTooltip('画中画'), findsOneWidget);
   });

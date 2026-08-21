@@ -68,36 +68,11 @@ class _TerminalSpecialKeysState extends ConsumerState<TerminalSpecialKeys> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  const spacing = 6.0;
-                  const minimumButtonWidth = 52.0;
-                  final columnCount = ((constraints.maxWidth + spacing) /
-                          (minimumButtonWidth + spacing))
-                      .floor()
-                      .clamp(1, 6);
-                  final buttonWidth =
-                      (constraints.maxWidth - spacing * (columnCount - 1)) /
-                          columnCount;
-                  return Wrap(
-                    alignment: WrapAlignment.spaceEvenly,
-                    spacing: spacing,
-                    runSpacing: 4,
-                    children: [
-                      for (final id in normalized)
-                        SizedBox(
-                          width: buttonWidth,
-                          height: 38,
-                          child: _keyButton(definitions[id]!),
-                        ),
-                    ],
-                  );
-                },
-              ),
+              _quickKeyGrid(normalized, definitions),
               const SizedBox(height: 4),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
+                children: <Widget>[
                   IconButton(
                     key: const ValueKey('terminal-action-ai'),
                     visualDensity: VisualDensity.compact,
@@ -169,12 +144,49 @@ class _TerminalSpecialKeysState extends ConsumerState<TerminalSpecialKeys> {
                         FocusManager.instance.primaryFocus?.unfocus(),
                     icon: const Icon(Icons.keyboard_hide_outlined),
                   ),
-                ],
+                ]
+                    .map((button) => Expanded(child: button))
+                    .toList(growable: false),
               ),
             ],
           ),
         ),
       ),
+    );
+  }
+
+  Widget _quickKeyGrid(
+    List<String> order,
+    Map<String, _QuickKey> definitions,
+  ) {
+    const columnCount = 6;
+    const rowHeight = 38.0;
+    final rowCount = (order.length / columnCount).ceil();
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (var row = 0; row < rowCount; row++) ...[
+          if (row > 0) const SizedBox(height: 4),
+          SizedBox(
+            height: rowHeight,
+            child: Row(
+              children: [
+                for (var column = 0; column < columnCount; column++)
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 2),
+                      child: row * columnCount + column < order.length
+                          ? _keyButton(
+                              definitions[order[row * columnCount + column]]!,
+                            )
+                          : const SizedBox.shrink(),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ],
     );
   }
 
@@ -200,7 +212,14 @@ class _TerminalSpecialKeysState extends ConsumerState<TerminalSpecialKeys> {
           ),
         ),
         child: key.icon == null
-            ? LText(key.label, textAlign: TextAlign.center)
+            ? FittedBox(
+                fit: BoxFit.scaleDown,
+                child: LText(
+                  key.label,
+                  maxLines: 1,
+                  textAlign: TextAlign.center,
+                ),
+              )
             : Tooltip(
                 message: key.label,
                 child: Icon(key.icon, size: 20),
