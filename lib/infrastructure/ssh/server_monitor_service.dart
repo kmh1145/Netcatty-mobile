@@ -123,8 +123,13 @@ class ServerMonitorService {
     final stdout = utf8.decoder.bind(process.stdout).join();
     final stderr = utf8.decoder.bind(process.stderr).join();
     try {
-      final output = await stdout.timeout(const Duration(seconds: 12));
-      final error = await stderr.timeout(const Duration(seconds: 2));
+      final values = await Future.wait<String>([
+        stdout,
+        stderr,
+      ]).timeout(const Duration(seconds: 12));
+      await process.done.timeout(const Duration(seconds: 2));
+      final output = values[0];
+      final error = values[1];
       if (process.exitCode != null && process.exitCode != 0 && output.isEmpty) {
         throw StateError(error.isEmpty ? '远程监控命令失败' : error.trim());
       }

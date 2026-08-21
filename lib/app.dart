@@ -6,6 +6,7 @@ import 'application/settings_controller.dart';
 import 'application/session_controller.dart';
 import 'infrastructure/ssh/connection_platform_service.dart';
 import 'presentation/home_shell.dart';
+import 'presentation/localization/localized_widgets.dart';
 import 'presentation/theme.dart';
 
 class NetcattyApp extends ConsumerStatefulWidget {
@@ -50,6 +51,7 @@ class _NetcattyAppState extends ConsumerState<NetcattyApp>
       (previous, next) => ConnectionPlatformService.setActive(next),
     );
     final settings = ref.watch(settingsControllerProvider);
+    NetcattyLocalizations.use(settings.language);
     final mode = switch (settings.themeMode) {
       'light' => ThemeMode.light,
       'system' => ThemeMode.system,
@@ -61,6 +63,9 @@ class _NetcattyAppState extends ConsumerState<NetcattyApp>
       theme: NetcattyTheme.build(Brightness.light, settings.uiThemeId),
       darkTheme: NetcattyTheme.build(Brightness.dark, settings.uiThemeId),
       themeMode: mode,
+      locale: settings.language == 'en'
+          ? const Locale('en')
+          : const Locale('zh', 'CN'),
       supportedLocales: const [Locale('zh', 'CN'), Locale('en')],
       localizationsDelegates: const [
         GlobalMaterialLocalizations.delegate,

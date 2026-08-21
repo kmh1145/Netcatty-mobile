@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../infrastructure/ssh/terminal_picture_in_picture_service.dart';
+import 'localization/localized_widgets.dart';
 import 'screens/settings_screen.dart';
 import 'screens/sftp_screen.dart';
 import 'screens/snippets_screen.dart';
@@ -54,31 +55,31 @@ class HomeShell extends ConsumerWidget {
                 selectedIndex: index,
                 onDestinationSelected: (value) =>
                     ref.read(homeTabProvider.notifier).state = value,
-                destinations: const [
+                destinations: [
                   NavigationDestination(
-                    icon: Icon(Icons.dns_outlined),
-                    selectedIcon: Icon(Icons.dns),
-                    label: '保险库',
+                    icon: const Icon(Icons.dns_outlined),
+                    selectedIcon: const Icon(Icons.dns),
+                    label: localized('保险库'),
                   ),
                   NavigationDestination(
-                    icon: Icon(Icons.terminal_outlined),
-                    selectedIcon: Icon(Icons.terminal),
-                    label: '终端',
+                    icon: const Icon(Icons.terminal_outlined),
+                    selectedIcon: const Icon(Icons.terminal),
+                    label: localized('终端'),
                   ),
                   NavigationDestination(
-                    icon: Icon(Icons.folder_outlined),
-                    selectedIcon: Icon(Icons.folder),
-                    label: '文件',
+                    icon: const Icon(Icons.folder_outlined),
+                    selectedIcon: const Icon(Icons.folder),
+                    label: localized('文件'),
                   ),
                   NavigationDestination(
-                    icon: Icon(Icons.code_outlined),
-                    selectedIcon: Icon(Icons.code),
-                    label: '片段',
+                    icon: const Icon(Icons.code_outlined),
+                    selectedIcon: const Icon(Icons.code),
+                    label: localized('片段'),
                   ),
                   NavigationDestination(
-                    icon: Icon(Icons.settings_outlined),
-                    selectedIcon: Icon(Icons.settings),
-                    label: '设置',
+                    icon: const Icon(Icons.settings_outlined),
+                    selectedIcon: const Icon(Icons.settings),
+                    label: localized('设置'),
                   ),
                 ],
               ),

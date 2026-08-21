@@ -26,6 +26,24 @@ class RemoteEntry {
 
 typedef TransferProgressCallback = void Function(int transferredBytes);
 
+class TransferCancelledException implements Exception {
+  const TransferCancelledException();
+
+  @override
+  String toString() => '传输已取消';
+}
+
+class TransferCancellationToken {
+  bool _cancelled = false;
+
+  bool get isCancelled => _cancelled;
+  void cancel() => _cancelled = true;
+
+  void throwIfCancelled() {
+    if (_cancelled) throw const TransferCancelledException();
+  }
+}
+
 abstract class FileTransferService {
   String get id;
   String get displayName;
@@ -38,13 +56,17 @@ abstract class FileTransferService {
   Future<List<RemoteEntry>> list(String path);
   Stream<Uint8List> readStream(
     String path, {
+    int startOffset = 0,
     TransferProgressCallback? onProgress,
   });
   Future<void> writeStream(
     String path,
     Stream<Uint8List> stream, {
+    int startOffset = 0,
+    bool truncate = true,
     TransferProgressCallback? onProgress,
   });
+  Future<int?> fileSize(String path);
   Future<void> mkdir(String path);
   Future<void> ensureDirectory(String path);
   Future<void> rename(String from, String to);
@@ -113,7 +135,10 @@ class SftpService extends FileTransferService {
   Future<List<RemoteEntry>> list(String path) async {
     final entries = await (await _sftp).listdir(path);
     return entries
-        .where((item) => item.filename != '.' && item.filename != '..')
+        .where((item) =>
+            item.filename != '.' &&
+            item.filename != '..' &&
+            !item.filename.endsWith('.netcatty-part'))
         .map((item) {
       final fullPath = joinPath(path, item.filename);
       final modified = item.attr.modifyTime;
@@ -133,13 +158,18 @@ class SftpService extends FileTransferService {
   @override
   Stream<Uint8List> readStream(
     String path, {
+    int startOffset = 0,
     TransferProgressCallback? onProgress,
   }) async* {
     final file = await (await _sftp).open(path, mode: SftpFileOpenMode.read);
     try {
       yield* Platform.isIOS
-          ? file.read(onProgress: onProgress, maxPendingRequests: 8)
-          : file.read(onProgress: onProgress);
+          ? file.read(
+              offset: startOffset,
+              onProgress: onProgress,
+              maxPendingRequests: 8,
+            )
+          : file.read(offset: startOffset, onProgress: onProgress);
     } finally {
       await file.close();
     }
@@ -149,26 +179,44 @@ class SftpService extends FileTransferService {
   Future<void> writeStream(
     String path,
     Stream<Uint8List> stream, {
+    int startOffset = 0,
+    bool truncate = true,
     TransferProgressCallback? onProgress,
   }) async {
-    final file = await (await _sftp).open(
-      path,
-      mode: SftpFileOpenMode.create |
-          SftpFileOpenMode.write |
-          SftpFileOpenMode.truncate,
-    );
+    final mode = truncate
+        ? SftpFileOpenMode.create |
+            SftpFileOpenMode.write |
+            SftpFileOpenMode.truncate
+        : SftpFileOpenMode.create | SftpFileOpenMode.write;
+    final file = await (await _sftp).open(path, mode: mode);
     try {
       if (Platform.isIOS) {
         await _writeSftpStreamWithLimitedConcurrency(
           file,
           stream,
+          startOffset: startOffset,
           onProgress: onProgress,
         );
       } else {
-        await file.write(stream, onProgress: onProgress).done;
+        await file
+            .write(
+              stream,
+              offset: startOffset,
+              onProgress: onProgress,
+            )
+            .done;
       }
     } finally {
       await file.close();
+    }
+  }
+
+  @override
+  Future<int?> fileSize(String path) async {
+    try {
+      return (await (await _sftp).stat(path)).size;
+    } on SftpStatusError {
+      return null;
     }
   }
 
@@ -299,6 +347,7 @@ class LocalFileTransferService extends MountableFileTransferService {
     if (!await directory.exists()) throw StateError('手机目录不存在');
     final result = <RemoteEntry>[];
     await for (final entity in directory.list(followLinks: false)) {
+      if (entity.path.endsWith('.netcatty-part')) continue;
       final stat = await entity.stat();
       result.add(
         RemoteEntry(
@@ -316,9 +365,10 @@ class LocalFileTransferService extends MountableFileTransferService {
   @override
   Stream<Uint8List> readStream(
     String path, {
+    int startOffset = 0,
     TransferProgressCallback? onProgress,
   }) {
-    final stream = asUint8ListStream(File(path).openRead());
+    final stream = asUint8ListStream(File(path).openRead(startOffset));
     return onProgress == null
         ? stream
         : trackTransferProgress(stream, onProgress);
@@ -328,11 +378,19 @@ class LocalFileTransferService extends MountableFileTransferService {
   Future<void> writeStream(
     String path,
     Stream<Uint8List> stream, {
+    int startOffset = 0,
+    bool truncate = true,
     TransferProgressCallback? onProgress,
   }) async {
     final file = File(path);
     await file.parent.create(recursive: true);
-    final sink = file.openWrite(mode: FileMode.writeOnly);
+    if (!truncate && await file.exists()) {
+      final length = await file.length();
+      if (length != startOffset) throw StateError('续传文件长度已变化');
+    }
+    final sink = file.openWrite(
+      mode: truncate ? FileMode.writeOnly : FileMode.writeOnlyAppend,
+    );
     try {
       await sink.addStream(
         onProgress == null ? stream : trackTransferProgress(stream, onProgress),
@@ -340,6 +398,12 @@ class LocalFileTransferService extends MountableFileTransferService {
     } finally {
       await sink.close();
     }
+  }
+
+  @override
+  Future<int?> fileSize(String path) async {
+    final file = File(path);
+    return await file.exists() ? file.length() : null;
   }
 
   @override
@@ -367,12 +431,19 @@ class LocalFileTransferService extends MountableFileTransferService {
 
 Future<int> calculateTransferSize(
   FileTransferService source,
-  RemoteEntry entry,
-) async {
+  RemoteEntry entry, {
+  TransferCancellationToken? cancellationToken,
+}) async {
+  cancellationToken?.throwIfCancelled();
   if (!entry.isDirectory) return entry.size;
   var total = 0;
   for (final child in await source.list(entry.path)) {
-    total += await calculateTransferSize(source, child);
+    cancellationToken?.throwIfCancelled();
+    total += await calculateTransferSize(
+      source,
+      child,
+      cancellationToken: cancellationToken,
+    );
   }
   return total;
 }
@@ -383,7 +454,9 @@ Future<int> transferEntry(
   FileTransferService target,
   String targetDirectory, {
   TransferProgressCallback? onProgress,
+  TransferCancellationToken? cancellationToken,
 }) async {
+  cancellationToken?.throwIfCancelled();
   final targetPath = target.joinPath(targetDirectory, entry.name);
   final separator = source.isLocal ? Platform.pathSeparator : '/';
   if (source.id == target.id &&
@@ -395,30 +468,107 @@ Future<int> transferEntry(
   var transferred = 0;
 
   Future<void> copy(RemoteEntry current, String directory) async {
+    cancellationToken?.throwIfCancelled();
     final currentTargetPath = target.joinPath(directory, current.name);
     if (current.isDirectory) {
       await target.ensureDirectory(currentTargetPath);
       for (final child in await source.list(current.path)) {
+        cancellationToken?.throwIfCancelled();
         await copy(child, currentTargetPath);
       }
       return;
     }
 
-    final baseline = transferred;
+    final partialPath = target.joinPath(
+      directory,
+      '.${current.name}.netcatty-part',
+    );
+    var resumeOffset = await target.fileSize(partialPath) ?? 0;
+    if (resumeOffset < 0 || resumeOffset > current.size) {
+      resumeOffset = 0;
+    }
+    final baseline = transferred + resumeOffset;
+    if (resumeOffset > 0) onProgress?.call(baseline);
     var fileProgress = 0;
     await target.writeStream(
-      currentTargetPath,
-      source.readStream(current.path),
+      partialPath,
+      cancelOnDemand(
+        source.readStream(current.path, startOffset: resumeOffset),
+        cancellationToken,
+      ),
+      startOffset: resumeOffset,
+      truncate: resumeOffset == 0,
       onProgress: (value) {
         fileProgress = value;
         onProgress?.call(baseline + value);
       },
     );
+    cancellationToken?.throwIfCancelled();
+    await target.rename(partialPath, currentTargetPath);
     transferred = baseline + fileProgress;
   }
 
   await copy(entry, targetDirectory);
   return transferred;
+}
+
+Stream<Uint8List> cancelOnDemand(
+  Stream<Uint8List> source,
+  TransferCancellationToken? token,
+) async* {
+  await for (final chunk in source) {
+    token?.throwIfCancelled();
+    yield chunk;
+  }
+  token?.throwIfCancelled();
+}
+
+Future<int> writeStreamAtomically(
+  FileTransferService target,
+  String finalPath,
+  Stream<Uint8List> source, {
+  required int totalBytes,
+  TransferProgressCallback? onProgress,
+  TransferCancellationToken? cancellationToken,
+}) async {
+  final partialPath = '$finalPath.netcatty-part';
+  var resumeOffset = await target.fileSize(partialPath) ?? 0;
+  if (resumeOffset < 0 || resumeOffset > totalBytes) resumeOffset = 0;
+  if (resumeOffset > 0) onProgress?.call(resumeOffset);
+  var written = 0;
+  await target.writeStream(
+    partialPath,
+    cancelOnDemand(
+      _skipBytes(source, resumeOffset),
+      cancellationToken,
+    ),
+    startOffset: resumeOffset,
+    truncate: resumeOffset == 0,
+    onProgress: (value) {
+      written = value;
+      onProgress?.call(resumeOffset + value);
+    },
+  );
+  cancellationToken?.throwIfCancelled();
+  await target.rename(partialPath, finalPath);
+  return resumeOffset + written;
+}
+
+Stream<Uint8List> _skipBytes(Stream<Uint8List> source, int count) async* {
+  var remaining = count;
+  await for (final chunk in source) {
+    if (remaining >= chunk.length) {
+      remaining -= chunk.length;
+      continue;
+    }
+    if (remaining > 0) {
+      yield Uint8List.sublistView(chunk, remaining);
+      remaining = 0;
+    } else {
+      yield chunk;
+    }
+  }
+  if (remaining > 0) throw StateError('源文件长度不足，无法继续传输');
 }
 
 Stream<Uint8List> asUint8ListStream(Stream<List<int>> source) => source.map(
@@ -440,11 +590,12 @@ Stream<Uint8List> trackTransferProgress(
 Future<void> _writeSftpStreamWithLimitedConcurrency(
   SftpFile file,
   Stream<Uint8List> stream, {
+  int startOffset = 0,
   TransferProgressCallback? onProgress,
   int maxPendingWrites = 8,
 }) async {
   const maxChunkSize = 16 * 1024;
-  var offset = 0;
+  var offset = startOffset;
   var acknowledged = 0;
   var batch = <Future<int>>[];
 

@@ -31,6 +31,7 @@ class AppSettings {
     this.uiThemeId = 'tokyo-night',
     this.serverViewMode = 'grid',
     this.terminalFontSize = 14,
+    this.terminalSecureKeyboard = false,
     this.language = 'zh-CN',
     this.aiEndpoint = 'https://api.openai.com/v1',
     this.aiModel = 'gpt-4.1-mini',
@@ -67,6 +68,7 @@ class AppSettings {
       uiThemeId: json['uiThemeId']?.toString() ?? 'tokyo-night',
       serverViewMode: _serverViewMode(json['serverViewMode']?.toString()),
       terminalFontSize: (json['terminalFontSize'] as num?)?.toDouble() ?? 14,
+      terminalSecureKeyboard: json['terminalSecureKeyboard'] == true,
       language: json['language']?.toString() ?? 'zh-CN',
       aiEndpoint: json['aiEndpoint']?.toString() ?? 'https://api.openai.com/v1',
       aiModel: json['aiModel']?.toString() ?? 'gpt-4.1-mini',
@@ -79,6 +81,7 @@ class AppSettings {
   final String uiThemeId;
   final String serverViewMode;
   final double terminalFontSize;
+  final bool terminalSecureKeyboard;
   final String language;
   final String aiEndpoint;
   final String aiModel;
@@ -90,6 +93,7 @@ class AppSettings {
     String? uiThemeId,
     String? serverViewMode,
     double? terminalFontSize,
+    bool? terminalSecureKeyboard,
     String? language,
     String? aiEndpoint,
     String? aiModel,
@@ -101,6 +105,8 @@ class AppSettings {
         uiThemeId: uiThemeId ?? this.uiThemeId,
         serverViewMode: serverViewMode ?? this.serverViewMode,
         terminalFontSize: terminalFontSize ?? this.terminalFontSize,
+        terminalSecureKeyboard:
+            terminalSecureKeyboard ?? this.terminalSecureKeyboard,
         language: language ?? this.language,
         aiEndpoint: aiEndpoint ?? this.aiEndpoint,
         aiModel: aiModel ?? this.aiModel,
@@ -113,6 +119,7 @@ class AppSettings {
         'uiThemeId': uiThemeId,
         'serverViewMode': serverViewMode,
         'terminalFontSize': terminalFontSize,
+        'terminalSecureKeyboard': terminalSecureKeyboard,
         'language': language,
         'aiEndpoint': aiEndpoint,
         'aiModel': aiModel,

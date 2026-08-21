@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:netcatty_mobile/presentation/localization/localized_widgets.dart';
 
 import '../../../domain/models/system_management.dart';
 import '../../../infrastructure/ssh/ssh_service.dart';
@@ -174,7 +175,7 @@ class _DockerComposePanelState extends State<DockerComposePanel> {
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('$error')),
+          SnackBar(content: LText('$error')),
         );
       }
     } finally {
@@ -192,7 +193,7 @@ class _DockerComposePanelState extends State<DockerComposePanel> {
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('$error')),
+          SnackBar(content: LText('$error')),
         );
       }
     }
@@ -207,16 +208,16 @@ class _DockerComposePanelState extends State<DockerComposePanel> {
         context: context,
         builder: (context) => AlertDialog(
           icon: const Icon(Icons.warning_amber_outlined),
-          title: Text(title),
-          content: Text(message),
+          title: LText(title),
+          content: LText(message),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: const Text('取消'),
+              child: const LText('取消'),
             ),
             FilledButton(
               onPressed: () => Navigator.pop(context, true),
-              child: Text(action),
+              child: LText(action),
             ),
           ],
         ),
@@ -232,7 +233,7 @@ class _DockerComposePanelState extends State<DockerComposePanel> {
           padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
           child: TextField(
             controller: _search,
-            decoration: const InputDecoration(
+            decoration: LInputDecoration(
               isDense: true,
               prefixIcon: Icon(Icons.search),
               hintText: '搜索项目、服务、镜像或配置文件',
@@ -245,14 +246,14 @@ class _DockerComposePanelState extends State<DockerComposePanel> {
             children: [
               Chip(
                 avatar: const Icon(Icons.layers_outlined, size: 18),
-                label: Text(
+                label: LText(
                   _version.isEmpty ? 'Docker Compose' : 'Compose $_version',
                 ),
               ),
               const Spacer(),
-              Text('${_projects.length} 个项目'),
+              LText('${_projects.length} 个项目'),
               IconButton(
-                tooltip: '刷新 Compose',
+                tooltip: localized('刷新 Compose'),
                 onPressed: _loading ? null : _refresh,
                 icon: const Icon(Icons.refresh),
               ),
@@ -262,9 +263,9 @@ class _DockerComposePanelState extends State<DockerComposePanel> {
         if (_loading) const LinearProgressIndicator(minHeight: 2),
         if (_error != null)
           MaterialBanner(
-            content: Text('Compose 读取失败：$_error'),
+            content: LText('Compose 读取失败：$_error'),
             actions: [
-              TextButton(onPressed: _refresh, child: const Text('重试')),
+              TextButton(onPressed: _refresh, child: const LText('重试')),
             ],
           ),
         Expanded(
@@ -275,13 +276,13 @@ class _DockerComposePanelState extends State<DockerComposePanel> {
                     children: [
                       const Icon(Icons.layers_clear_outlined, size: 48),
                       const SizedBox(height: 10),
-                      Text(_error == null
+                      LText(_error == null
                           ? '没有发现 Docker Compose 项目'
                           : 'Docker Compose 当前不可用'),
                       if (_error == null)
                         const Padding(
                           padding: EdgeInsets.fromLTRB(24, 6, 24, 0),
-                          child: Text(
+                          child: LText(
                             '通过 Compose 创建过容器后，项目会自动显示在这里。',
                             textAlign: TextAlign.center,
                           ),
@@ -338,8 +339,8 @@ class _ComposeProjectCard extends StatelessWidget {
                           : Icons.layers_outlined,
                 ),
               ),
-              title: Text(project.name),
-              subtitle: Text(
+              title: LText(project.name),
+              subtitle: LText(
                 project.status.isEmpty
                     ? '${services.length} 个服务'
                     : project.status,
@@ -359,14 +360,14 @@ class _ComposeProjectCard extends StatelessWidget {
                     dense: true,
                     contentPadding: EdgeInsets.zero,
                     leading: const Icon(Icons.description_outlined),
-                    title: const Text('Compose 配置'),
-                    subtitle: Text(project.configFiles.join('\n')),
+                    title: const LText('Compose 配置'),
+                    subtitle: LText(project.configFiles.join('\n')),
                   ),
                 if (services.isEmpty)
                   const ListTile(
                     dense: true,
                     contentPadding: EdgeInsets.zero,
-                    title: Text('当前没有项目容器'),
+                    title: LText('当前没有项目容器'),
                   )
                 else
                   for (final service in services)
@@ -374,12 +375,12 @@ class _ComposeProjectCard extends StatelessWidget {
                       dense: true,
                       contentPadding: EdgeInsets.zero,
                       leading: DockerImageBadge(imageName: service.image),
-                      title: Text(
+                      title: LText(
                         service.composeService.isEmpty
                             ? service.name
                             : service.composeService,
                       ),
-                      subtitle: Text(
+                      subtitle: LText(
                         '${service.image} · ${service.status}',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -434,12 +435,12 @@ class _ComposeProjectCard extends StatelessWidget {
                     DockerComposeAction.rebuild,
                   ),
                   IconButton(
-                    tooltip: '实时日志',
+                    tooltip: localized('实时日志'),
                     onPressed: busy ? null : onLogs,
                     icon: const Icon(Icons.article_outlined),
                   ),
                   PopupMenuButton<DockerComposeAction>(
-                    tooltip: '更多 Compose 操作',
+                    tooltip: localized('更多 Compose 操作'),
                     enabled: !busy,
                     onSelected: onAction,
                     itemBuilder: (context) => const [
@@ -447,21 +448,21 @@ class _ComposeProjectCard extends StatelessWidget {
                         value: DockerComposeAction.pull,
                         child: ListTile(
                           leading: Icon(Icons.download),
-                          title: Text('仅拉取最新镜像'),
+                          title: LText('仅拉取最新镜像'),
                         ),
                       ),
                       PopupMenuItem(
                         value: DockerComposeAction.recreate,
                         child: ListTile(
                           leading: Icon(Icons.autorenew),
-                          title: Text('使用当前镜像重建容器'),
+                          title: LText('使用当前镜像重建容器'),
                         ),
                       ),
                       PopupMenuItem(
                         value: DockerComposeAction.down,
                         child: ListTile(
                           leading: Icon(Icons.delete_sweep_outlined),
-                          title: Text('停止并移除项目'),
+                          title: LText('停止并移除项目'),
                         ),
                       ),
                     ],

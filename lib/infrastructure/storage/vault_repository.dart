@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../domain/models/settings.dart';
 import '../../domain/models/vault.dart';
@@ -20,6 +21,7 @@ class VaultRepository {
   static const _syncKey = 'netcatty_mobile_sync_v1';
   static const _masterPasswordKey = 'netcatty.mobile.sync.masterPassword';
   static const _aiApiKey = 'netcatty.mobile.ai.apiKey';
+  static const _deviceIdKey = 'netcatty_mobile_device_id_v1';
 
   final SharedPreferences _preferences;
   final FlutterSecureStorage _secureStorage;
@@ -185,6 +187,14 @@ class VaultRepository {
       _writeSecret(_masterPasswordKey, value);
   Future<String?> readAiApiKey() => _secureStorage.read(key: _aiApiKey);
   Future<void> saveAiApiKey(String? value) => _writeSecret(_aiApiKey, value);
+
+  Future<String> readOrCreateDeviceId() async {
+    final existing = _preferences.getString(_deviceIdKey);
+    if (existing != null && existing.isNotEmpty) return existing;
+    final created = const Uuid().v4();
+    await _preferences.setString(_deviceIdKey, created);
+    return created;
+  }
 
   Future<void> _writeSecret(String key, String? value) async {
     if (value == null || value.isEmpty) {

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:netcatty_mobile/presentation/localization/localized_widgets.dart';
 
 import '../../domain/models/server_stats.dart';
 import '../../infrastructure/ssh/server_monitor_service.dart';
@@ -82,13 +83,13 @@ class _ServerMonitorSheetState extends State<ServerMonitorSheet> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
+                        LText(
                           system?.hostname.isNotEmpty == true
                               ? system!.hostname
                               : widget.session.host.label,
                           style: Theme.of(context).textTheme.titleLarge,
                         ),
-                        Text(
+                        LText(
                           system == null
                               ? '正在读取系统信息…'
                               : '${system.prettyName} · ${system.kernel}',
@@ -100,12 +101,12 @@ class _ServerMonitorSheetState extends State<ServerMonitorSheet> {
                     ),
                   ),
                   IconButton(
-                    tooltip: '刷新',
+                    tooltip: localized('刷新'),
                     onPressed: polling ? null : _poll,
                     icon: const Icon(Icons.refresh),
                   ),
                   IconButton(
-                    tooltip: '关闭',
+                    tooltip: localized('关闭'),
                     onPressed: () => Navigator.pop(context),
                     icon: const Icon(Icons.close),
                   ),
@@ -129,9 +130,9 @@ class _ServerMonitorSheetState extends State<ServerMonitorSheet> {
                     children: [
                       const Icon(Icons.monitor_heart_outlined, size: 48),
                       const SizedBox(height: 12),
-                      Text('无法读取性能数据\n$error', textAlign: TextAlign.center),
+                      LText('无法读取性能数据\n$error', textAlign: TextAlign.center),
                       const SizedBox(height: 12),
-                      FilledButton(onPressed: _poll, child: const Text('重试')),
+                      FilledButton(onPressed: _poll, child: const LText('重试')),
                     ],
                   ),
                 ),
@@ -187,7 +188,7 @@ class _ServerMonitorSheetState extends State<ServerMonitorSheet> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
+                          const LText(
                             '网络吞吐',
                             style: TextStyle(fontWeight: FontWeight.w600),
                           ),
@@ -220,8 +221,8 @@ class _ServerMonitorSheetState extends State<ServerMonitorSheet> {
                   Card(
                     child: ListTile(
                       leading: const Icon(Icons.timeline),
-                      title: const Text('系统负载（1 / 5 / 15 分钟）'),
-                      subtitle: Text(value.loadAverage
+                      title: const LText('系统负载（1 / 5 / 15 分钟）'),
+                      subtitle: LText(value.loadAverage
                           .map((item) => item.toStringAsFixed(2))
                           .join('  /  ')),
                       trailing: error == null
@@ -269,15 +270,15 @@ class _GaugeCard extends StatelessWidget {
                 children: [
                   Icon(icon, size: 18),
                   const SizedBox(width: 6),
-                  Text(label,
+                  LText(label,
                       style: const TextStyle(fontWeight: FontWeight.w600)),
                   const Spacer(),
                   if (showProgress)
-                    Text('${percent.clamp(0, 100).toStringAsFixed(1)}%'),
+                    LText('${percent.clamp(0, 100).toStringAsFixed(1)}%'),
                 ],
               ),
               const Spacer(),
-              Text(
+              LText(
                 detail,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
@@ -308,8 +309,8 @@ class _Metric extends StatelessWidget {
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(label, style: Theme.of(context).textTheme.bodySmall),
-              Text(value, style: const TextStyle(fontWeight: FontWeight.w600)),
+              LText(label, style: Theme.of(context).textTheme.bodySmall),
+              LText(value, style: const TextStyle(fontWeight: FontWeight.w600)),
             ],
           ),
         ],

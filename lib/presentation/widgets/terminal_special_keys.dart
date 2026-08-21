@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:netcatty_mobile/presentation/localization/localized_widgets.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/settings_controller.dart';
 import '../../domain/models/settings.dart';
+import '../../infrastructure/ssh/ssh_service.dart';
 
 class TerminalSpecialKeys extends ConsumerStatefulWidget {
   const TerminalSpecialKeys({
@@ -11,6 +13,7 @@ class TerminalSpecialKeys extends ConsumerStatefulWidget {
     required this.order,
     required this.customKeys,
     required this.onSend,
+    required this.inputController,
     required this.onAi,
     required this.onPortForward,
     required this.onSystemManagement,
@@ -25,6 +28,7 @@ class TerminalSpecialKeys extends ConsumerStatefulWidget {
   final List<String> order;
   final List<TerminalCustomKey> customKeys;
   final void Function(String, {bool enter}) onSend;
+  final TerminalInputController inputController;
   final VoidCallback onAi;
   final VoidCallback? onPortForward;
   final VoidCallback? onSystemManagement;
@@ -41,8 +45,6 @@ class TerminalSpecialKeys extends ConsumerStatefulWidget {
 }
 
 class _TerminalSpecialKeysState extends ConsumerState<TerminalSpecialKeys> {
-  final modifiers = <String>{};
-
   @override
   Widget build(BuildContext context) {
     final definitions = <String, _QuickKey>{
@@ -56,118 +58,121 @@ class _TerminalSpecialKeysState extends ConsumerState<TerminalSpecialKeys> {
         (value) => !widget.order.contains(value),
       ),
     ];
-    return Material(
-      color: Theme.of(context).colorScheme.surface,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(8, 6, 8, 4),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            LayoutBuilder(
-              builder: (context, constraints) {
-                const spacing = 6.0;
-                const minimumButtonWidth = 52.0;
-                final columnCount = ((constraints.maxWidth + spacing) /
-                        (minimumButtonWidth + spacing))
-                    .floor()
-                    .clamp(1, 6);
-                final buttonWidth =
-                    (constraints.maxWidth - spacing * (columnCount - 1)) /
-                        columnCount;
-                return Wrap(
-                  alignment: WrapAlignment.spaceEvenly,
-                  spacing: spacing,
-                  runSpacing: 4,
-                  children: [
-                    for (final id in normalized)
-                      SizedBox(
-                        width: buttonWidth,
-                        height: 38,
-                        child: _keyButton(definitions[id]!),
-                      ),
-                  ],
-                );
-              },
-            ),
-            const SizedBox(height: 4),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                IconButton(
-                  key: const ValueKey('terminal-action-ai'),
-                  visualDensity: VisualDensity.compact,
-                  tooltip: 'Catty Agent',
-                  onPressed: widget.onAi,
-                  icon: Icon(
-                    Icons.auto_awesome,
-                    color: Theme.of(context).colorScheme.primary,
+    return AnimatedBuilder(
+      animation: widget.inputController,
+      builder: (context, _) => Material(
+        color: Theme.of(context).colorScheme.surface,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(8, 6, 8, 4),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  const spacing = 6.0;
+                  const minimumButtonWidth = 52.0;
+                  final columnCount = ((constraints.maxWidth + spacing) /
+                          (minimumButtonWidth + spacing))
+                      .floor()
+                      .clamp(1, 6);
+                  final buttonWidth =
+                      (constraints.maxWidth - spacing * (columnCount - 1)) /
+                          columnCount;
+                  return Wrap(
+                    alignment: WrapAlignment.spaceEvenly,
+                    spacing: spacing,
+                    runSpacing: 4,
+                    children: [
+                      for (final id in normalized)
+                        SizedBox(
+                          width: buttonWidth,
+                          height: 38,
+                          child: _keyButton(definitions[id]!),
+                        ),
+                    ],
+                  );
+                },
+              ),
+              const SizedBox(height: 4),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  IconButton(
+                    key: const ValueKey('terminal-action-ai'),
+                    visualDensity: VisualDensity.compact,
+                    tooltip: localized('Catty Agent'),
+                    onPressed: widget.onAi,
+                    icon: Icon(
+                      Icons.auto_awesome,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
                   ),
-                ),
-                IconButton(
-                  key: const ValueKey('terminal-action-port-forward'),
-                  visualDensity: VisualDensity.compact,
-                  tooltip: '端口转发',
-                  onPressed: widget.onPortForward,
-                  icon: const Icon(Icons.swap_horiz),
-                ),
-                IconButton(
-                  key: const ValueKey('terminal-action-system-management'),
-                  visualDensity: VisualDensity.compact,
-                  tooltip: '系统管理',
-                  onPressed: widget.onSystemManagement,
-                  icon: const Icon(Icons.admin_panel_settings_outlined),
-                ),
-                IconButton(
-                  key: const ValueKey('terminal-action-picture-in-picture'),
-                  visualDensity: VisualDensity.compact,
-                  tooltip: widget.pictureInPicture ? '退出画中画' : '画中画',
-                  isSelected: widget.pictureInPicture,
-                  onPressed: widget.onPictureInPicture,
-                  icon: Icon(
-                    widget.pictureInPicture
-                        ? Icons.picture_in_picture_alt
-                        : Icons.picture_in_picture,
+                  IconButton(
+                    key: const ValueKey('terminal-action-port-forward'),
+                    visualDensity: VisualDensity.compact,
+                    tooltip: localized('端口转发'),
+                    onPressed: widget.onPortForward,
+                    icon: const Icon(Icons.swap_horiz),
                   ),
-                ),
-                IconButton(
-                  key: const ValueKey('terminal-action-fullscreen'),
-                  visualDensity: VisualDensity.compact,
-                  tooltip: widget.fullscreen ? '退出全屏' : '全屏',
-                  isSelected: widget.fullscreen,
-                  onPressed: widget.onFullscreen,
-                  icon: Icon(
-                    widget.fullscreen
-                        ? Icons.fullscreen_exit
-                        : Icons.fullscreen,
+                  IconButton(
+                    key: const ValueKey('terminal-action-system-management'),
+                    visualDensity: VisualDensity.compact,
+                    tooltip: localized('系统管理'),
+                    onPressed: widget.onSystemManagement,
+                    icon: const Icon(Icons.admin_panel_settings_outlined),
                   ),
-                ),
-                IconButton(
-                  key: const ValueKey('terminal-action-split'),
-                  visualDensity: VisualDensity.compact,
-                  tooltip: '分屏',
-                  isSelected: widget.split,
-                  onPressed: widget.onSplit,
-                  icon: const Icon(Icons.vertical_split_outlined),
-                ),
-                IconButton(
-                  key: const ValueKey('terminal-action-edit'),
-                  visualDensity: VisualDensity.compact,
-                  tooltip: '编辑快捷键',
-                  onPressed: () => _customize(context, normalized),
-                  icon: const Icon(Icons.tune, size: 20),
-                ),
-                IconButton(
-                  key: const ValueKey('terminal-action-hide-keyboard'),
-                  visualDensity: VisualDensity.compact,
-                  tooltip: '收起键盘',
-                  onPressed: () =>
-                      FocusManager.instance.primaryFocus?.unfocus(),
-                  icon: const Icon(Icons.keyboard_hide_outlined),
-                ),
-              ],
-            ),
-          ],
+                  IconButton(
+                    key: const ValueKey('terminal-action-picture-in-picture'),
+                    visualDensity: VisualDensity.compact,
+                    tooltip: widget.pictureInPicture ? '退出画中画' : '画中画',
+                    isSelected: widget.pictureInPicture,
+                    onPressed: widget.onPictureInPicture,
+                    icon: Icon(
+                      widget.pictureInPicture
+                          ? Icons.picture_in_picture_alt
+                          : Icons.picture_in_picture,
+                    ),
+                  ),
+                  IconButton(
+                    key: const ValueKey('terminal-action-fullscreen'),
+                    visualDensity: VisualDensity.compact,
+                    tooltip: widget.fullscreen ? '退出全屏' : '全屏',
+                    isSelected: widget.fullscreen,
+                    onPressed: widget.onFullscreen,
+                    icon: Icon(
+                      widget.fullscreen
+                          ? Icons.fullscreen_exit
+                          : Icons.fullscreen,
+                    ),
+                  ),
+                  IconButton(
+                    key: const ValueKey('terminal-action-split'),
+                    visualDensity: VisualDensity.compact,
+                    tooltip: localized('分屏'),
+                    isSelected: widget.split,
+                    onPressed: widget.onSplit,
+                    icon: const Icon(Icons.vertical_split_outlined),
+                  ),
+                  IconButton(
+                    key: const ValueKey('terminal-action-edit'),
+                    visualDensity: VisualDensity.compact,
+                    tooltip: localized('编辑快捷键'),
+                    onPressed: () => _customize(context, normalized),
+                    icon: const Icon(Icons.tune, size: 20),
+                  ),
+                  IconButton(
+                    key: const ValueKey('terminal-action-hide-keyboard'),
+                    visualDensity: VisualDensity.compact,
+                    tooltip: localized('收起键盘'),
+                    onPressed: () =>
+                        FocusManager.instance.primaryFocus?.unfocus(),
+                    icon: const Icon(Icons.keyboard_hide_outlined),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -175,7 +180,7 @@ class _TerminalSpecialKeysState extends ConsumerState<TerminalSpecialKeys> {
 
   Widget _keyButton(_QuickKey key) {
     final selected = key.type == _QuickKeyType.modifier &&
-        modifiers.contains(key.modifierId);
+        widget.inputController.modifiers.contains(key.modifierId);
     return Semantics(
       button: true,
       selected: selected,
@@ -195,7 +200,7 @@ class _TerminalSpecialKeysState extends ConsumerState<TerminalSpecialKeys> {
           ),
         ),
         child: key.icon == null
-            ? Text(key.label, textAlign: TextAlign.center)
+            ? LText(key.label, textAlign: TextAlign.center)
             : Tooltip(
                 message: key.label,
                 child: Icon(key.icon, size: 20),
@@ -206,45 +211,20 @@ class _TerminalSpecialKeysState extends ConsumerState<TerminalSpecialKeys> {
 
   Future<void> _press(_QuickKey key) async {
     if (key.type == _QuickKeyType.modifier) {
-      setState(() {
-        if (!modifiers.add(key.modifierId!)) {
-          modifiers.remove(key.modifierId);
-        }
-      });
+      final next = {...widget.inputController.modifiers};
+      if (!next.add(key.modifierId!)) next.remove(key.modifierId);
+      widget.inputController.setModifiers(next);
       return;
     }
     if (key.type == _QuickKeyType.paste) {
+      widget.inputController.clearModifiers();
       final data = await Clipboard.getData(Clipboard.kTextPlain);
       final text = data?.text;
       if (text?.isNotEmpty == true) widget.onSend(text!);
       return;
     }
-    final value = _applyModifiers(decodeTerminalKeyEscapes(key.value ?? ''));
+    final value = decodeTerminalKeyEscapes(key.value ?? '');
     if (value.isNotEmpty) widget.onSend(value);
-    if (modifiers.isNotEmpty) setState(modifiers.clear);
-  }
-
-  String _applyModifiers(String value) {
-    if (modifiers.isEmpty) return value;
-    final shift = modifiers.contains('shift');
-    final alt = modifiers.contains('alt');
-    final ctrl = modifiers.contains('ctrl');
-    final parameter = 1 + (shift ? 1 : 0) + (alt ? 2 : 0) + (ctrl ? 4 : 0);
-    if (value.length == 3 &&
-        value.startsWith('\x1b[') &&
-        'ABCDHF'.contains(value[2])) {
-      return '\x1b[1;$parameter${value[2]}';
-    }
-    var result = value;
-    if (shift && result.length == 1) result = result.toUpperCase();
-    if (ctrl && result.length == 1) {
-      final code = result.toUpperCase().codeUnitAt(0);
-      if (code >= 64 && code <= 95) {
-        result = String.fromCharCode(code & 0x1f);
-      }
-    }
-    if (alt) result = '\x1b$result';
-    return result;
   }
 
   Future<void> _customize(
@@ -273,8 +253,8 @@ class _TerminalSpecialKeysState extends ConsumerState<TerminalSpecialKeys> {
             child: Column(
               children: [
                 ListTile(
-                  title: const Text('快捷键设置'),
-                  subtitle: const Text('拖动排序；按键会根据屏幕宽度自动换行'),
+                  title: const LText('快捷键设置'),
+                  subtitle: const LText('拖动排序；按键会根据屏幕宽度自动换行'),
                   trailing: TextButton(
                     onPressed: () => setModalState(() {
                       working
@@ -282,7 +262,7 @@ class _TerminalSpecialKeysState extends ConsumerState<TerminalSpecialKeys> {
                         ..addAll(defaultTerminalQuickKeys);
                       custom.clear();
                     }),
-                    child: const Text('恢复默认'),
+                    child: const LText('恢复默认'),
                   ),
                 ),
                 Padding(
@@ -299,7 +279,7 @@ class _TerminalSpecialKeysState extends ConsumerState<TerminalSpecialKeys> {
                         });
                       },
                       icon: const Icon(Icons.add),
-                      label: const Text('添加自定义快捷键'),
+                      label: const LText('添加自定义快捷键'),
                     ),
                   ),
                 ),
@@ -318,17 +298,17 @@ class _TerminalSpecialKeysState extends ConsumerState<TerminalSpecialKeys> {
                       return ListTile(
                         key: ValueKey(id),
                         leading: const Icon(Icons.drag_handle),
-                        title: Text(labelFor(id)),
+                        title: LText(labelFor(id)),
                         subtitle: customIndex < 0
-                            ? const Text('内置按键')
-                            : Text('发送：${custom[customIndex].value}'),
+                            ? const LText('内置按键')
+                            : LText('发送：${custom[customIndex].value}'),
                         trailing: customIndex < 0
                             ? null
                             : Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   IconButton(
-                                    tooltip: '编辑',
+                                    tooltip: localized('编辑'),
                                     onPressed: () async {
                                       final key = await _editCustomKey(
                                         context,
@@ -342,7 +322,7 @@ class _TerminalSpecialKeysState extends ConsumerState<TerminalSpecialKeys> {
                                     icon: const Icon(Icons.edit_outlined),
                                   ),
                                   IconButton(
-                                    tooltip: '删除',
+                                    tooltip: localized('删除'),
                                     onPressed: () => setModalState(() {
                                       custom.removeAt(customIndex);
                                       working.remove(id);
@@ -364,7 +344,7 @@ class _TerminalSpecialKeysState extends ConsumerState<TerminalSpecialKeys> {
                         context,
                         _QuickKeySettingsResult(working, custom),
                       ),
-                      child: const Text('保存快捷键'),
+                      child: const LText('保存快捷键'),
                     ),
                   ),
                 ),
@@ -393,14 +373,14 @@ class _TerminalSpecialKeysState extends ConsumerState<TerminalSpecialKeys> {
     return showDialog<TerminalCustomKey>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(initial == null ? '添加自定义快捷键' : '编辑自定义快捷键'),
+        title: LText(initial == null ? '添加自定义快捷键' : '编辑自定义快捷键'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             TextField(
               controller: label,
               autofocus: true,
-              decoration: const InputDecoration(
+              decoration: LInputDecoration(
                 labelText: '显示名称',
                 hintText: '例如：清屏',
               ),
@@ -408,7 +388,7 @@ class _TerminalSpecialKeysState extends ConsumerState<TerminalSpecialKeys> {
             const SizedBox(height: 10),
             TextField(
               controller: value,
-              decoration: const InputDecoration(
+              decoration: LInputDecoration(
                 labelText: '发送内容',
                 hintText: r'例如：clear\n 或 \x03',
                 helperText: r'支持 \n、\t、\e 和 \xNN 转义',
@@ -419,7 +399,7 @@ class _TerminalSpecialKeysState extends ConsumerState<TerminalSpecialKeys> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
+            child: const LText('取消'),
           ),
           FilledButton(
             onPressed: () {
@@ -436,7 +416,7 @@ class _TerminalSpecialKeysState extends ConsumerState<TerminalSpecialKeys> {
                 ),
               );
             },
-            child: const Text('确定'),
+            child: const LText('确定'),
           ),
         ],
       ),

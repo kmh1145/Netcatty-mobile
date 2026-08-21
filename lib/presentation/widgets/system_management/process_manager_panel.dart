@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:netcatty_mobile/presentation/localization/localized_widgets.dart';
 
 import '../../../domain/models/system_management.dart';
 import '../../../infrastructure/ssh/ssh_service.dart';
@@ -133,11 +134,11 @@ class _ProcessManagerPanelState extends State<ProcessManagerPanel> {
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          title: Text('调整 PID ${process.pid} 优先级'),
+          title: LText('调整 PID ${process.pid} 优先级'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text('-20 优先级最高，19 最低'),
+              const LText('-20 优先级最高，19 最低'),
               const SizedBox(height: 12),
               Slider(
                 min: -20,
@@ -147,7 +148,7 @@ class _ProcessManagerPanelState extends State<ProcessManagerPanel> {
                 value: value,
                 onChanged: (next) => setDialogState(() => value = next),
               ),
-              Text(
+              LText(
                 value.round().toString(),
                 style: Theme.of(context).textTheme.headlineSmall,
               ),
@@ -156,11 +157,11 @@ class _ProcessManagerPanelState extends State<ProcessManagerPanel> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('取消'),
+              child: const LText('取消'),
             ),
             FilledButton(
               onPressed: () => Navigator.pop(context, value.round()),
-              child: const Text('应用'),
+              child: const LText('应用'),
             ),
           ],
         ),
@@ -199,16 +200,16 @@ class _ProcessManagerPanelState extends State<ProcessManagerPanel> {
         context: context,
         builder: (context) => AlertDialog(
           icon: const Icon(Icons.warning_amber_outlined),
-          title: Text(title),
-          content: Text(message),
+          title: LText(title),
+          content: LText(message),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: const Text('取消'),
+              child: const LText('取消'),
             ),
             FilledButton(
               onPressed: () => Navigator.pop(context, true),
-              child: Text(action),
+              child: LText(action),
             ),
           ],
         ),
@@ -217,7 +218,7 @@ class _ProcessManagerPanelState extends State<ProcessManagerPanel> {
 
   void _showError(Object error) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('$error')),
+      SnackBar(content: LText('$error')),
     );
   }
 
@@ -232,14 +233,14 @@ class _ProcessManagerPanelState extends State<ProcessManagerPanel> {
             children: [
               TextField(
                 controller: _search,
-                decoration: InputDecoration(
+                decoration: LInputDecoration(
                   isDense: true,
                   prefixIcon: const Icon(Icons.search),
                   hintText: '搜索 PID、用户名或命令',
                   suffixIcon: _search.text.isEmpty
                       ? null
                       : IconButton(
-                          tooltip: '清除',
+                          tooltip: localized('清除'),
                           onPressed: _search.clear,
                           icon: const Icon(Icons.close),
                         ),
@@ -252,30 +253,30 @@ class _ProcessManagerPanelState extends State<ProcessManagerPanel> {
                     child: DropdownButtonFormField<ProcessSortKey>(
                       initialValue: _sort,
                       isDense: true,
-                      decoration: const InputDecoration(
+                      decoration: LInputDecoration(
                         labelText: '排序',
                         prefixIcon: Icon(Icons.sort),
                       ),
                       items: const [
                         DropdownMenuItem(
                           value: ProcessSortKey.cpu,
-                          child: Text('CPU'),
+                          child: LText('CPU'),
                         ),
                         DropdownMenuItem(
                           value: ProcessSortKey.memory,
-                          child: Text('内存'),
+                          child: LText('内存'),
                         ),
                         DropdownMenuItem(
                           value: ProcessSortKey.pid,
-                          child: Text('PID'),
+                          child: LText('PID'),
                         ),
                         DropdownMenuItem(
                           value: ProcessSortKey.command,
-                          child: Text('命令'),
+                          child: LText('命令'),
                         ),
                         DropdownMenuItem(
                           value: ProcessSortKey.user,
-                          child: Text('用户'),
+                          child: LText('用户'),
                         ),
                       ],
                       onChanged: (value) {
@@ -291,12 +292,12 @@ class _ProcessManagerPanelState extends State<ProcessManagerPanel> {
                     ),
                   ),
                   FilterChip(
-                    label: const Text('仅运行中'),
+                    label: const LText('仅运行中'),
                     selected: _runningOnly,
                     onSelected: (value) => setState(() => _runningOnly = value),
                   ),
                   IconButton(
-                    tooltip: '刷新',
+                    tooltip: localized('刷新'),
                     onPressed: _loading ? null : _refresh,
                     icon: const Icon(Icons.refresh),
                   ),
@@ -308,14 +309,14 @@ class _ProcessManagerPanelState extends State<ProcessManagerPanel> {
         if (_loading) const LinearProgressIndicator(minHeight: 2),
         if (_error != null)
           MaterialBanner(
-            content: Text('读取进程失败：$_error'),
+            content: LText('读取进程失败：$_error'),
             actions: [
-              TextButton(onPressed: _refresh, child: const Text('重试')),
+              TextButton(onPressed: _refresh, child: const LText('重试')),
             ],
           ),
         Expanded(
           child: visible.isEmpty && !_loading
-              ? const Center(child: Text('没有符合条件的进程'))
+              ? const Center(child: LText('没有符合条件的进程'))
               : ListView.builder(
                   padding: const EdgeInsets.fromLTRB(8, 0, 8, 20),
                   itemCount: visible.length,
@@ -352,17 +353,17 @@ class _ProcessCard extends StatelessWidget {
             ExpansionTile(
               leading: CircleAvatar(
                 radius: 20,
-                child: Text(
+                child: LText(
                   '${process.cpuPercent.round()}%',
                   style: const TextStyle(fontSize: 11),
                 ),
               ),
-              title: Text(
+              title: LText(
                 process.command,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
-              subtitle: Text(
+              subtitle: LText(
                 'PID ${process.pid} · ${process.user} · '
                 'CPU ${process.cpuPercent.toStringAsFixed(1)}% · '
                 'MEM ${process.memoryPercent.toStringAsFixed(1)}%',
@@ -414,7 +415,7 @@ class _ProcessCard extends StatelessWidget {
                 children: [
                   if (process.isStopped)
                     IconButton(
-                      tooltip: '恢复 (CONT)',
+                      tooltip: localized('恢复 (CONT)'),
                       onPressed: enabled
                           ? () => onSignal(process, ProcessSignal.cont)
                           : null,
@@ -422,28 +423,28 @@ class _ProcessCard extends StatelessWidget {
                     )
                   else
                     IconButton(
-                      tooltip: '暂停 (STOP)',
+                      tooltip: localized('暂停 (STOP)'),
                       onPressed: enabled
                           ? () => onSignal(process, ProcessSignal.stop)
                           : null,
                       icon: const Icon(Icons.pause),
                     ),
                   IconButton(
-                    tooltip: '终止 (TERM)',
+                    tooltip: localized('终止 (TERM)'),
                     onPressed: enabled
                         ? () => onSignal(process, ProcessSignal.term)
                         : null,
                     icon: const Icon(Icons.stop_circle_outlined),
                   ),
                   IconButton(
-                    tooltip: '强杀 (KILL)',
+                    tooltip: localized('强杀 (KILL)'),
                     onPressed: enabled
                         ? () => onSignal(process, ProcessSignal.kill)
                         : null,
                     icon: const Icon(Icons.dangerous_outlined),
                   ),
                   IconButton(
-                    tooltip: '调整优先级 (renice)',
+                    tooltip: localized('调整优先级 (renice)'),
                     onPressed: enabled ? () => onRenice(process) : null,
                     icon: const Icon(Icons.low_priority),
                   ),
@@ -465,8 +466,8 @@ class _Detail extends StatelessWidget {
   Widget build(BuildContext context) => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: Theme.of(context).textTheme.bodySmall),
-          Text(
+          LText(label, style: Theme.of(context).textTheme.bodySmall),
+          LText(
             value,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
@@ -485,14 +486,14 @@ class _UsageBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Row(
         children: [
-          SizedBox(width: 42, child: Text(label)),
+          SizedBox(width: 42, child: LText(label)),
           Expanded(
             child: LinearProgressIndicator(value: value.clamp(0, 100) / 100),
           ),
           const SizedBox(width: 8),
           SizedBox(
             width: 52,
-            child: Text(
+            child: LText(
               '${value.toStringAsFixed(1)}%',
               textAlign: TextAlign.end,
             ),

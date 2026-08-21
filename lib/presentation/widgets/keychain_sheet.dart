@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:netcatty_mobile/presentation/localization/localized_widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
@@ -23,7 +24,7 @@ class KeychainSheet extends ConsumerWidget {
             onPressed: () => Navigator.pop(context),
             icon: const Icon(Icons.close),
           ),
-          title: const Text('SSH 密钥'),
+          title: const LText('SSH 密钥'),
           actions: [
             IconButton(
               onPressed: () => _import(context, ref),
@@ -36,7 +37,7 @@ class KeychainSheet extends ConsumerWidget {
                 child: FilledButton.icon(
                   onPressed: () => _import(context, ref),
                   icon: const Icon(Icons.key),
-                  label: const Text('导入私钥'),
+                  label: const LText('导入私钥'),
                 ),
               )
             : ListView.separated(
@@ -47,8 +48,8 @@ class KeychainSheet extends ConsumerWidget {
                   final key = keys[index];
                   return ListTile(
                     leading: const CircleAvatar(child: Icon(Icons.key)),
-                    title: Text(key.label),
-                    subtitle: Text(
+                    title: LText(key.label),
+                    subtitle: LText(
                       key.data['type']?.toString() ?? 'OpenSSH / PEM',
                     ),
                     trailing: IconButton(
@@ -88,7 +89,7 @@ class KeychainSheet extends ConsumerWidget {
       if (context.mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(const SnackBar(content: Text('所选文件不是受支持的私钥')));
+        ).showSnackBar(const SnackBar(content: LText('所选文件不是受支持的私钥')));
       }
       return;
     }
@@ -98,19 +99,19 @@ class KeychainSheet extends ConsumerWidget {
     final key = await showDialog<SshKeyProfile>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('导入 SSH 私钥'),
+        title: const LText('导入 SSH 私钥'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             TextField(
               controller: label,
-              decoration: const InputDecoration(labelText: '名称'),
+              decoration: LInputDecoration(labelText: '名称'),
             ),
             const SizedBox(height: 10),
             TextField(
               controller: passphrase,
               obscureText: true,
-              decoration: const InputDecoration(labelText: '口令（可选）'),
+              decoration: LInputDecoration(labelText: '口令（可选）'),
             ),
           ],
         ),
@@ -130,7 +131,7 @@ class KeychainSheet extends ConsumerWidget {
                 'created': DateTime.now().millisecondsSinceEpoch,
               }),
             ),
-            child: const Text('导入'),
+            child: const LText('导入'),
           ),
         ],
       ),

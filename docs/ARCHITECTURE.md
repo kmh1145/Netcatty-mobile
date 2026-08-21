@@ -77,7 +77,7 @@ sequenceDiagram
   C->>T: 关闭 Shell、SSHClient 和相关资源
 ```
 
-`ActiveTerminalSession` 拥有认证后的 `SSHClient`、Shell Channel 和 xterm `Terminal`。SFTP、端口转发、服务器监控和系统管理复用这个 SSH Client，避免重复认证。因此：
+`ActiveTerminalSession` 拥有认证后的 `SSHClient`、Shell Channel、xterm `Terminal` 和 `TerminalInputController`。后者把底部 Ctrl/Alt/Shift 的一次性修饰状态应用到下一次系统软键盘输入；移动端 TerminalView 启用删除检测以兼容 iOS 输入法的退格事件。SFTP、端口转发、服务器监控和系统管理复用这个 SSH Client，避免重复认证。因此：
 
 - 关闭标签时必须先二次确认，再由 `SessionController` 统一释放资源。
 - 同一主机可以建立多个独立 `ActiveTerminalSession`，不能按主机 ID 去重。
@@ -159,7 +159,7 @@ Docker 调用会探测直接访问、免密 sudo 和需要密码的 sudo。破�
 
 仓库包含由另一运行时产生的兼容向量。修改 KDF、Nonce、Tag 拼接方式、JSON 结构或字符编码时，必须保留旧格式解密能力并补充跨运行时测试。
 
-合并策略以记录的更新时间为主，同时保留远端未知字段。不要把“同步成功”等同于简单覆盖上传。
+每次本地修改会为记录写入修订时钟，删除则写入加密墓碑；设备 ID 由安全的本地持久化标识提供，而不是每次启动重新生成。拉取和上传都先执行记录级合并，并用 WebDAV/Gist 的 ETag 条件写入；远端在同步窗口中发生变化时最多重新拉取合并三次，避免最后写入者静默覆盖。同步同时保留远端未知字段，不把“同步成功”等同于简单覆盖上传。
 
 ## 更新检查
 

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:netcatty_mobile/presentation/localization/localized_widgets.dart';
 import 'package:intl/intl.dart';
 
 import '../../../domain/models/host.dart';
@@ -32,6 +33,7 @@ class _TmuxManagerPanelState extends State<TmuxManagerPanel> {
   String _version = '';
   List<TmuxSessionInfo> _sessions = const [];
   bool _loading = true;
+  bool _refreshing = false;
   Object? _error;
 
   @override
@@ -56,7 +58,8 @@ class _TmuxManagerPanelState extends State<TmuxManagerPanel> {
   }
 
   Future<void> _refresh() async {
-    if (!widget.session.connected) return;
+    if (_refreshing || !widget.session.connected) return;
+    _refreshing = true;
     try {
       final version = await widget.service.tmuxVersion(widget.session);
       final sessions = await widget.service.listTmuxSessions(widget.session);
@@ -73,6 +76,8 @@ class _TmuxManagerPanelState extends State<TmuxManagerPanel> {
         _loading = false;
         _error = error;
       });
+    } finally {
+      _refreshing = false;
     }
   }
 
@@ -96,7 +101,7 @@ class _TmuxManagerPanelState extends State<TmuxManagerPanel> {
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          title: const Text('新建 tmux session'),
+          title: const LText('新建 tmux session'),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -104,7 +109,7 @@ class _TmuxManagerPanelState extends State<TmuxManagerPanel> {
                 TextField(
                   controller: name,
                   autofocus: true,
-                  decoration: const InputDecoration(
+                  decoration: LInputDecoration(
                     labelText: 'session 名称',
                     hintText: '例如 work',
                   ),
@@ -114,14 +119,14 @@ class _TmuxManagerPanelState extends State<TmuxManagerPanel> {
                   DropdownButtonFormField<CommandSnippet>(
                     initialValue: selectedSnippet,
                     isExpanded: true,
-                    decoration: const InputDecoration(
+                    decoration: LInputDecoration(
                       labelText: '从命令片段选择（可选）',
                     ),
                     items: widget.snippets
                         .map(
                           (snippet) => DropdownMenuItem(
                             value: snippet,
-                            child: Text(
+                            child: LText(
                               snippet.label,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
@@ -140,7 +145,7 @@ class _TmuxManagerPanelState extends State<TmuxManagerPanel> {
                   controller: command,
                   minLines: 2,
                   maxLines: 4,
-                  decoration: const InputDecoration(
+                  decoration: LInputDecoration(
                     labelText: '启动命令（可选）',
                     hintText: '例如 cd /srv/app && ./start.sh',
                   ),
@@ -151,7 +156,7 @@ class _TmuxManagerPanelState extends State<TmuxManagerPanel> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('取消'),
+              child: const LText('取消'),
             ),
             FilledButton(
               onPressed: () {
@@ -161,7 +166,7 @@ class _TmuxManagerPanelState extends State<TmuxManagerPanel> {
                   (name: name.text.trim(), command: command.text.trim()),
                 );
               },
-              child: const Text('创建'),
+              child: const LText('创建'),
             ),
           ],
         ),
@@ -187,18 +192,18 @@ class _TmuxManagerPanelState extends State<TmuxManagerPanel> {
           context: context,
           builder: (context) => AlertDialog(
             icon: const Icon(Icons.warning_amber_outlined),
-            title: const Text('结束 tmux session？'),
-            content: Text(
+            title: const LText('结束 tmux session？'),
+            content: LText(
               '${session.name} 中的所有窗口和程序都会被终止，此操作无法撤销。',
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context, false),
-                child: const Text('取消'),
+                child: const LText('取消'),
               ),
               FilledButton(
                 onPressed: () => Navigator.pop(context, true),
-                child: const Text('结束 session'),
+                child: const LText('结束 session'),
               ),
             ],
           ),
@@ -215,7 +220,7 @@ class _TmuxManagerPanelState extends State<TmuxManagerPanel> {
 
   void _showError(Object error) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('$error')),
+      SnackBar(content: LText('$error')),
     );
   }
 
@@ -231,7 +236,7 @@ class _TmuxManagerPanelState extends State<TmuxManagerPanel> {
               Expanded(
                 child: TextField(
                   controller: _search,
-                  decoration: const InputDecoration(
+                  decoration: LInputDecoration(
                     isDense: true,
                     prefixIcon: Icon(Icons.search),
                     hintText: '搜索 session',
@@ -242,7 +247,7 @@ class _TmuxManagerPanelState extends State<TmuxManagerPanel> {
               FilledButton.icon(
                 onPressed: _createSession,
                 icon: const Icon(Icons.add),
-                label: const Text('新建'),
+                label: const LText('新建'),
               ),
             ],
           ),
@@ -253,12 +258,12 @@ class _TmuxManagerPanelState extends State<TmuxManagerPanel> {
             children: [
               Chip(
                 avatar: const Icon(Icons.terminal, size: 18),
-                label: Text(_version.isEmpty ? 'tmux' : _version),
+                label: LText(_version.isEmpty ? 'tmux' : _version),
               ),
               const Spacer(),
-              Text('${_sessions.length} 个 session'),
+              LText('${_sessions.length} 个 session'),
               IconButton(
-                tooltip: '刷新',
+                tooltip: localized('刷新'),
                 onPressed: _loading ? null : _refresh,
                 icon: const Icon(Icons.refresh),
               ),
@@ -268,9 +273,9 @@ class _TmuxManagerPanelState extends State<TmuxManagerPanel> {
         if (_loading) const LinearProgressIndicator(minHeight: 2),
         if (_error != null)
           MaterialBanner(
-            content: Text('tmux 读取失败：$_error'),
+            content: LText('tmux 读取失败：$_error'),
             actions: [
-              TextButton(onPressed: _refresh, child: const Text('重试')),
+              TextButton(onPressed: _refresh, child: const LText('重试')),
             ],
           ),
         Expanded(
@@ -281,12 +286,12 @@ class _TmuxManagerPanelState extends State<TmuxManagerPanel> {
                     children: [
                       const Icon(Icons.terminal_outlined, size: 48),
                       const SizedBox(height: 10),
-                      Text(_error == null ? '还没有 tmux session' : '无法读取 tmux'),
+                      LText(_error == null ? '还没有 tmux session' : '无法读取 tmux'),
                       if (_error == null)
                         TextButton.icon(
                           onPressed: _createSession,
                           icon: const Icon(Icons.add),
-                          label: const Text('创建第一个 session'),
+                          label: const LText('创建第一个 session'),
                         ),
                     ],
                   ),
@@ -369,10 +374,10 @@ class _TmuxSessionCardState extends State<_TmuxSessionCard> {
           if (expanded) _loadDetails();
         },
         leading: CircleAvatar(
-          child: Text('${widget.session.windowCount}'),
+          child: LText('${widget.session.windowCount}'),
         ),
-        title: Text(widget.session.name),
-        subtitle: Text(
+        title: LText(widget.session.name),
+        subtitle: LText(
           '${widget.session.windowCount} 个窗口 · '
           '${widget.session.attachedClients} 个客户端'
           '${date == null ? '' : ' · ${DateFormat('MM-dd HH:mm').format(date)}'}',
@@ -381,12 +386,12 @@ class _TmuxSessionCardState extends State<_TmuxSessionCard> {
           mainAxisSize: MainAxisSize.min,
           children: [
             IconButton(
-              tooltip: 'attach',
+              tooltip: localized('attach'),
               onPressed: widget.onAttach,
               icon: const Icon(Icons.login),
             ),
             IconButton(
-              tooltip: '结束 session',
+              tooltip: localized('结束 session'),
               onPressed: widget.onKill,
               icon: const Icon(Icons.delete_outline),
             ),
@@ -399,9 +404,9 @@ class _TmuxSessionCardState extends State<_TmuxSessionCard> {
             ListTile(
               dense: true,
               leading: const Icon(Icons.error_outline),
-              title: Text('读取详情失败：$_error'),
+              title: LText('读取详情失败：$_error'),
               trailing: IconButton(
-                tooltip: '重试',
+                tooltip: localized('重试'),
                 onPressed: _loadDetails,
                 icon: const Icon(Icons.refresh),
               ),
@@ -409,7 +414,7 @@ class _TmuxSessionCardState extends State<_TmuxSessionCard> {
           if (_details case final details?) ...[
             Align(
               alignment: Alignment.centerLeft,
-              child: Text(
+              child: LText(
                 '窗口',
                 style: Theme.of(context).textTheme.titleSmall,
               ),
@@ -424,8 +429,8 @@ class _TmuxSessionCardState extends State<_TmuxSessionCard> {
                       : Icons.radio_button_unchecked,
                   size: 18,
                 ),
-                title: Text('#${window.index} ${window.name}'),
-                subtitle: Text(
+                title: LText('#${window.index} ${window.name}'),
+                subtitle: LText(
                   '${window.paneCount} 个 pane · ${window.layout}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -434,7 +439,7 @@ class _TmuxSessionCardState extends State<_TmuxSessionCard> {
             const Divider(),
             Align(
               alignment: Alignment.centerLeft,
-              child: Text(
+              child: LText(
                 '已连接客户端',
                 style: Theme.of(context).textTheme.titleSmall,
               ),
@@ -443,7 +448,7 @@ class _TmuxSessionCardState extends State<_TmuxSessionCard> {
               const ListTile(
                 dense: true,
                 contentPadding: EdgeInsets.zero,
-                title: Text('没有客户端连接'),
+                title: LText('没有客户端连接'),
               )
             else
               for (final client in details.clients)
@@ -451,8 +456,8 @@ class _TmuxSessionCardState extends State<_TmuxSessionCard> {
                   dense: true,
                   contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.devices, size: 19),
-                  title: Text(client.tty.isEmpty ? client.name : client.tty),
-                  subtitle: Text(client.session),
+                  title: LText(client.tty.isEmpty ? client.name : client.tty),
+                  subtitle: LText(client.session),
                 ),
           ],
         ],

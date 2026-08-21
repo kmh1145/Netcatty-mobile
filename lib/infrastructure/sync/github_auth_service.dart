@@ -46,6 +46,7 @@ class GitHubAuthService {
     GitHubAuthDelay? delay,
     this.requestTimeout = const Duration(seconds: 20),
   })  : _client = client ?? http.Client(),
+        _ownsClient = client == null,
         _delay = delay ?? Future<void>.delayed;
 
   static const clientId = String.fromEnvironment(
@@ -54,6 +55,7 @@ class GitHubAuthService {
   );
 
   final http.Client _client;
+  final bool _ownsClient;
   final GitHubAuthDelay _delay;
   final Duration requestTimeout;
 
@@ -225,5 +227,9 @@ class GitHubAuthService {
     } on FormatException {
       return <String, dynamic>{};
     }
+  }
+
+  void close() {
+    if (_ownsClient) _client.close();
   }
 }

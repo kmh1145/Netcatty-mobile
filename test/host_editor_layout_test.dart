@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:netcatty_mobile/domain/models/host.dart';
 import 'package:netcatty_mobile/infrastructure/storage/vault_repository.dart';
 import 'package:netcatty_mobile/presentation/widgets/host_editor.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -74,5 +75,43 @@ void main() {
       lessThan(tester.getCenter(find.text('认证超时')).dy),
     );
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('existing host exposes delete action with callback',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final repository = await VaultRepository.open();
+    var deleted = false;
+    final host = HostProfile.create(
+      id: 'host-1',
+      label: 'Example',
+      hostname: 'example.com',
+      username: 'root',
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [vaultRepositoryProvider.overrideWithValue(repository)],
+        child: MaterialApp(
+          home: HostEditor(
+            host: host,
+            onDelete: () async {
+              deleted = true;
+              return false;
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('delete-host-from-editor')),
+      500,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.byKey(const ValueKey('delete-host-from-editor')));
+    await tester.pump();
+
+    expect(deleted, isTrue);
   });
 }

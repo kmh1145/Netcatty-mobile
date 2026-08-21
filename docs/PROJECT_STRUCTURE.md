@@ -41,6 +41,7 @@ Netcatty-mobile/
 | `models/host.dart` | `HostProfile`、`SshKeyProfile`、`CommandSnippet`、`ProxyProfile` | 保留原始 Map 的未知字段；认证字段与安全存储键保持一致 |
 | `models/vault.dart` | `VaultData` | 桌面/移动兼容的顶层保险库；新增字段需要兼容旧数据 |
 | `models/settings.dart` | `AppSettings`、`SyncConnection`、`TerminalCustomKey` | 默认快捷键迁移要有版本化测试 |
+| `models/vault_sync_state.dart` | 记录级修订时钟、删除墓碑与本地变更标记 | 元数据位于加密 Payload 内，不得移动到明文 Envelope |
 | `models/server_stats.dart` | `ServerSystemInfo`、`ServerStats` | 容忍远程采集缺字段 |
 | `models/system_management.dart` | 进程、Docker、Compose、tmux 模型和枚举 | 与远程输出解析及 UI 操作保持一一对应 |
 
@@ -85,7 +86,9 @@ Netcatty-mobile/
 | `storage/vault_export_service.dart` | 保险库 JSON 选择路径、保存和取消处理 |
 | `sync/netcatty_crypto.dart` | 桌面兼容 PBKDF2 + AES-GCM 加密格式 |
 | `sync/cloud_sync_service.dart` | WebDAV/Gist 下载、解密、合并、加密上传与 Gist 发现 |
+| `sync/vault_merge_service.dart` | 按记录修订与墓碑合并多设备 Vault，解决删除复活和全量覆盖 |
 | `sync/github_auth_service.dart` | GitHub OAuth Device Flow、轮询、网络重试和用户信息读取 |
+| `http_client_provider.dart` | 共享 HTTP Client、统一请求超时和连接复用 |
 | `update_check_service.dart` | GitHub Latest Release 查询、版本比较和安全下载链接 |
 
 ### AI
@@ -103,10 +106,10 @@ Netcatty-mobile/
 | 文件 | 页面职责 |
 | --- | --- |
 | `screens/vault_screen.dart` | 主机搜索、筛选、网格/列表/树形视图、连接详情与编辑入口 |
-| `screens/terminal_screen.dart` | Pending 弹窗、多标签、终端、分屏、全屏、选区和底部工具栏 |
-| `screens/sftp_screen.dart` | 双栏来源选择、文件操作、跨服务复制和传输进度 |
+| `screens/terminal_screen.dart` / `terminal_screen_pane.dart` | Pending 弹窗、多标签、终端输入、分屏、全屏、选区和底部工具栏 |
+| `screens/sftp_screen.dart` / `sftp_screen_pane.dart` | 双栏来源选择、文件操作、跨服务复制、续传和传输进度 |
 | `screens/snippets_screen.dart` | 命令片段列表、新增、编辑和发送 |
-| `screens/settings_screen.dart` | 云同步、GitHub 登录、主题、Catty、导入导出、安全信息与应用版本 |
+| `screens/settings_screen.dart` / `settings_screen_dialogs.dart` | 云同步、GitHub 登录、主题、语言、安全键盘、导入导出与应用版本 |
 
 ### 通用组件
 
@@ -135,6 +138,10 @@ presentation/widgets/system_management/
 ### 主题
 
 `presentation/theme.dart` 保存 `NetcattyThemePreset` 列表和 Material Theme 生成逻辑。新增主题时检查主题搜索、选择卡片、终端颜色、错误色和文字对比度。
+
+### 本地化
+
+`presentation/localization/` 提供中英文文案解析和本地化 Widget。新增用户可见中文文案后必须补充英文翻译；`localization_coverage_test.dart` 会扫描源码并阻止遗漏进入 CI。
 
 ## Android 原生工程
 
@@ -182,6 +189,8 @@ assets/
 - SFTP/快捷键/PiP 可用性
 - 系统管理命令与解析
 - Vault 导出
+- Vault 多设备合并、删除墓碑与终端软键盘修饰键
+- 中英文文案覆盖
 
 新增远程命令解析器或数据迁移时，应先加入纯 Dart 测试；新增布局修复时加入固定屏幕尺寸的 Widget Test。
 

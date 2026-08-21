@@ -92,6 +92,10 @@ void main() {
       );
       expect(find.byType(TerminalView), findsOneWidget);
       expect(find.text('正在连接'), findsOneWidget);
+      expect(
+        tester.widget<TerminalView>(find.byType(TerminalView)).deleteDetection,
+        isTrue,
+      );
 
       final terminalState = tester.state<TerminalViewState>(
         find.byType(TerminalView),

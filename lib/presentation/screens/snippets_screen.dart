@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:netcatty_mobile/presentation/localization/localized_widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
@@ -17,7 +18,7 @@ class SnippetsScreen extends ConsumerWidget {
     return SafeArea(
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('命令片段'),
+          title: const LText('命令片段'),
           actions: [
             IconButton(
               onPressed: () => _edit(context, ref),
@@ -33,7 +34,7 @@ class SnippetsScreen extends ConsumerWidget {
                 action: FilledButton.icon(
                   onPressed: () => _edit(context, ref),
                   icon: const Icon(Icons.add),
-                  label: const Text('新建片段'),
+                  label: const LText('新建片段'),
                 ),
               )
             : ListView.separated(
@@ -45,8 +46,8 @@ class SnippetsScreen extends ConsumerWidget {
                   return Card(
                     child: ListTile(
                       leading: const Icon(Icons.code),
-                      title: Text(snippet.label),
-                      subtitle: Text(
+                      title: LText(snippet.label),
+                      subtitle: LText(
                         snippet.command,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
@@ -57,7 +58,7 @@ class SnippetsScreen extends ConsumerWidget {
                             ref.read(sessionControllerProvider).active;
                         if (active == null) {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('请先建立终端会话')),
+                            const SnackBar(content: LText('请先建立终端会话')),
                           );
                         } else {
                           ref
@@ -65,7 +66,7 @@ class SnippetsScreen extends ConsumerWidget {
                               .send(snippet.command, enter: snippet.autoRun);
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
-                              content: Text('已发送到 ${active.host.label}'),
+                              content: LText('已发送到 ${active.host.label}'),
                             ),
                           );
                         }
@@ -104,14 +105,14 @@ class SnippetsScreen extends ConsumerWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
+              LText(
                 snippet == null ? '新建命令片段' : '编辑命令片段',
                 style: Theme.of(context).textTheme.titleLarge,
               ),
               const SizedBox(height: 16),
               TextField(
                 controller: label,
-                decoration: const InputDecoration(labelText: '名称'),
+                decoration: LInputDecoration(labelText: '名称'),
               ),
               const SizedBox(height: 12),
               TextField(
@@ -119,11 +120,11 @@ class SnippetsScreen extends ConsumerWidget {
                 minLines: 4,
                 maxLines: 10,
                 style: const TextStyle(fontFamily: 'monospace'),
-                decoration: const InputDecoration(labelText: '命令'),
+                decoration: LInputDecoration(labelText: '命令'),
               ),
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
-                title: const Text('发送后立即执行'),
+                title: const LText('发送后立即执行'),
                 value: autoRun,
                 onChanged: (value) => setState(() => autoRun = value),
               ),
@@ -147,7 +148,7 @@ class SnippetsScreen extends ConsumerWidget {
                       }),
                     );
                   },
-                  child: const Text('保存'),
+                  child: const LText('保存'),
                 ),
               ),
             ],

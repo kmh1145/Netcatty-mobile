@@ -85,12 +85,30 @@ class DocumentTreeChannel(
             }
             "mount" -> mount(result)
             "list" -> runIo(result) { list(requirePath(call, "path")) }
+            "stat" -> runIo(result) {
+                val tree = requireTree()
+                val path = requirePath(call, "path")
+                val document = if (path == "/") {
+                    queryDocument(rootDocument(tree))
+                } else {
+                    val (parentPath, name) = splitParent(path)
+                    val parent = resolve(tree, parentPath)
+                    findChild(tree, parent.uri, name)
+                }
+                document?.let {
+                    mapOf(
+                        "isDirectory" to it.isDirectory,
+                        "size" to it.size,
+                    )
+                }
+            }
             "copyToCache" -> runIo(result) { copyToCache(requirePath(call, "path")) }
             "copyFromCache" -> runIo(result) {
                 copyFromCache(
                     requirePath(call, "path"),
                     call.argument<String>("cachePath")
                         ?: throw IllegalArgumentException("缺少缓存文件路径"),
+                    call.argument<Boolean>("append") == true,
                 )
                 null
             }
@@ -198,7 +216,7 @@ class DocumentTreeChannel(
         return target.absolutePath
     }
 
-    private fun copyFromCache(path: String, cachePath: String) {
+    private fun copyFromCache(path: String, cachePath: String, append: Boolean) {
         val cache = File(cachePath)
         if (!cache.isFile) throw IllegalArgumentException("上传缓存文件不存在")
         val (parentPath, name) = splitParent(path)
@@ -216,7 +234,8 @@ class DocumentTreeChannel(
             ) ?: throw IllegalStateException("无法创建手机文件")
             target = queryDocument(uri)
         }
-        activity.contentResolver.openOutputStream(target.uri, "wt").use { output ->
+        val mode = if (append) "wa" else "wt"
+        activity.contentResolver.openOutputStream(target.uri, mode).use { output ->
             if (output == null) throw IllegalStateException("无法写入手机文件")
             cache.inputStream().use { it.copyTo(output) }
         }

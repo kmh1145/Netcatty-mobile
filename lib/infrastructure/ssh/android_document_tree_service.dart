@@ -93,6 +93,7 @@ class AndroidDocumentTreeTransferService extends MountableFileTransferService {
           );
         })
         .where((entry) => entry.name.isNotEmpty)
+        .where((entry) => !entry.name.endsWith('.netcatty-part'))
         .toList()
       ..sort(compareFileTransferEntries);
   }
@@ -100,6 +101,7 @@ class AndroidDocumentTreeTransferService extends MountableFileTransferService {
   @override
   Stream<Uint8List> readStream(
     String path, {
+    int startOffset = 0,
     TransferProgressCallback? onProgress,
   }) async* {
     _requireMounted();
@@ -110,7 +112,7 @@ class AndroidDocumentTreeTransferService extends MountableFileTransferService {
     if (cachePath == null) throw StateError('无法读取手机文件');
     final cache = File(cachePath);
     try {
-      final stream = asUint8ListStream(cache.openRead());
+      final stream = asUint8ListStream(cache.openRead(startOffset));
       yield* onProgress == null
           ? stream
           : trackTransferProgress(stream, onProgress);
@@ -123,6 +125,8 @@ class AndroidDocumentTreeTransferService extends MountableFileTransferService {
   Future<void> writeStream(
     String path,
     Stream<Uint8List> stream, {
+    int startOffset = 0,
+    bool truncate = true,
     TransferProgressCallback? onProgress,
   }) async {
     _requireMounted();
@@ -144,11 +148,25 @@ class AndroidDocumentTreeTransferService extends MountableFileTransferService {
       }
       await _channel.invokeMethod<void>(
         'copyFromCache',
-        {'path': path, 'cachePath': cache.path},
+        {
+          'path': path,
+          'cachePath': cache.path,
+          'append': !truncate && startOffset > 0,
+        },
       );
     } finally {
       if (await cache.exists()) await cache.delete();
     }
+  }
+
+  @override
+  Future<int?> fileSize(String path) async {
+    final value = await _channel.invokeMapMethod<String, dynamic>(
+      'stat',
+      {'path': path},
+    );
+    if (value == null || value['isDirectory'] == true) return null;
+    return (value['size'] as num?)?.toInt();
   }
 
   @override

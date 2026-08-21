@@ -1,13 +1,14 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
-import 'package:uuid/uuid.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
-import '../../domain/models/host.dart';
 import '../../domain/models/settings.dart';
 import '../../domain/models/vault.dart';
 import '../storage/vault_repository.dart';
 import 'netcatty_crypto.dart';
+import 'vault_merge_service.dart';
 
 class CloudSyncResult {
   const CloudSyncResult({required this.vault, required this.message});
@@ -15,53 +16,99 @@ class CloudSyncResult {
   final String message;
 }
 
+class CloudSyncConflictException implements Exception {
+  const CloudSyncConflictException();
+
+  @override
+  String toString() => '云端保险库在同步期间发生变化，请重试';
+}
+
+class _RemoteVault {
+  const _RemoteVault(this.file, this.revision);
+  final SyncedVaultFile file;
+  final String? revision;
+}
+
 class CloudSyncService {
-  CloudSyncService(this.repository, {http.Client? client})
-      : _client = client ?? http.Client();
+  CloudSyncService(
+    this.repository, {
+    http.Client? client,
+    this.requestTimeout = const Duration(seconds: 25),
+    this.maxResponseBytes = 8 * 1024 * 1024,
+    String? deviceId,
+    String? appVersion,
+  })  : _client = client ?? http.Client(),
+        _ownsClient = client == null,
+        _injectedDeviceId = deviceId,
+        _injectedAppVersion = appVersion;
 
   final VaultRepository repository;
   final http.Client _client;
+  final bool _ownsClient;
+  final Duration requestTimeout;
+  final int maxResponseBytes;
+  final String? _injectedDeviceId;
+  final String? _injectedAppVersion;
 
-  Future<CloudSyncResult> pullAndMerge(VaultData local) async {
-    final setup = await _setup();
-    final remote = await _download(setup.connection);
-    if (remote == null) {
-      await _uploadNew(setup.connection, local, setup.password);
-      return CloudSyncResult(vault: local, message: '已创建加密云端保险库');
-    }
-    final downloaded = await NetcattyCrypto.decrypt(remote, setup.password);
-    final merged = _merge(local, downloaded);
-    await repository.saveVault(merged);
-    if (jsonEncode(merged.toJson()) != jsonEncode(downloaded.toJson())) {
-      await _upload(
-        setup.connection,
-        NetcattyCrypto.encrypt(
-          vault: merged,
-          password: setup.password,
-          deviceId: const Uuid().v4(),
-          deviceName: 'Netcatty Mobile',
-          appVersion: '0.1.0',
-          previousVersion: (remote.meta['version'] as num?)?.toInt() ?? 0,
-        ),
-      );
-    }
-    return CloudSyncResult(vault: merged, message: '同步完成');
+  void close() {
+    if (_ownsClient) _client.close();
   }
 
-  Future<void> push(VaultData vault) async {
+  Future<CloudSyncResult> pullAndMerge(VaultData local) async {
+    return _synchronize(local, createdMessage: '已创建加密云端保险库');
+  }
+
+  Future<CloudSyncResult> push(VaultData vault) async {
+    return _synchronize(vault, createdMessage: '加密上传完成');
+  }
+
+  Future<CloudSyncResult> _synchronize(
+    VaultData local, {
+    required String createdMessage,
+  }) async {
     final setup = await _setup();
-    final current = await _download(setup.connection);
-    await _upload(
-      setup.connection,
-      NetcattyCrypto.encrypt(
-        vault: vault,
-        password: setup.password,
-        deviceId: const Uuid().v4(),
-        deviceName: 'Netcatty Mobile',
-        appVersion: '0.1.0',
-        previousVersion: (current?.meta['version'] as num?)?.toInt() ?? 0,
-      ),
-    );
+    for (var attempt = 0; attempt < 3; attempt++) {
+      final remote = await _download(setup.connection);
+      if (remote == null) {
+        try {
+          await _uploadNew(setup.connection, local, setup.password);
+          await repository.saveVault(local);
+          return CloudSyncResult(vault: local, message: createdMessage);
+        } on CloudSyncConflictException {
+          if (attempt == 2) rethrow;
+          continue;
+        }
+      }
+      final downloaded = await NetcattyCrypto.decrypt(
+        remote.file,
+        setup.password,
+      );
+      final merged = mergeVaults(
+        local: local,
+        remote: downloaded,
+        remoteFallbackTimestamp:
+            (remote.file.meta['updatedAt'] as num?)?.toInt() ?? 0,
+      );
+      try {
+        if (jsonEncode(merged.toJson()) != jsonEncode(downloaded.toJson())) {
+          await _upload(
+            setup.connection,
+            _encrypt(
+              merged,
+              setup.password,
+              previousVersion:
+                  (remote.file.meta['version'] as num?)?.toInt() ?? 0,
+            ),
+            expectedRevision: remote.revision,
+          );
+        }
+        await repository.saveVault(merged);
+        return CloudSyncResult(vault: merged, message: '同步完成');
+      } on CloudSyncConflictException {
+        if (attempt == 2) rethrow;
+      }
+    }
+    throw const CloudSyncConflictException();
   }
 
   Future<({SyncConnection connection, String password})> _setup() async {
@@ -102,70 +149,99 @@ class CloudSyncService {
   ) =>
       _upload(
         connection,
-        NetcattyCrypto.encrypt(
-          vault: vault,
-          password: password,
-          deviceId: const Uuid().v4(),
-          deviceName: 'Netcatty Mobile',
-          appVersion: '0.1.0',
-        ),
+        _encrypt(vault, password),
+        createOnly: true,
       );
 
-  Future<SyncedVaultFile?> _download(SyncConnection connection) async {
+  Future<SyncedVaultFile> _encrypt(
+    VaultData vault,
+    String password, {
+    int previousVersion = 0,
+  }) async {
+    final deviceId =
+        _injectedDeviceId ?? await repository.readOrCreateDeviceId();
+    final appVersion =
+        _injectedAppVersion ?? (await PackageInfo.fromPlatform()).version;
+    return NetcattyCrypto.encrypt(
+      vault: vault,
+      password: password,
+      deviceId: deviceId,
+      deviceName: 'Netcatty Mobile',
+      appVersion: appVersion,
+      previousVersion: previousVersion,
+    );
+  }
+
+  Future<_RemoteVault?> _download(SyncConnection connection) async {
     if (connection.type == SyncProviderType.githubGist &&
         (connection.resourceId == null || connection.resourceId!.isEmpty)) {
       return null;
     }
     final response = connection.type == SyncProviderType.webdav
-        ? await _client.get(
+        ? await _request(_client.get(
             _webdavUri(connection),
             headers: _webdavHeaders(connection),
-          )
-        : await _client.get(
+          ))
+        : await _request(_client.get(
             Uri.parse('https://api.github.com/gists/${connection.resourceId}'),
             headers: _githubHeaders(connection),
-          );
+          ));
     if (response.statusCode == 404) return null;
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw StateError('云端读取失败 (${response.statusCode})');
     }
+    _ensureResponseSize(response);
     if (connection.type == SyncProviderType.webdav) {
-      return SyncedVaultFile.fromJson(_decodeJsonObject(response.body));
+      return _RemoteVault(
+        SyncedVaultFile.fromJson(_decodeJsonObject(response.body)),
+        response.headers['etag'],
+      );
     }
     final gist = jsonDecode(response.body) as Map<String, dynamic>;
     final file = (gist['files'] as Map)['netcatty-vault.json'] as Map?;
     if (file == null) return null;
     if (file['truncated'] == true && file['raw_url'] != null) {
-      final raw = await _client.get(
+      final raw = await _request(_client.get(
         Uri.parse(file['raw_url'].toString()),
         headers: _githubHeaders(connection),
-      );
+      ));
       if (raw.statusCode < 200 || raw.statusCode >= 300) {
         throw StateError('Gist 大文件读取失败 (${raw.statusCode})');
       }
-      return SyncedVaultFile.fromJson(_decodeJsonObject(raw.body));
+      _ensureResponseSize(raw);
+      return _RemoteVault(
+        SyncedVaultFile.fromJson(_decodeJsonObject(raw.body)),
+        response.headers['etag'],
+      );
     }
-    return SyncedVaultFile.fromJson(
-      jsonDecode(file['content'] as String) as Map<String, dynamic>,
+    return _RemoteVault(
+      SyncedVaultFile.fromJson(
+        jsonDecode(file['content'] as String) as Map<String, dynamic>,
+      ),
+      response.headers['etag'],
     );
   }
 
   Future<void> _upload(
     SyncConnection connection,
-    Future<SyncedVaultFile> fileFuture,
-  ) async {
+    Future<SyncedVaultFile> fileFuture, {
+    String? expectedRevision,
+    bool createOnly = false,
+  }) async {
     final file = await fileFuture;
     final body = jsonEncode(file.toJson());
     late http.Response response;
     if (connection.type == SyncProviderType.webdav) {
-      response = await _client.put(
+      response = await _request(_client.put(
         _webdavUri(connection),
         headers: {
           ..._webdavHeaders(connection),
           'content-type': 'application/json',
+          if (expectedRevision != null) 'if-match': expectedRevision,
+          if (createOnly) 'if-none-match': '*',
         },
         body: body,
-      );
+      ));
     } else {
       final gistBody = jsonEncode({
         'description': 'Netcatty Encrypted Vault (DO NOT EDIT MANUALLY)',
@@ -176,16 +252,22 @@ class CloudSyncService {
       });
       final id = connection.resourceId;
       response = id == null || id.isEmpty
-          ? await _client.post(
+          ? await _request(_client.post(
               Uri.parse('https://api.github.com/gists'),
               headers: _githubHeaders(connection),
               body: gistBody,
-            )
-          : await _client.patch(
+            ))
+          : await _request(_client.patch(
               Uri.parse('https://api.github.com/gists/$id'),
-              headers: _githubHeaders(connection),
+              headers: {
+                ..._githubHeaders(connection),
+                if (expectedRevision != null) 'if-match': expectedRevision,
+              },
               body: gistBody,
-            );
+            ));
+    }
+    if (response.statusCode == 409 || response.statusCode == 412) {
+      throw const CloudSyncConflictException();
     }
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw StateError('云端写入失败 (${response.statusCode})');
@@ -230,10 +312,10 @@ class CloudSyncService {
 
   Future<String?> _discoverGist(SyncConnection connection) async {
     for (var page = 1; page <= 10; page++) {
-      final response = await _client.get(
+      final response = await _request(_client.get(
         Uri.parse('https://api.github.com/gists?per_page=100&page=$page'),
         headers: _githubHeaders(connection),
-      );
+      ));
       if (response.statusCode < 200 || response.statusCode >= 300) {
         throw StateError('无法查找 Netcatty Gist (${response.statusCode})');
       }
@@ -288,53 +370,17 @@ class CloudSyncService {
     }
   }
 
-  VaultData _merge(VaultData local, VaultData remote) {
-    int hostTimestamp(HostProfile value) =>
-        (value.data['updatedAt'] as num?)?.toInt() ?? value.lastConnectedAt;
-    final hosts = <String, HostProfile>{
-      for (final item in remote.hosts) item.id: item,
-    };
-    for (final item in local.hosts) {
-      final other = hosts[item.id];
-      hosts[item.id] = other == null
-          ? item
-          : hostTimestamp(item) > hostTimestamp(other)
-              ? item
-              : other;
+  Future<http.Response> _request(Future<http.Response> request) async {
+    try {
+      return await request.timeout(requestTimeout);
+    } on TimeoutException {
+      throw StateError('云同步请求超时，请检查网络后重试');
     }
-    final keys = <String, SshKeyProfile>{
-      for (final item in remote.keys) item.id: item,
-    };
-    for (final item in local.keys) {
-      keys[item.id] = item;
+  }
+
+  void _ensureResponseSize(http.Response response) {
+    if (response.bodyBytes.length > maxResponseBytes) {
+      throw StateError('云端保险库超过 ${maxResponseBytes ~/ (1024 * 1024)} MB 限制');
     }
-    final snippets = <String, CommandSnippet>{
-      for (final item in remote.snippets) item.id: item,
-    };
-    for (final item in local.snippets) {
-      snippets[item.id] = item;
-    }
-    final proxyProfiles = <String, ProxyProfile>{
-      for (final item in remote.proxyProfiles) item.id: item,
-    };
-    for (final item in local.proxyProfiles) {
-      final other = proxyProfiles[item.id];
-      final localUpdated = (item.data['updatedAt'] as num?)?.toInt() ??
-          (item.data['createdAt'] as num?)?.toInt() ??
-          0;
-      final remoteUpdated = (other?.data['updatedAt'] as num?)?.toInt() ??
-          (other?.data['createdAt'] as num?)?.toInt() ??
-          0;
-      if (other == null || localUpdated >= remoteUpdated) {
-        proxyProfiles[item.id] = item;
-      }
-    }
-    return remote.copyWith(
-      hosts: hosts.values.toList(),
-      keys: keys.values.toList(),
-      snippets: snippets.values.toList(),
-      customGroups: {...remote.customGroups, ...local.customGroups}.toList(),
-      proxyProfiles: proxyProfiles.values.toList(),
-    );
   }
 }
