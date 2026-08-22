@@ -189,9 +189,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           Expanded(
                             child: Slider(
                               value: terminalFontSize,
-                              min: 10,
-                              max: 24,
-                              divisions: 14,
+                              min: minTerminalFontSize,
+                              max: maxTerminalFontSize,
+                              divisions: 18,
                               label: terminalFontSize.toStringAsFixed(0),
                               onChanged: (value) =>
                                   setState(() => terminalFontSize = value),
@@ -929,8 +929,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _export() async {
-    final vault = ref.read(vaultControllerProvider).data ?? VaultData.empty();
     try {
+      final vault = await ref.read(vaultControllerProvider.notifier).ready();
       final result = await VaultExportService().export(vault);
       if (result == VaultExportResult.saved) _message('导出完成');
     } catch (error) {

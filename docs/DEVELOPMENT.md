@@ -96,6 +96,7 @@ Windows 无法完成原生 iOS 编译；涉及 Swift、Info.plist 或 iOS Plugin
 | 测试文件 | 重点覆盖 |
 | --- | --- |
 | `vault_model_test.dart` | Vault 字段、未知字段无损往返和模型迁移 |
+| `vault_loading_test.dart` | 保险库快照优先显示与后台敏感字段加载 |
 | `netcatty_crypto_test.dart` | 桌面端兼容加密向量与 AES-GCM 格式 |
 | `github_auth_service_test.dart` | Device Flow、轮询、重试、取消与网络错误 |
 | `update_check_service_test.dart` | GitHub Latest Release 解析、语义版本比较与网络错误 |

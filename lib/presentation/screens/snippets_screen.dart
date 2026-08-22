@@ -157,8 +157,7 @@ class SnippetsScreen extends ConsumerWidget {
       ),
     );
     if (result == null) return;
-    final vault = ref.read(vaultControllerProvider).data;
-    if (vault == null) return;
+    final vault = await ref.read(vaultControllerProvider.notifier).ready();
     final list = [...vault.snippets];
     final index = list.indexWhere((value) => value.id == result.id);
     if (index < 0) {

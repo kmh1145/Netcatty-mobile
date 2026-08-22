@@ -54,18 +54,16 @@ class KeychainSheet extends ConsumerWidget {
                     ),
                     trailing: IconButton(
                       onPressed: () async {
-                        final current = ref.read(vaultControllerProvider).data;
-                        if (current != null) {
-                          await ref
-                              .read(vaultControllerProvider.notifier)
-                              .replace(
-                                current.copyWith(
-                                  keys: current.keys
-                                      .where((value) => value.id != key.id)
-                                      .toList(),
-                                ),
-                              );
-                        }
+                        final controller =
+                            ref.read(vaultControllerProvider.notifier);
+                        final current = await controller.ready();
+                        await controller.replace(
+                          current.copyWith(
+                            keys: current.keys
+                                .where((value) => value.id != key.id)
+                                .toList(),
+                          ),
+                        );
                       },
                       icon: const Icon(Icons.delete_outline),
                     ),
@@ -136,11 +134,10 @@ class KeychainSheet extends ConsumerWidget {
         ],
       ),
     );
-    final vault = ref.read(vaultControllerProvider).data;
-    if (key != null && vault != null) {
-      await ref
-          .read(vaultControllerProvider.notifier)
-          .replace(vault.copyWith(keys: [...vault.keys, key]));
+    if (key != null) {
+      final controller = ref.read(vaultControllerProvider.notifier);
+      final vault = await controller.ready();
+      await controller.replace(vault.copyWith(keys: [...vault.keys, key]));
     }
   }
 }

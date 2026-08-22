@@ -220,19 +220,24 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
   }
 
   Future<void> _showHostDetails(HostProfile host) async {
-    final vault = ref.read(vaultControllerProvider).data;
-    final key = vault?.keys.cast<SshKeyProfile?>().firstWhere(
+    final vault = await ref.read(vaultControllerProvider.notifier).ready();
+    host = vault.hosts.firstWhere(
+      (value) => value.id == host.id,
+      orElse: () => host,
+    );
+    if (!mounted) return;
+    final key = vault.keys.cast<SshKeyProfile?>().firstWhere(
           (value) => value?.id == host.identityFileId,
           orElse: () => null,
         );
     final jumps = host.hostChainIds
-        .map((id) => vault?.hosts.cast<HostProfile?>().firstWhere(
+        .map((id) => vault.hosts.cast<HostProfile?>().firstWhere(
               (value) => value?.id == id,
               orElse: () => null,
             ))
         .whereType<HostProfile>()
         .toList();
-    final profile = vault?.proxyProfiles.cast<ProxyProfile?>().firstWhere(
+    final profile = vault.proxyProfiles.cast<ProxyProfile?>().firstWhere(
           (value) => value?.id == host.proxyProfileId,
           orElse: () => null,
         );
@@ -441,13 +446,24 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
   }
 
   Future<void> _editHost([HostProfile? host]) async {
+    final vault = await ref.read(vaultControllerProvider.notifier).ready();
+    var resolvedHost = host;
+    if (host != null) {
+      resolvedHost = vault.hosts.firstWhere(
+        (value) => value.id == host.id,
+        orElse: () => host,
+      );
+    }
+    if (!mounted) return;
     final result = await showModalBottomSheet<HostProfile>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       builder: (_) => HostEditor(
-        host: host,
-        onDelete: host == null ? null : () => _confirmDeleteHost(host),
+        host: resolvedHost,
+        onDelete: resolvedHost == null
+            ? null
+            : () => _confirmDeleteHost(resolvedHost!),
       ),
     );
     if (result != null) {
