@@ -167,7 +167,7 @@ class _TerminalPane extends StatefulWidget {
 
 class _TerminalPaneState extends State<_TerminalPane> {
   final _controller = TerminalController();
-  final _terminalViewKey = GlobalKey<TerminalViewState>();
+  var _terminalViewKey = GlobalKey<TerminalViewState>();
   final _terminalStackKey = GlobalKey();
   final _scrollController = ScrollController();
   Offset? _dragPointerToAnchor;
@@ -185,6 +185,11 @@ class _TerminalPaneState extends State<_TerminalPane> {
   @override
   void didUpdateWidget(covariant _TerminalPane oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.secureKeyboard != widget.secureKeyboard) {
+      // xterm keeps the platform TextInputConnection alive while the view is
+      // mounted. Recreate it so Android and iOS receive the new input type.
+      _terminalViewKey = GlobalKey<TerminalViewState>();
+    }
     if (oldWidget.session.terminal != widget.session.terminal) {
       oldWidget.session.terminal.removeListener(_onTerminalChanged);
       widget.session.terminal.addListener(_onTerminalChanged);

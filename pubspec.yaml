@@ -1,7 +1,7 @@
 name: netcatty_mobile
 description: Netcatty mobile SSH, SFTP and cloud-sync client for Android and iOS.
 publish_to: none
-version: 1.3.1+8
+version: 1.3.2+9
 
 environment:
   sdk: ">=3.4.0 <4.0.0"
@@ -13,7 +13,7 @@ dependencies:
     sdk: flutter
   cupertino_icons: ^1.0.8
   dartssh2: ^2.22.3
-  xterm: ^4.0.0
+  xterm2: 5.2.0
   flutter_riverpod: ^2.6.1
   go_router: ^16.0.0
   flutter_secure_storage: ^9.2.4
