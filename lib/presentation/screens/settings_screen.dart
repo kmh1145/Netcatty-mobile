@@ -49,6 +49,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   var uiThemeId = 'tokyo-night';
   var terminalFontSize = 14.0;
   var terminalSecureKeyboard = false;
+  var _savingTerminalSecureKeyboard = false;
   var language = 'zh-CN';
   var _loaded = false;
   var _busy = false;
@@ -206,8 +207,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           '使用系统密码键盘并关闭联想学习；终端快捷键仍可输入 Ctrl 组合键',
                         ),
                         value: terminalSecureKeyboard,
-                        onChanged: (value) =>
-                            setState(() => terminalSecureKeyboard = value),
+                        onChanged: _savingTerminalSecureKeyboard
+                            ? null
+                            : _setTerminalSecureKeyboard,
                       ),
                       const SizedBox(height: 8),
                       SegmentedButton<String>(
@@ -870,6 +872,27 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
         );
     _message('外观设置已保存');
+  }
+
+  Future<void> _setTerminalSecureKeyboard(bool value) async {
+    final previous = terminalSecureKeyboard;
+    setState(() {
+      terminalSecureKeyboard = value;
+      _savingTerminalSecureKeyboard = true;
+    });
+    try {
+      await ref
+          .read(settingsControllerProvider.notifier)
+          .updateTerminalSecureKeyboard(value);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => terminalSecureKeyboard = previous);
+      _message('安全键盘设置保存失败：$error');
+    } finally {
+      if (mounted) {
+        setState(() => _savingTerminalSecureKeyboard = false);
+      }
+    }
   }
 
   Future<void> _selectTheme(Brightness brightness) async {

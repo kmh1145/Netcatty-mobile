@@ -1,5 +1,7 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:netcatty_mobile/infrastructure/ssh/ssh_service.dart';
+import 'package:xterm2/xterm.dart';
 
 void main() {
   test('Ctrl modifier transforms the next soft-keyboard character', () {
@@ -22,5 +24,26 @@ void main() {
 
     expect(input.consume(''), '');
     expect(input.modifiers, {'ctrl'});
+  });
+
+  testWidgets('third-party IME newline action sends terminal enter',
+      (tester) async {
+    final output = <String>[];
+    final terminal = Terminal()..onOutput = output.add;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: TerminalView(terminal, autofocus: true),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(tester.testTextInput.isVisible, isTrue);
+    await tester.testTextInput.receiveAction(TextInputAction.newline);
+    await tester.pump();
+
+    expect(output, contains('\r'));
   });
 }

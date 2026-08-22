@@ -236,6 +236,7 @@ const englishTranslations = <String, String>{
   '无法连接 GitHub，请检查网络后重试':
       'Unable to connect to GitHub. Check the network and retry.',
   '系统安全键盘': 'System secure keyboard',
+  '安全键盘设置保存失败：': 'Failed to save secure keyboard setting: ',
   "Catty Agent', '使用 OpenAI 兼容接口生成命令，执行前始终确认":
       "Catty Agent', 'Generate commands with an OpenAI-compatible API and always confirm before execution",
   '正在等待 GitHub 授权…': 'Waiting for GitHub authorization…',
@@ -606,6 +607,7 @@ const englishReplacements = <(String, String)>[
   ('选择深色主题', 'Choose dark theme'),
   ('搜索 62 种主题', 'Search 62 themes'),
   ('种可选', ' available'),
+  ('安全键盘设置保存失败：', 'Failed to save secure keyboard setting: '),
   ('外观设置已保存', 'Appearance settings saved'),
   ('AI 设置已保存', 'AI settings saved'),
   ('确认更新', 'Confirm update'),

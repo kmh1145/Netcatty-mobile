@@ -9,7 +9,7 @@ import 'package:netcatty_mobile/infrastructure/ssh/ssh_service.dart';
 import 'package:netcatty_mobile/infrastructure/ssh/terminal_picture_in_picture_service.dart';
 import 'package:netcatty_mobile/presentation/home_shell.dart';
 import 'package:netcatty_mobile/presentation/widgets/terminal_special_keys.dart';
-import 'package:xterm/xterm.dart';
+import 'package:xterm2/xterm.dart';
 
 void main() {
   test('home navigation only hides for a fullscreen terminal', () {

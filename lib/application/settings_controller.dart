@@ -19,7 +19,18 @@ class SettingsController extends StateNotifier<AppSettings> {
   Future<void> load() async => state = await repository.loadSettings();
 
   Future<void> update(AppSettings value) async {
+    final previous = state;
     state = value;
-    await repository.saveSettings(value);
+    try {
+      await repository.saveSettings(value);
+    } catch (_) {
+      state = previous;
+      rethrow;
+    }
+  }
+
+  Future<void> updateTerminalSecureKeyboard(bool enabled) async {
+    final persisted = await repository.loadSettings();
+    await update(persisted.copyWith(terminalSecureKeyboard: enabled));
   }
 }

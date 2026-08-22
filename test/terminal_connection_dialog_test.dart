@@ -2,13 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:netcatty_mobile/application/session_controller.dart';
+import 'package:netcatty_mobile/application/settings_controller.dart';
 import 'package:netcatty_mobile/application/vault_controller.dart';
 import 'package:netcatty_mobile/domain/models/host.dart';
+import 'package:netcatty_mobile/domain/models/settings.dart';
 import 'package:netcatty_mobile/infrastructure/ssh/ssh_service.dart';
 import 'package:netcatty_mobile/infrastructure/storage/vault_repository.dart';
 import 'package:netcatty_mobile/presentation/screens/terminal_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:xterm/xterm.dart';
+import 'package:xterm2/xterm.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -157,6 +159,69 @@ void main() {
       expect(find.byTooltip('退出全屏'), findsOneWidget);
     },
   );
+
+  testWidgets('secure keyboard change recreates and persists the IME mode',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final repository = await VaultRepository.open();
+    await repository.saveSettings(
+      const AppSettings(uiThemeId: 'catppuccin', terminalFontSize: 18),
+    );
+    final settingsController = _SeededSettingsController(repository);
+    final host = _host('secure', '安全终端');
+    final session = ActiveTerminalSession(
+      id: 'secure-session',
+      host: host,
+      terminal: Terminal(),
+      verifyHostKey: _acceptHostKey,
+      keyboardInteractive: null,
+    );
+    final initialState = SessionState(sessions: [session]);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          vaultRepositoryProvider.overrideWithValue(repository),
+          settingsControllerProvider.overrideWith(
+            (ref) => settingsController,
+          ),
+          sessionControllerProvider.overrideWith(
+            (ref) => _SeededSessionController(
+              ref.read(vaultControllerProvider.notifier),
+              ref,
+              initialState,
+            ),
+          ),
+        ],
+        child: const MaterialApp(
+          home: Scaffold(body: TerminalScreen()),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final normalView = find.byType(TerminalView);
+    expect(
+      tester.widget<TerminalView>(normalView).keyboardType,
+      TextInputType.emailAddress,
+    );
+    final normalState = tester.state<TerminalViewState>(normalView);
+
+    await settingsController.updateTerminalSecureKeyboard(true);
+    await tester.pump();
+
+    final secureView = find.byType(TerminalView);
+    expect(
+      tester.widget<TerminalView>(secureView).keyboardType,
+      TextInputType.visiblePassword,
+    );
+    expect(
+        tester.state<TerminalViewState>(secureView), isNot(same(normalState)));
+    final persisted = await repository.loadSettings();
+    expect(persisted.terminalSecureKeyboard, isTrue);
+    expect(persisted.uiThemeId, 'catppuccin');
+    expect(persisted.terminalFontSize, 18);
+  });
 }
 
 class _SeededSessionController extends SessionController {
@@ -166,6 +231,12 @@ class _SeededSessionController extends SessionController {
     SessionState initialState,
   ) : super(SshService(), vaultController, ref) {
     state = initialState;
+  }
+}
+
+class _SeededSettingsController extends SettingsController {
+  _SeededSettingsController(super.repository) {
+    state = const AppSettings();
   }
 }
 
