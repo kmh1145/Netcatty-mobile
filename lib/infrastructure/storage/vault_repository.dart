@@ -6,6 +6,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../domain/models/host.dart';
 import '../../domain/models/settings.dart';
 import '../../domain/models/vault.dart';
 
@@ -27,67 +28,124 @@ class VaultRepository {
   final SharedPreferences _preferences;
   final FlutterSecureStorage _secureStorage;
   final _changes = StreamController<VaultData>.broadcast();
+  VaultData? _cachedVault;
+  Future<VaultData>? _vaultLoad;
+  bool _vaultSecretsLoaded = false;
 
-  static Future<VaultRepository> open() async => VaultRepository._(
-        await SharedPreferences.getInstance(),
-        const FlutterSecureStorage(
-          aOptions: AndroidOptions(encryptedSharedPreferences: true),
-          iOptions: IOSOptions(
-            accessibility: KeychainAccessibility.first_unlock_this_device,
-          ),
+  static Future<VaultRepository> open() async {
+    final repository = VaultRepository._(
+      await SharedPreferences.getInstance(),
+      const FlutterSecureStorage(
+        aOptions: AndroidOptions(encryptedSharedPreferences: true),
+        iOptions: IOSOptions(
+          accessibility: KeychainAccessibility.first_unlock_this_device,
         ),
-      );
+      ),
+    );
+    repository.loadVaultPreview();
+    return repository;
+  }
 
   Stream<VaultData> get changes => _changes.stream;
 
-  Future<VaultData> loadVault() async {
+  /// Returns the non-secret part of the vault directly from the in-memory
+  /// preferences snapshot. This lets list-oriented screens render without
+  /// waiting for platform keychain calls.
+  VaultData? loadVaultPreview() {
+    if (_cachedVault != null) return _cachedVault;
+    try {
+      return _cachedVault = _readStoredVault();
+    } on Object {
+      return null;
+    }
+  }
+
+  Future<VaultData> loadVault() {
+    if (_vaultSecretsLoaded && _cachedVault != null) {
+      return Future.value(_cachedVault);
+    }
+    final active = _vaultLoad;
+    if (active != null) return active;
+    final operation = _loadVaultWithSecrets();
+    _vaultLoad = operation;
+    return operation.whenComplete(() {
+      if (identical(_vaultLoad, operation)) _vaultLoad = null;
+    });
+  }
+
+  VaultData _readStoredVault() {
     final raw = _preferences.getString(_vaultKey);
     if (raw == null) return VaultData.empty();
-    final vault = VaultData.fromJson(jsonDecode(raw) as Map<String, dynamic>);
-    for (final host in vault.hosts) {
-      final password = await _secureStorage.read(
-        key: 'host.${host.id}.password',
-      );
-      if (password != null) host.data['password'] = password;
-      final telnet = await _secureStorage.read(
-        key: 'host.${host.id}.telnetPassword',
-      );
-      if (telnet != null) host.data['telnetPassword'] = telnet;
-      final proxyPassword = await _secureStorage.read(
-        key: 'host.${host.id}.proxyPassword',
-      );
-      if (proxyPassword != null && host.data['proxyConfig'] is Map) {
-        host.data['proxyConfig'] = {
-          ...Map<String, dynamic>.from(host.data['proxyConfig'] as Map),
-          'password': proxyPassword,
-        };
-      }
-    }
-    for (final key in vault.keys) {
-      final privateKey = await _secureStorage.read(
-        key: 'key.${key.id}.private',
-      );
-      final passphrase = await _secureStorage.read(
-        key: 'key.${key.id}.passphrase',
-      );
-      if (privateKey != null) key.data['privateKey'] = privateKey;
-      if (passphrase != null) key.data['passphrase'] = passphrase;
-    }
-    for (final profile in vault.proxyProfiles) {
-      final password = await _secureStorage.read(
-        key: 'proxy.${profile.id}.password',
-      );
-      if (password != null && profile.data['config'] is Map) {
-        profile.data['config'] = {
-          ...Map<String, dynamic>.from(profile.data['config'] as Map),
-          'password': password,
-        };
-      }
-    }
+    return VaultData.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+  }
+
+  Future<VaultData> _loadVaultWithSecrets() async {
+    final vault = _cachedVault ?? _readStoredVault();
+    await Future.wait([
+      ...vault.hosts.map(_loadHostSecrets),
+      ...vault.keys.map(_loadKeySecrets),
+      ...vault.proxyProfiles.map(_loadProxySecrets),
+    ]);
+    _cachedVault = vault;
+    _vaultSecretsLoaded = true;
     return vault;
   }
 
+  Future<void> _loadHostSecrets(HostProfile host) async {
+    final values = await Future.wait([
+      _secureStorage.read(
+        key: 'host.${host.id}.password',
+      ),
+      _secureStorage.read(
+        key: 'host.${host.id}.telnetPassword',
+      ),
+      _secureStorage.read(
+        key: 'host.${host.id}.proxyPassword',
+      ),
+    ]);
+    final password = values[0];
+    final telnet = values[1];
+    final proxyPassword = values[2];
+    if (password != null) host.data['password'] = password;
+    if (telnet != null) host.data['telnetPassword'] = telnet;
+    if (proxyPassword != null && host.data['proxyConfig'] is Map) {
+      host.data['proxyConfig'] = {
+        ...Map<String, dynamic>.from(host.data['proxyConfig'] as Map),
+        'password': proxyPassword,
+      };
+    }
+  }
+
+  Future<void> _loadKeySecrets(SshKeyProfile key) async {
+    final values = await Future.wait([
+      _secureStorage.read(
+        key: 'key.${key.id}.private',
+      ),
+      _secureStorage.read(
+        key: 'key.${key.id}.passphrase',
+      ),
+    ]);
+    final privateKey = values[0];
+    final passphrase = values[1];
+    if (privateKey != null) key.data['privateKey'] = privateKey;
+    if (passphrase != null) key.data['passphrase'] = passphrase;
+  }
+
+  Future<void> _loadProxySecrets(ProxyProfile profile) async {
+    final password = await _secureStorage.read(
+      key: 'proxy.${profile.id}.password',
+    );
+    if (password != null && profile.data['config'] is Map) {
+      profile.data['config'] = {
+        ...Map<String, dynamic>.from(profile.data['config'] as Map),
+        'password': password,
+      };
+    }
+  }
+
   Future<void> saveVault(VaultData vault) async {
+    final activeLoad = _vaultLoad;
+    if (activeLoad != null) await activeLoad;
     final previousRaw = _preferences.getString(_vaultKey);
     if (previousRaw != null) {
       final previous = VaultData.fromJson(
@@ -148,6 +206,8 @@ class VaultRepository {
       }
     }
     await _preferences.setString(_vaultKey, jsonEncode(sanitized.toJson()));
+    _cachedVault = vault;
+    _vaultSecretsLoaded = true;
     _changes.add(vault);
   }
 

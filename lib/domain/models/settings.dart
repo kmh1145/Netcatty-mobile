@@ -1,5 +1,8 @@
 enum SyncProviderType { webdav, githubGist }
 
+const minTerminalFontSize = 6.0;
+const maxTerminalFontSize = 24.0;
+
 class TerminalCustomKey {
   const TerminalCustomKey({
     required this.id,
@@ -67,7 +70,9 @@ class AppSettings {
       themeMode: json['themeMode']?.toString() ?? 'dark',
       uiThemeId: json['uiThemeId']?.toString() ?? 'tokyo-night',
       serverViewMode: _serverViewMode(json['serverViewMode']?.toString()),
-      terminalFontSize: (json['terminalFontSize'] as num?)?.toDouble() ?? 14,
+      terminalFontSize: ((json['terminalFontSize'] as num?)?.toDouble() ?? 14)
+          .clamp(minTerminalFontSize, maxTerminalFontSize)
+          .toDouble(),
       terminalSecureKeyboard: json['terminalSecureKeyboard'] == true,
       language: json['language']?.toString() ?? 'zh-CN',
       aiEndpoint: json['aiEndpoint']?.toString() ?? 'https://api.openai.com/v1',

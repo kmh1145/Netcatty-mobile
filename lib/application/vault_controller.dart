@@ -22,16 +22,39 @@ final vaultControllerProvider =
 });
 
 class VaultController extends StateNotifier<VaultState> {
-  VaultController(this.repository) : super(const VaultState(loading: true));
+  VaultController(this.repository)
+      : super(
+          VaultState(
+            data: repository.loadVaultPreview(),
+            loading: true,
+          ),
+        );
   final VaultRepository repository;
+  Future<VaultData>? _activeLoad;
 
   Future<void> load() async {
     state = VaultState(data: state.data, loading: true);
+    final operation = repository.loadVault();
+    _activeLoad = operation;
     try {
-      state = VaultState(data: await repository.loadVault());
+      state = VaultState(data: await operation);
     } catch (error) {
       state = VaultState(data: state.data ?? VaultData.empty(), error: error);
+    } finally {
+      if (identical(_activeLoad, operation)) _activeLoad = null;
     }
+  }
+
+  /// Waits for platform-backed secrets to be available before an operation
+  /// that connects, edits, exports, or saves the vault.
+  Future<VaultData> ready() async {
+    final active = _activeLoad;
+    if (active != null) return active;
+    final data = state.data;
+    if (!state.loading && state.error == null && data != null) return data;
+    final loaded = await repository.loadVault();
+    state = VaultState(data: loaded);
+    return loaded;
   }
 
   Future<void> replace(VaultData vault, {bool remote = false}) async {
@@ -43,7 +66,7 @@ class VaultController extends StateNotifier<VaultState> {
   }
 
   Future<void> upsertHost(HostProfile host) async {
-    final vault = state.data ?? VaultData.empty();
+    final vault = await ready();
     final stamped = HostProfile({
       ...host.data,
       'updatedAt': DateTime.now().millisecondsSinceEpoch,
@@ -59,7 +82,7 @@ class VaultController extends StateNotifier<VaultState> {
   }
 
   Future<void> deleteHost(String id) async {
-    final vault = state.data ?? VaultData.empty();
+    final vault = await ready();
     await replace(
       vault.copyWith(
         hosts: vault.hosts.where((value) => value.id != id).toList(),

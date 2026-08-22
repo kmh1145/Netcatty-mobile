@@ -50,6 +50,22 @@ void main() {
     ]);
   });
 
+  test('terminal font size supports 6 and clamps invalid stored values', () {
+    expect(minTerminalFontSize, 6);
+    expect(
+      AppSettings.fromJson({'terminalFontSize': 6}).terminalFontSize,
+      6,
+    );
+    expect(
+      AppSettings.fromJson({'terminalFontSize': 2}).terminalFontSize,
+      6,
+    );
+    expect(
+      AppSettings.fromJson({'terminalFontSize': 30}).terminalFontSize,
+      24,
+    );
+  });
+
   test('custom terminal keys and their ordering round-trip', () {
     final settings = AppSettings.fromJson({
       'terminalQuickKeys': ['escape', 'custom-clear'],

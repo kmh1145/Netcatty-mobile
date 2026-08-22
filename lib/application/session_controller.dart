@@ -116,14 +116,19 @@ class SessionController extends StateNotifier<SessionState> {
       error: null,
     );
     try {
-      final vault = ref.read(vaultControllerProvider).data;
-      final keys = vault?.keys ?? const <SshKeyProfile>[];
+      final vault = await vaultController.ready();
+      final connectionHost = host.data['_ephemeralTerminal'] == true
+          ? host
+          : vault.hosts.firstWhere(
+              (value) => value.id == host.id,
+              orElse: () => host,
+            );
       final session = await service.connect(
         sessionId: sessionId,
-        host: host,
-        hosts: vault?.hosts ?? const <HostProfile>[],
-        keys: keys,
-        proxyProfiles: vault?.proxyProfiles ?? const <ProxyProfile>[],
+        host: connectionHost,
+        hosts: vault.hosts,
+        keys: vault.keys,
+        proxyProfiles: vault.proxyProfiles,
         verifyHostKey: verifyHostKey,
         keyboardInteractive: keyboardInteractive,
       );
@@ -139,11 +144,11 @@ class SessionController extends StateNotifier<SessionState> {
         error: null,
       );
       _watchSession(session);
-      if (host.data['_ephemeralTerminal'] == true) {
-        session.systemInfo = host.systemInfo;
+      if (connectionHost.data['_ephemeralTerminal'] == true) {
+        session.systemInfo = connectionHost.systemInfo;
       } else {
-        unawaited(vaultController.markConnected(host));
-        unawaited(_detectSystem(session, host));
+        unawaited(vaultController.markConnected(connectionHost));
+        unawaited(_detectSystem(session, connectionHost));
       }
     } catch (error) {
       state = state.copyWith(
@@ -196,14 +201,14 @@ class SessionController extends StateNotifier<SessionState> {
         final index = state.sessions.indexWhere((value) => value.id == old.id);
         if (index < 0) continue;
         try {
-          final vault = ref.read(vaultControllerProvider).data;
+          final vault = await vaultController.ready();
           old.terminal.write('\r\n\x1b[33m正在恢复连接…\x1b[0m\r\n');
           final replacement = await service.connect(
             sessionId: old.id,
             host: old.host,
-            hosts: vault?.hosts ?? const <HostProfile>[],
-            keys: vault?.keys ?? const <SshKeyProfile>[],
-            proxyProfiles: vault?.proxyProfiles ?? const <ProxyProfile>[],
+            hosts: vault.hosts,
+            keys: vault.keys,
+            proxyProfiles: vault.proxyProfiles,
             verifyHostKey: old.verifyHostKey,
             keyboardInteractive: old.keyboardInteractive,
             terminal: old.terminal,
