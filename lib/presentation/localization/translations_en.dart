@@ -143,6 +143,8 @@ const englishTranslations = <String, String>{
   '新建片段': 'New snippet',
   '新建命令片段': 'New command snippet',
   '编辑命令片段': 'Edit command snippet',
+  '片段操作': 'Snippet actions',
+  '删除命令片段？': 'Delete command snippet?',
   '发送后立即执行': 'Execute immediately after sending',
   '请先建立终端会话': 'Connect a terminal session first',
   '双栏文件传输': 'Dual-pane file transfer',
@@ -311,6 +313,10 @@ const englishReplacements = <(String, String)>[
     'GitHub sign-in succeeded. Netcatty will find the Gist automatically'
   ),
   ('网络连接发生变化，正在自动重试', 'The network changed; retrying automatically'),
+  (
+    '连接已断开，正在后台自动恢复',
+    'The connection was closed; reconnecting in the background'
+  ),
   ('连接已断开', 'The connection was closed'),
   ('正在恢复连接', 'Reconnecting'),
   ('恢复连接失败', 'Reconnection failed'),
@@ -331,6 +337,8 @@ const englishReplacements = <(String, String)>[
   ('将移除', 'Remove '),
   ('将断开', 'Disconnect '),
   ('将从保险库中删除', 'Delete from the vault: '),
+  ('将删除“', 'Delete “'),
+  ('”，此操作可通过云同步传播到其他设备。', '”. This change can sync to other devices.'),
   ('重新创建有变化的服务', 'recreate changed services'),
   ('使用当前镜像重新创建', 'recreate using the current image'),
   ('强制创建全部容器', 'force-recreate all containers'),
@@ -394,8 +402,8 @@ const englishReplacements = <(String, String)>[
     'Terminal Picture in Picture is unavailable on this device or OS version'
   ),
   (
-    '无法启动画中画，请检查系统画中画权限',
-    'Unable to start Picture in Picture. Check the system permission'
+    '画中画初始化失败，请稍后重试',
+    'Picture in Picture initialization failed. Try again shortly'
   ),
   ('无法打开 GitHub Release 页面', 'Unable to open the GitHub Release page'),
   ('正在查询 GitHub 最新 Release', 'Checking the latest GitHub Release'),

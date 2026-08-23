@@ -102,6 +102,21 @@ class SessionController extends StateNotifier<SessionState> {
   final VaultController vaultController;
   final Ref ref;
   bool _reconnecting = false;
+  bool _backgrounded = false;
+  bool _backgroundMaintenanceRunning = false;
+  Timer? _backgroundMaintenanceTimer;
+  DateTime? _nextBackgroundReconnect;
+  int _backgroundReconnectAttempt = 0;
+
+  static const _backgroundMaintenanceInterval = Duration(seconds: 8);
+  static const _backgroundReconnectDelays = <Duration>[
+    Duration(seconds: 1),
+    Duration(seconds: 2),
+    Duration(seconds: 5),
+    Duration(seconds: 10),
+    Duration(seconds: 15),
+    Duration(seconds: 30),
+  ];
 
   Future<void> connect(
     HostProfile host,
@@ -144,6 +159,7 @@ class SessionController extends StateNotifier<SessionState> {
         error: null,
       );
       _watchSession(session);
+      _ensureBackgroundMaintenance();
       if (connectionHost.data['_ephemeralTerminal'] == true) {
         session.systemInfo = connectionHost.systemInfo;
       } else {
@@ -222,6 +238,8 @@ class SessionController extends StateNotifier<SessionState> {
             error: null,
           );
           _watchSession(replacement);
+          _backgroundReconnectAttempt = 0;
+          _nextBackgroundReconnect = null;
           unawaited(_detectSystem(replacement, old.host));
         } catch (error) {
           old.terminal.write('\r\n\x1b[31m恢复连接失败：$error\x1b[0m\r\n');
@@ -235,14 +253,88 @@ class SessionController extends StateNotifier<SessionState> {
 
   void _watchSession(ActiveTerminalSession session) {
     unawaited(session.done.then((_) {
-      if (session.closedByUser) return;
-      session.connected = false;
-      session.terminal.write('\r\n\x1b[33m连接已断开，返回前台后将自动重连。\x1b[0m\r\n');
-      if (!mounted) return;
-      state = state.copyWith(
-        sessions: [...state.sessions],
-      );
+      _markDisconnected(session);
     }));
+  }
+
+  void setBackgrounded(bool backgrounded) {
+    if (_backgrounded == backgrounded) return;
+    _backgrounded = backgrounded;
+    if (backgrounded) {
+      _ensureBackgroundMaintenance();
+      unawaited(_maintainBackgroundConnections());
+      return;
+    }
+    _backgroundMaintenanceTimer?.cancel();
+    _backgroundMaintenanceTimer = null;
+    _backgroundReconnectAttempt = 0;
+    _nextBackgroundReconnect = null;
+    unawaited(reconnectDisconnected());
+  }
+
+  void _ensureBackgroundMaintenance() {
+    if (!_backgrounded || state.sessions.isEmpty) return;
+    _backgroundMaintenanceTimer ??= Timer.periodic(
+      _backgroundMaintenanceInterval,
+      (_) => unawaited(_maintainBackgroundConnections()),
+    );
+  }
+
+  Future<void> _maintainBackgroundConnections() async {
+    if (!_backgrounded || _backgroundMaintenanceRunning || !mounted) return;
+    _backgroundMaintenanceRunning = true;
+    try {
+      for (final session in [...state.sessions]) {
+        if (!session.connected || session.closedByUser) continue;
+        try {
+          await session.ping();
+        } on Object {
+          _markDisconnected(session);
+          session.abort();
+        }
+      }
+      if (!state.sessions.any(
+        (session) => !session.connected && !session.closedByUser,
+      )) {
+        _backgroundReconnectAttempt = 0;
+        _nextBackgroundReconnect = null;
+        return;
+      }
+      final now = DateTime.now();
+      final next = _nextBackgroundReconnect;
+      if (next != null && now.isBefore(next)) return;
+      await reconnectDisconnected();
+      if (state.sessions.any(
+        (session) => !session.connected && !session.closedByUser,
+      )) {
+        final delay =
+            _backgroundReconnectDelays[_backgroundReconnectAttempt.clamp(
+          0,
+          _backgroundReconnectDelays.length - 1,
+        )];
+        _backgroundReconnectAttempt++;
+        _nextBackgroundReconnect = DateTime.now().add(delay);
+      } else {
+        _backgroundReconnectAttempt = 0;
+        _nextBackgroundReconnect = null;
+      }
+    } finally {
+      _backgroundMaintenanceRunning = false;
+    }
+  }
+
+  void _markDisconnected(ActiveTerminalSession session) {
+    if (session.closedByUser || !session.connected) return;
+    session.connected = false;
+    session.terminal.write(
+      _backgrounded
+          ? '\r\n\x1b[33m连接已断开，正在后台自动恢复…\x1b[0m\r\n'
+          : '\r\n\x1b[33m连接已断开，返回前台后将自动重连。\x1b[0m\r\n',
+    );
+    if (!mounted) return;
+    state = state.copyWith(sessions: [...state.sessions]);
+    _ensureBackgroundMaintenance();
+    if (_backgrounded) unawaited(_maintainBackgroundConnections());
   }
 
   Future<void> _detectSystem(
@@ -315,11 +407,21 @@ class SessionController extends StateNotifier<SessionState> {
       activeIndex:
           sessions.isEmpty ? 0 : activeIndex.clamp(0, sessions.length - 1),
     );
+    if (sessions.isEmpty) {
+      _backgroundMaintenanceTimer?.cancel();
+      _backgroundMaintenanceTimer = null;
+    }
   }
 
   void send(String text, {bool enter = false}) {
     final session = state.active;
     if (session == null) return;
     session.terminal.textInput(enter ? '$text\r' : text);
+  }
+
+  @override
+  void dispose() {
+    _backgroundMaintenanceTimer?.cancel();
+    super.dispose();
   }
 }

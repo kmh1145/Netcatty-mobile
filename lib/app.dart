@@ -34,11 +34,14 @@ class _NetcattyAppState extends ConsumerState<NetcattyApp>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       ConnectionPlatformService.endBackgroundGrace();
-      ref.read(sessionControllerProvider.notifier).reconnectDisconnected();
+      ref.read(sessionControllerProvider.notifier).setBackgrounded(false);
     } else if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden) {
       ConnectionPlatformService.beginBackgroundGrace();
+      if (state != AppLifecycleState.inactive) {
+        ref.read(sessionControllerProvider.notifier).setBackgrounded(true);
+      }
     }
   }
 
@@ -46,7 +49,15 @@ class _NetcattyAppState extends ConsumerState<NetcattyApp>
   Widget build(BuildContext context) {
     ref.listen<bool>(
       sessionControllerProvider.select(
-        (value) => value.sessions.any((session) => session.connected),
+        // Start while the user-initiated connection is still in the foreground;
+        // Android 12+ can reject a service first started after the app is hidden.
+        // A disconnected tab also keeps it alive so recovery retains CPU time.
+        (value) =>
+            value.sessions.isNotEmpty ||
+            value.pendingConnections.any(
+              (connection) =>
+                  connection.phase == PendingConnectionPhase.connecting,
+            ),
       ),
       (previous, next) => ConnectionPlatformService.setActive(next),
     );

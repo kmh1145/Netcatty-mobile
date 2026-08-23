@@ -385,7 +385,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
     if (entered || !mounted) return;
     ref.read(terminalPictureInPictureProvider.notifier).state = false;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: LText('无法启动画中画，请检查系统画中画权限')),
+      const SnackBar(content: LText('画中画初始化失败，请稍后重试')),
     );
   }
 

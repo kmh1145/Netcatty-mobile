@@ -71,9 +71,50 @@ class SnippetsScreen extends ConsumerWidget {
                           );
                         }
                       },
-                      trailing: IconButton(
-                        onPressed: () => _edit(context, ref, snippet),
-                        icon: const Icon(Icons.edit_outlined),
+                      trailing: PopupMenuButton<_SnippetAction>(
+                        key: ValueKey('snippet-actions-${snippet.id}'),
+                        tooltip: localized('片段操作'),
+                        onSelected: (action) async {
+                          switch (action) {
+                            case _SnippetAction.edit:
+                              await _edit(context, ref, snippet);
+                              break;
+                            case _SnippetAction.delete:
+                              await _delete(context, ref, snippet);
+                              break;
+                          }
+                        },
+                        itemBuilder: (context) => [
+                          const PopupMenuItem(
+                            value: _SnippetAction.edit,
+                            child: Row(
+                              children: [
+                                Icon(Icons.edit_outlined),
+                                SizedBox(width: 12),
+                                LText('编辑'),
+                              ],
+                            ),
+                          ),
+                          PopupMenuItem(
+                            key: ValueKey('delete-snippet-${snippet.id}'),
+                            value: _SnippetAction.delete,
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.delete_outline,
+                                  color: Theme.of(context).colorScheme.error,
+                                ),
+                                const SizedBox(width: 12),
+                                LText(
+                                  '删除',
+                                  style: TextStyle(
+                                    color: Theme.of(context).colorScheme.error,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   );
@@ -169,4 +210,52 @@ class SnippetsScreen extends ConsumerWidget {
         .read(vaultControllerProvider.notifier)
         .replace(vault.copyWith(snippets: list));
   }
+
+  Future<void> _delete(
+    BuildContext context,
+    WidgetRef ref,
+    CommandSnippet snippet,
+  ) async {
+    final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            icon: Icon(
+              Icons.delete_outline,
+              color: Theme.of(context).colorScheme.error,
+            ),
+            title: const LText('删除命令片段？'),
+            content: LText(
+              '将删除“${snippet.label}”，此操作可通过云同步传播到其他设备。',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const LText('取消'),
+              ),
+              FilledButton(
+                key: const ValueKey('confirm-delete-snippet'),
+                onPressed: () => Navigator.pop(context, true),
+                style: FilledButton.styleFrom(
+                  backgroundColor: Theme.of(context).colorScheme.error,
+                  foregroundColor: Theme.of(context).colorScheme.onError,
+                ),
+                child: const LText('删除'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (!confirmed) return;
+    final controller = ref.read(vaultControllerProvider.notifier);
+    final vault = await controller.ready();
+    await controller.replace(
+      vault.copyWith(
+        snippets: vault.snippets
+            .where((value) => value.id != snippet.id)
+            .toList(growable: false),
+      ),
+    );
+  }
 }
+
+enum _SnippetAction { edit, delete }

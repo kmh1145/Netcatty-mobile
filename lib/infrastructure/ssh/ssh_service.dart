@@ -95,6 +95,25 @@ class ActiveTerminalSession {
   Future<void> get done =>
       sshSession?.done ?? telnetSocket?.done ?? Future.value();
 
+  Future<void> ping({Duration timeout = const Duration(seconds: 8)}) async {
+    if (!connected) throw StateError('SSH session is disconnected');
+    if (sshClients.isNotEmpty) {
+      await Future.wait(sshClients.map((client) => client.ping()))
+          .timeout(timeout);
+      return;
+    }
+    await telnetSocket?.flush().timeout(timeout);
+  }
+
+  void abort() {
+    connected = false;
+    sshSession?.close();
+    for (final client in sshClients.reversed) {
+      client.close();
+    }
+    telnetSocket?.destroy();
+  }
+
   Future<void> close() async {
     closedByUser = true;
     connected = false;
