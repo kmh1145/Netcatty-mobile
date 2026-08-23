@@ -235,6 +235,8 @@ const englishTranslations = <String, String>{
       'Mosh requires a native UDP runtime and is not enabled in this version.',
   'PID 必须大于 0': 'PID must be greater than 0',
   'WebDAV 必须使用 HTTPS 地址': 'WebDAV must use an HTTPS address',
+  'WebDAV 上传校验失败：远端文件与上传内容不一致':
+      'WebDAV upload verification failed: the remote file does not match the uploaded content',
   '无法连接 GitHub，请检查网络后重试':
       'Unable to connect to GitHub. Check the network and retry.',
   '系统安全键盘': 'System secure keyboard',

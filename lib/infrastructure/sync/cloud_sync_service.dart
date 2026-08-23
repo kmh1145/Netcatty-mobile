@@ -198,7 +198,7 @@ class CloudSyncService {
       }
     }
     if (connection.type == SyncProviderType.webdav &&
-        Uri.tryParse(connection.endpoint)?.scheme != 'https') {
+        _normalizedWebdavEndpoint(connection.endpoint).scheme != 'https') {
       throw StateError('WebDAV 必须使用 HTTPS 地址');
     }
     return (connection: connection, password: password);
@@ -209,11 +209,7 @@ class CloudSyncService {
     VaultData vault,
     String password,
   ) async =>
-      _upload(
-        connection,
-        await _encrypt(vault, password),
-        createOnly: true,
-      );
+      _upload(connection, await _encrypt(vault, password));
 
   Future<SyncedVaultFile> _encrypt(
     VaultData vault,
@@ -288,21 +284,12 @@ class CloudSyncService {
     SyncConnection connection,
     SyncedVaultFile file, {
     String? expectedRevision,
-    bool createOnly = false,
   }) async {
     final body = jsonEncode(file.toJson());
     late http.Response response;
     if (connection.type == SyncProviderType.webdav) {
-      response = await _request(_client.put(
-        _webdavUri(connection),
-        headers: {
-          ..._webdavHeaders(connection),
-          'content-type': 'application/json',
-          if (expectedRevision != null) 'if-match': expectedRevision,
-          if (createOnly) 'if-none-match': '*',
-        },
-        body: body,
-      ));
+      await _replaceWebdavFile(connection, body);
+      response = http.Response('', 204);
     } else {
       final gistBody = jsonEncode({
         'description': 'Netcatty Encrypted Vault (DO NOT EDIT MANUALLY)',
@@ -379,10 +366,168 @@ class CloudSyncService {
   }
 
   Uri _webdavUri(SyncConnection connection) {
-    final endpoint = connection.endpoint.endsWith('/')
-        ? connection.endpoint.substring(0, connection.endpoint.length - 1)
-        : connection.endpoint;
-    return Uri.parse('$endpoint/netcatty-vault.json');
+    final endpoint = _normalizedWebdavEndpoint(connection.endpoint);
+    final path = endpoint.path.endsWith('/')
+        ? '${endpoint.path}netcatty-vault.json'
+        : '${endpoint.path}/netcatty-vault.json';
+    return endpoint.replace(path: path);
+  }
+
+  Uri _normalizedWebdavEndpoint(String value) {
+    final trimmed = value.trim();
+    final normalized =
+        RegExp(r'^https?://', caseSensitive: false).hasMatch(trimmed)
+            ? trimmed
+            : 'https://$trimmed';
+    final endpoint = Uri.tryParse(normalized);
+    if (endpoint == null || endpoint.host.isEmpty) {
+      throw StateError('WebDAV 地址无效');
+    }
+    return endpoint;
+  }
+
+  Future<void> _replaceWebdavFile(
+    SyncConnection connection,
+    String body,
+  ) async {
+    final target = _webdavUri(connection);
+    final temporary = target.replace(path: '${target.path}.tmp');
+    final expected = utf8.encode(body);
+
+    // Match desktop Netcatty's WebDAV replacement strategy. Some lightweight
+    // servers overwrite files without truncating them, leaving bytes from the
+    // previous (longer) vault after the new JSON document.
+    try {
+      var temporaryLength = 0;
+      try {
+        temporaryLength = await _webdavLength(connection, temporary);
+      } on Object {
+        // A stale temp file is optional; inability to inspect it should not
+        // prevent trying the atomic path.
+      }
+      await _putWebdav(
+        connection,
+        temporary,
+        _padWebdavBody(expected, temporaryLength),
+      );
+      await _moveWebdav(connection, temporary, target);
+      final moved = await _readWebdavBytes(connection, target);
+      if (moved != null && _matchesWebdavBody(moved, expected)) return;
+    } on Object {
+      // MOVE is optional in WebDAV deployments. Fall back to the same padded
+      // in-place PUT used by desktop Netcatty.
+    }
+    await _deleteWebdavBestEffort(connection, temporary);
+
+    var minimumLength = await _webdavLength(connection, target);
+    if (minimumLength < expected.length) minimumLength = expected.length;
+    for (var attempt = 0; attempt < 3; attempt++) {
+      final payload = _padWebdavBody(expected, minimumLength);
+      await _putWebdav(connection, target, payload);
+      final remote = await _readWebdavBytes(connection, target);
+      if (remote != null && _matchesWebdavBody(remote, expected)) return;
+      minimumLength = remote == null
+          ? expected.length
+          : remote.length > expected.length
+              ? remote.length
+              : expected.length;
+    }
+    throw StateError('WebDAV 上传校验失败：远端文件与上传内容不一致');
+  }
+
+  Future<int> _webdavLength(
+    SyncConnection connection,
+    Uri uri,
+  ) async {
+    final bytes = await _readWebdavBytes(connection, uri);
+    return bytes?.length ?? 0;
+  }
+
+  Future<List<int>?> _readWebdavBytes(
+    SyncConnection connection,
+    Uri uri,
+  ) async {
+    final response = await _request(
+      _client.get(uri, headers: _webdavHeaders(connection)),
+    );
+    if (response.statusCode == 404) return null;
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw StateError('WebDAV 读取失败 (${response.statusCode})');
+    }
+    _ensureResponseSize(response);
+    return response.bodyBytes;
+  }
+
+  Future<void> _putWebdav(
+    SyncConnection connection,
+    Uri uri,
+    List<int> body,
+  ) async {
+    final response = await _request(_client.put(
+      uri,
+      headers: {
+        ..._webdavHeaders(connection),
+        'content-type': 'application/json; charset=utf-8',
+      },
+      body: body,
+    ));
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw StateError('WebDAV 写入失败 (${response.statusCode})');
+    }
+  }
+
+  Future<void> _moveWebdav(
+    SyncConnection connection,
+    Uri source,
+    Uri destination,
+  ) async {
+    final request = http.Request('MOVE', source)
+      ..headers.addAll({
+        ..._webdavHeaders(connection),
+        'destination': destination.toString(),
+        'overwrite': 'T',
+      });
+    final response = await _request(
+      _client.send(request).then(http.Response.fromStream),
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw StateError('WebDAV MOVE 失败 (${response.statusCode})');
+    }
+  }
+
+  Future<void> _deleteWebdavBestEffort(
+    SyncConnection connection,
+    Uri uri,
+  ) async {
+    try {
+      await _request(
+        _client.delete(uri, headers: _webdavHeaders(connection)),
+      );
+    } on Object {
+      // Temp-file cleanup must not hide the in-place fallback result.
+    }
+  }
+
+  List<int> _padWebdavBody(List<int> body, int minimumLength) {
+    if (body.length >= minimumLength) return body;
+    return <int>[
+      ...body,
+      ...List<int>.filled(minimumLength - body.length, 0x20)
+    ];
+  }
+
+  bool _matchesWebdavBody(List<int> remote, List<int> expected) {
+    if (remote.length < expected.length) return false;
+    for (var index = 0; index < expected.length; index++) {
+      if (remote[index] != expected[index]) return false;
+    }
+    for (var index = expected.length; index < remote.length; index++) {
+      final byte = remote[index];
+      if (byte != 0x20 && byte != 0x09 && byte != 0x0a && byte != 0x0d) {
+        return false;
+      }
+    }
+    return true;
   }
 
   Map<String, String> _webdavHeaders(SyncConnection connection) => {
