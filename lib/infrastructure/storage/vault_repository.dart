@@ -86,9 +86,14 @@ class VaultRepository {
       ...vault.keys.map(_loadKeySecrets),
       ...vault.proxyProfiles.map(_loadProxySecrets),
     ]);
-    _cachedVault = vault;
+    // A metadata-only edit (for example a snippet mutation) may complete while
+    // platform keychain reads are still in flight. Keep that newer snapshot;
+    // its host/key objects already received the hydrated secrets above.
+    final latest = _cachedVault;
+    final result = latest != null && !identical(latest, vault) ? latest : vault;
+    _cachedVault = result;
     _vaultSecretsLoaded = true;
-    return vault;
+    return result;
   }
 
   Future<void> _loadHostSecrets(HostProfile host) async {
@@ -173,17 +178,51 @@ class VaultRepository {
         await _secureStorage.delete(key: 'key.${key.id}.passphrase');
       }
     }
-    final sanitized = VaultData.fromJson(vault.toJson());
-    for (final host in sanitized.hosts) {
+    for (final host in vault.hosts) {
       await _writeSecret('host.${host.id}.password', host.password);
       await _writeSecret(
         'host.${host.id}.telnetPassword',
         host.data['telnetPassword']?.toString(),
       );
-      host.data.remove('password');
-      host.data.remove('telnetPassword');
       final proxy = host.proxyConfig;
       await _writeSecret('host.${host.id}.proxyPassword', proxy?.password);
+    }
+    for (final key in vault.keys) {
+      await _writeSecret('key.${key.id}.private', key.privateKey);
+      await _writeSecret('key.${key.id}.passphrase', key.passphrase);
+    }
+    for (final profile in vault.proxyProfiles) {
+      final config = profile.config;
+      await _writeSecret('proxy.${profile.id}.password', config?.password);
+    }
+    final sanitized = _withoutSecrets(vault);
+    await _preferences.setString(_vaultKey, jsonEncode(sanitized.toJson()));
+    _cachedVault = vault;
+    _vaultSecretsLoaded = true;
+    _changes.add(vault);
+  }
+
+  /// Persists fields that never contain credentials without touching the
+  /// platform keychain. This is intentionally limited to controller paths that
+  /// only change snippets or other known non-secret metadata.
+  Future<void> saveVaultMetadata(VaultData vault) async {
+    final previousCache = _cachedVault;
+    _cachedVault = vault;
+    try {
+      final sanitized = _withoutSecrets(vault);
+      await _preferences.setString(_vaultKey, jsonEncode(sanitized.toJson()));
+      _changes.add(vault);
+    } on Object {
+      if (identical(_cachedVault, vault)) _cachedVault = previousCache;
+      rethrow;
+    }
+  }
+
+  VaultData _withoutSecrets(VaultData vault) {
+    final sanitized = VaultData.fromJson(vault.toJson());
+    for (final host in sanitized.hosts) {
+      host.data.remove('password');
+      host.data.remove('telnetPassword');
       if (host.data['proxyConfig'] is Map) {
         host.data['proxyConfig'] =
             Map<String, dynamic>.from(host.data['proxyConfig'] as Map)
@@ -191,24 +230,17 @@ class VaultRepository {
       }
     }
     for (final key in sanitized.keys) {
-      await _writeSecret('key.${key.id}.private', key.privateKey);
-      await _writeSecret('key.${key.id}.passphrase', key.passphrase);
       key.data['privateKey'] = '';
       key.data.remove('passphrase');
     }
     for (final profile in sanitized.proxyProfiles) {
-      final config = profile.config;
-      await _writeSecret('proxy.${profile.id}.password', config?.password);
       if (profile.data['config'] is Map) {
         profile.data['config'] =
             Map<String, dynamic>.from(profile.data['config'] as Map)
               ..remove('password');
       }
     }
-    await _preferences.setString(_vaultKey, jsonEncode(sanitized.toJson()));
-    _cachedVault = vault;
-    _vaultSecretsLoaded = true;
-    _changes.add(vault);
+    return sanitized;
   }
 
   Future<AppSettings> loadSettings() async {

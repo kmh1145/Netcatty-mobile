@@ -198,17 +198,7 @@ class SnippetsScreen extends ConsumerWidget {
       ),
     );
     if (result == null) return;
-    final vault = await ref.read(vaultControllerProvider.notifier).ready();
-    final list = [...vault.snippets];
-    final index = list.indexWhere((value) => value.id == result.id);
-    if (index < 0) {
-      list.add(result);
-    } else {
-      list[index] = result;
-    }
-    await ref
-        .read(vaultControllerProvider.notifier)
-        .replace(vault.copyWith(snippets: list));
+    await ref.read(vaultControllerProvider.notifier).upsertSnippet(result);
   }
 
   Future<void> _delete(
@@ -247,14 +237,7 @@ class SnippetsScreen extends ConsumerWidget {
         false;
     if (!confirmed) return;
     final controller = ref.read(vaultControllerProvider.notifier);
-    final vault = await controller.ready();
-    await controller.replace(
-      vault.copyWith(
-        snippets: vault.snippets
-            .where((value) => value.id != snippet.id)
-            .toList(growable: false),
-      ),
-    );
+    await controller.deleteSnippet(snippet.id);
   }
 }
 
