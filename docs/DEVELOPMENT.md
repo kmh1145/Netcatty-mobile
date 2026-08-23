@@ -169,10 +169,10 @@ Windows 无法完成原生 iOS 编译；涉及 Swift、Info.plist 或 iOS Plugin
 ### ios Job
 
 1. 无签名构建 Release iOS App
-2. 打包 `netcatty-mobile-ios-unsigned.ipa`
+2. 打包 `netcatty-mobile-vX.Y.Z-ios-unsigned.ipa`
 3. 生成 SHA-256 并上传 Artifact
 
-Artifact 默认保留 30 天。CI 的 Android `versionCode` 使用 Actions Run Number，以保证同一签名下可覆盖升级；正式 Release 的用户可见版本由 `pubspec.yaml` 的 Build Name 决定。
+Android 安装包命名为 `netcatty-mobile-vX.Y.Z-android.apk`。Artifact 默认保留 30 天，Artifact 名称还会追加 Actions Run Number 以便区分同版本的不同构建。CI 的 Android `versionCode` 使用 Actions Run Number，以保证同一签名下可覆盖升级；正式 Release 的用户可见版本和安装包文件名均由 `pubspec.yaml` 的 Build Name 决定。
 
 ## 版本号
 
@@ -196,10 +196,10 @@ version: MAJOR.MINOR.PATCH+BUILD
 4. 执行格式检查、`flutter analyze`、完整 `flutter test` 和本地 Android 构建。
 5. 推送 `main`，等待 Mobile CI 的 test 与 ios Job 全部成功。
 6. 下载同一次 CI Run 的 Android/iOS Artifacts，确认包含：
-   - `netcatty-mobile-android.apk`
-   - `netcatty-mobile-android.apk.sha256`
-   - `netcatty-mobile-ios-unsigned.ipa`
-   - `netcatty-mobile-ios-unsigned.ipa.sha256`
+   - `netcatty-mobile-vX.Y.Z-android.apk`
+   - `netcatty-mobile-vX.Y.Z-android.apk.sha256`
+   - `netcatty-mobile-vX.Y.Z-ios-unsigned.ipa`
+   - `netcatty-mobile-vX.Y.Z-ios-unsigned.ipa.sha256`
 7. 创建带注释的 `vX.Y.Z` Tag，并以同名 GitHub Release 发布四个文件。
 8. 检查 `/releases/latest`、README 徽章、安装包下载和校验文件。
 
@@ -213,6 +213,20 @@ gh release create vX.Y.Z <assets...> --title "Netcatty Mobile X.Y.Z" --notes-fil
 ```
 
 不要在 CI 未通过时提前移动 `latest` Tag，也不要上传来自不同提交或不同 CI Run 的 Android/iOS 包。
+
+### Beta / 预发布流程
+
+Beta 版本必须同时满足以下约束：
+
+1. `pubspec.yaml` 使用预发布版本，例如 `1.4.0-beta.1+15`。
+2. Git Tag 使用对应名称，例如 `v1.4.0-beta.1`。
+3. GitHub Release 必须标记为 Pre-release；CLI 发布时必须添加 `--prerelease`：
+
+```bash
+gh release create vX.Y.Z-beta.N <assets...> --prerelease --title "Netcatty Mobile X.Y.Z Beta N" --notes-file <notes.md>
+```
+
+应用内更新检查固定使用 GitHub `/releases/latest` 正式版通道，并额外拒绝响应中的 Draft/Pre-release，因此普通用户不会收到 Beta 更新提示。Beta 测试用户需要从 Releases 页面或对应 PR 的 Actions Artifacts 手动下载安装。仅使用 `-beta.N` 标签但遗漏 `--prerelease` 会被 GitHub 当作正式 Release，严禁这样发布。
 
 ## 隐私与调试信息
 

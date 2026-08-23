@@ -10,6 +10,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Read app version
+        id: app_version
+        shell: bash
+        run: |
+          APP_VERSION="$(awk '/^version:/ { print $2; exit }' pubspec.yaml)"
+          APP_VERSION="${APP_VERSION%%+*}"
+          if [[ ! "$APP_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid pubspec version: $APP_VERSION" >&2
+            exit 1
+          fi
+          echo "version=$APP_VERSION" >> "$GITHUB_OUTPUT"
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
@@ -45,16 +56,15 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cp build/app/outputs/flutter-apk/app-release.apk dist/netcatty-mobile-android.apk
+          PACKAGE="netcatty-mobile-v${{ steps.app_version.outputs.version }}-android.apk"
+          cp build/app/outputs/flutter-apk/app-release.apk "dist/$PACKAGE"
           cd dist
-          sha256sum netcatty-mobile-android.apk > netcatty-mobile-android.apk.sha256
+          sha256sum "$PACKAGE" > "$PACKAGE.sha256"
       - name: Upload Android package
         uses: actions/upload-artifact@v4
         with:
-          name: netcatty-mobile-android-${{ github.run_number }}
-          path: |
-            dist/netcatty-mobile-android.apk
-            dist/netcatty-mobile-android.apk.sha256
+          name: netcatty-mobile-v${{ steps.app_version.outputs.version }}-android-${{ github.run_number }}
+          path: dist/*
           if-no-files-found: error
           retention-days: 30
 
@@ -62,6 +72,17 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+      - name: Read app version
+        id: app_version
+        shell: bash
+        run: |
+          APP_VERSION="$(awk '/^version:/ { print $2; exit }' pubspec.yaml)"
+          APP_VERSION="${APP_VERSION%%+*}"
+          if [[ ! "$APP_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid pubspec version: $APP_VERSION" >&2
+            exit 1
+          fi
+          echo "version=$APP_VERSION" >> "$GITHUB_OUTPUT"
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
@@ -73,18 +94,17 @@ jobs:
       - name: Package re-signable IPA
         shell: bash
         run: |
+          PACKAGE="netcatty-mobile-v${{ steps.app_version.outputs.version }}-ios-unsigned.ipa"
           mkdir -p dist build/ios/iphoneos/Payload
           cp -R build/ios/iphoneos/Runner.app build/ios/iphoneos/Payload/
           cd build/ios/iphoneos
-          ditto -c -k --sequesterRsrc --keepParent Payload ../../../dist/netcatty-mobile-ios-unsigned.ipa
+          ditto -c -k --sequesterRsrc --keepParent Payload "../../../dist/$PACKAGE"
           cd ../../../dist
-          shasum -a 256 netcatty-mobile-ios-unsigned.ipa > netcatty-mobile-ios-unsigned.ipa.sha256
+          shasum -a 256 "$PACKAGE" > "$PACKAGE.sha256"
       - name: Upload re-signable IPA
         uses: actions/upload-artifact@v4
         with:
-          name: netcatty-mobile-ios-unsigned-${{ github.run_number }}
-          path: |
-            dist/netcatty-mobile-ios-unsigned.ipa
-            dist/netcatty-mobile-ios-unsigned.ipa.sha256
+          name: netcatty-mobile-v${{ steps.app_version.outputs.version }}-ios-unsigned-${{ github.run_number }}
+          path: dist/*
           if-no-files-found: error
           retention-days: 30

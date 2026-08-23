@@ -150,9 +150,11 @@ Netcatty 的 Android / iOS 移动端实现：一个面向服务器管理、SSH �
 
 前往仓库的 [Releases](https://github.com/kmh1145/Netcatty-mobile/releases/latest) 页面：
 
-- Android：下载 `netcatty-mobile-android.apk`。同一发布签名生成的后续版本可直接覆盖安装。
-- iOS：下载 `netcatty-mobile-ios-unsigned.ipa`，使用 AltStore、SideStore、Sideloadly 等工具以自己的 Apple ID 重签后安装。免费 Apple ID 通常需要每 7 天重新签名。
+- Android：下载 `netcatty-mobile-vX.Y.Z-android.apk`。同一发布签名生成的后续版本可直接覆盖安装。
+- iOS：下载 `netcatty-mobile-vX.Y.Z-ios-unsigned.ipa`，使用 AltStore、SideStore、Sideloadly 等工具以自己的 Apple ID 重签后安装。免费 Apple ID 通常需要每 7 天重新签名。
 - 完整性校验：使用同名 `.sha256` 文件核对安装包。
+
+Beta 版本会在 Release 页面标记为 Pre-release，不会出现在应用内的正式版更新检查中；需要测试的用户可直接打开 Releases 页面手动下载。
 
 每次推送和 PR 都会触发 [Mobile CI](https://github.com/kmh1145/Netcatty-mobile/actions/workflows/mobile.yml)。成功任务的 Artifacts 中也会提供 Android APK 和可重签 iOS IPA，默认保留 30 天。
 
