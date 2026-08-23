@@ -8,6 +8,7 @@ import UIKit
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
   private var sshBackgroundTask: UIBackgroundTaskIdentifier = .invalid
+  private let sshBackgroundAudioKeeper = SshBackgroundAudioKeeper()
   private var pictureInPictureChannel: FlutterMethodChannel?
   private var terminalPictureInPictureStorage: AnyObject?
 
@@ -33,6 +34,11 @@ import UIKit
         self?.endSshBackgroundGrace()
         result(nil)
       case "setActive":
+        let active = (call.arguments as? [String: Any])?["active"] as? Bool ?? false
+        self?.sshBackgroundAudioKeeper.setActive(
+          active,
+          deactivateSessionWhenStopping: self?.isTerminalPictureInPictureActive != true
+        )
         result(nil)
       default:
         result(FlutterMethodNotImplemented)
@@ -101,6 +107,9 @@ import UIKit
       } else if UIApplication.shared.applicationState != .active {
         self.beginSshBackgroundGrace()
       }
+      if !active {
+        self.sshBackgroundAudioKeeper.resumeIfNeeded()
+      }
     }
     terminalPictureInPictureStorage = controller
     return controller
@@ -129,6 +138,7 @@ import UIKit
 
   private func beginSshBackgroundGrace() {
     guard !isTerminalPictureInPictureActive else { return }
+    guard !sshBackgroundAudioKeeper.isRunning else { return }
     guard sshBackgroundTask == .invalid else { return }
     sshBackgroundTask = UIApplication.shared.beginBackgroundTask(
       withName: "Finish active SSH network work"
@@ -148,8 +158,134 @@ import UIKit
        let controller = terminalPictureInPictureStorage as? TerminalPictureInPictureController {
       controller.stop()
     }
+    sshBackgroundAudioKeeper.setActive(false, deactivateSessionWhenStopping: true)
     endSshBackgroundGrace()
     super.applicationWillTerminate(application)
+  }
+}
+
+private final class SshBackgroundAudioKeeper {
+  private var engine = AVAudioEngine()
+  private var sourceNode: AVAudioSourceNode?
+  private var desiredActive = false
+  private var observers: [NSObjectProtocol] = []
+
+  init() {
+    let center = NotificationCenter.default
+    observers.append(
+      center.addObserver(
+        forName: AVAudioSession.interruptionNotification,
+        object: nil,
+        queue: .main
+      ) { [weak self] notification in
+        self?.handleInterruption(notification)
+      }
+    )
+    observers.append(
+      center.addObserver(
+        forName: AVAudioSession.mediaServicesWereResetNotification,
+        object: nil,
+        queue: .main
+      ) { [weak self] _ in
+        self?.rebuildAndResume()
+      }
+    )
+    observers.append(
+      center.addObserver(
+        forName: AVAudioSession.routeChangeNotification,
+        object: nil,
+        queue: .main
+      ) { [weak self] _ in
+        self?.resumeIfNeeded()
+      }
+    )
+  }
+
+  deinit {
+    observers.forEach { NotificationCenter.default.removeObserver($0) }
+  }
+
+  var isRunning: Bool {
+    desiredActive && engine.isRunning
+  }
+
+  func setActive(_ active: Bool, deactivateSessionWhenStopping: Bool) {
+    desiredActive = active
+    if active {
+      start()
+    } else {
+      stop(deactivateSession: deactivateSessionWhenStopping)
+    }
+  }
+
+  func resumeIfNeeded() {
+    guard desiredActive else { return }
+    start()
+  }
+
+  private func start() {
+    guard desiredActive else { return }
+    let session = AVAudioSession.sharedInstance()
+    do {
+      try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
+      try session.setActive(true)
+      if sourceNode == nil {
+        let source = AVAudioSourceNode { _, _, _, audioBufferList -> OSStatus in
+          let buffers = UnsafeMutableAudioBufferListPointer(audioBufferList)
+          for buffer in buffers {
+            if let data = buffer.mData {
+              memset(data, 0, Int(buffer.mDataByteSize))
+            }
+          }
+          return noErr
+        }
+        sourceNode = source
+        engine.attach(source)
+        let format = AVAudioFormat(
+          standardFormatWithSampleRate: 44_100,
+          channels: 1
+        )
+        engine.connect(source, to: engine.mainMixerNode, format: format)
+      }
+      if !engine.isRunning {
+        engine.prepare()
+        try engine.start()
+      }
+    } catch {
+      // Calls, route changes, and media resets may temporarily deny activation.
+      // Their notifications retry the engine when the audio route is available.
+    }
+  }
+
+  private func stop(deactivateSession: Bool) {
+    if engine.isRunning {
+      engine.stop()
+    }
+    if deactivateSession {
+      try? AVAudioSession.sharedInstance().setActive(
+        false,
+        options: [.notifyOthersOnDeactivation]
+      )
+    }
+  }
+
+  private func rebuildAndResume() {
+    guard desiredActive else { return }
+    engine.stop()
+    engine = AVAudioEngine()
+    sourceNode = nil
+    start()
+  }
+
+  private func handleInterruption(_ notification: Notification) {
+    guard desiredActive,
+          let rawType = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+          let type = AVAudioSession.InterruptionType(rawValue: rawType) else { return }
+    if type == .ended {
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+        self?.resumeIfNeeded()
+      }
+    }
   }
 }
 
@@ -169,6 +305,8 @@ private final class TerminalPictureInPictureController: NSObject {
   private var lastFrameSignature: Int?
   private var pixelBufferPool: CVPixelBufferPool?
   private var formatDescription: CMVideoFormatDescription?
+  private var latestPixelBuffer: CVPixelBuffer?
+  private var frameHeartbeatTimer: Timer?
 
   init(onStateChanged: @escaping (Bool) -> Void) {
     self.onStateChanged = onStateChanged
@@ -262,6 +400,7 @@ private final class TerminalPictureInPictureController: NSObject {
             ) else { return }
       DispatchQueue.main.async { [weak self] in
         guard let self, generation == self.renderGeneration else { return }
+        self.latestPixelBuffer = pixelBuffer
         self.enqueue(pixelBuffer)
       }
     }
@@ -271,6 +410,7 @@ private final class TerminalPictureInPictureController: NSObject {
     renderGeneration += 1
     lastFrameSignature = nil
     starting = false
+    stopFrameHeartbeat()
     finishStart(false)
     if pictureInPictureController?.isPictureInPictureActive == true {
       pictureInPictureController?.stopPictureInPicture()
@@ -485,6 +625,24 @@ private final class TerminalPictureInPictureController: NSObject {
     displayLayer.enqueue(sampleBuffer)
   }
 
+  private func startFrameHeartbeat() {
+    guard frameHeartbeatTimer == nil else { return }
+    let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+      guard let self,
+            self.pictureInPictureController?.isPictureInPictureActive == true,
+            let pixelBuffer = self.latestPixelBuffer else { return }
+      self.enqueue(pixelBuffer)
+    }
+    RunLoop.main.add(timer, forMode: .common)
+    frameHeartbeatTimer = timer
+  }
+
+  private func stopFrameHeartbeat() {
+    frameHeartbeatTimer?.invalidate()
+    frameHeartbeatTimer = nil
+    latestPixelBuffer = nil
+  }
+
   private func uiColor(_ value: Any?, fallback: UInt32) -> UIColor {
     let raw = UInt32(truncating: value as? NSNumber ?? NSNumber(value: fallback))
     return UIColor(
@@ -541,6 +699,7 @@ extension TerminalPictureInPictureController: AVPictureInPictureControllerDelega
     _ pictureInPictureController: AVPictureInPictureController
   ) {
     starting = false
+    startFrameHeartbeat()
     finishStart(true)
     onStateChanged(true)
   }
@@ -550,6 +709,7 @@ extension TerminalPictureInPictureController: AVPictureInPictureControllerDelega
     failedToStartPictureInPictureWithError error: Error
   ) {
     starting = false
+    stopFrameHeartbeat()
     finishStart(false)
     detachSource()
     deactivatePlaybackSession()
@@ -560,6 +720,7 @@ extension TerminalPictureInPictureController: AVPictureInPictureControllerDelega
     _ pictureInPictureController: AVPictureInPictureController
   ) {
     starting = false
+    stopFrameHeartbeat()
     finishStart(false)
     detachSource()
     deactivatePlaybackSession()
