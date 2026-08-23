@@ -266,20 +266,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   child: Column(
                     children: [
                       SegmentedButton<SyncProviderType>(
+                        expandedInsets: EdgeInsets.zero,
                         segments: const [
                           ButtonSegment(
                             value: SyncProviderType.webdav,
-                            label: LText('WebDAV'),
+                            label: _AdaptiveSyncProviderLabel('WebDAV'),
                             icon: Icon(Icons.cloud_outlined),
                           ),
                           ButtonSegment(
                             value: SyncProviderType.githubGist,
-                            label: LText('GitHub'),
+                            label: _AdaptiveSyncProviderLabel('GitHub'),
                             icon: Icon(Icons.code),
                           ),
                           ButtonSegment(
                             value: SyncProviderType.s3,
-                            label: LText('S3'),
+                            label: _AdaptiveSyncProviderLabel('S3'),
                             icon: Icon(Icons.storage_outlined),
                           ),
                         ],
@@ -1104,4 +1105,25 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       ).showSnackBar(SnackBar(content: LText(value)));
     }
   }
+}
+
+class _AdaptiveSyncProviderLabel extends StatelessWidget {
+  const _AdaptiveSyncProviderLabel(this.label);
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+        width: 48,
+        height: 24,
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: LText(
+            label,
+            maxLines: 1,
+            softWrap: false,
+            overflow: TextOverflow.visible,
+          ),
+        ),
+      );
 }
