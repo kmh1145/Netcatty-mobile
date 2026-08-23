@@ -402,8 +402,8 @@ const englishReplacements = <(String, String)>[
     'Terminal Picture in Picture is unavailable on this device or OS version'
   ),
   (
-    '无法启动画中画，请检查系统画中画权限',
-    'Unable to start Picture in Picture. Check the system permission'
+    '画中画初始化失败，请稍后重试',
+    'Picture in Picture initialization failed. Try again shortly'
   ),
   ('无法打开 GitHub Release 页面', 'Unable to open the GitHub Release page'),
   ('正在查询 GitHub 最新 Release', 'Checking the latest GitHub Release'),

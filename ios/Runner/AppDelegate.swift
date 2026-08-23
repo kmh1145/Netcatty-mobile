@@ -297,6 +297,9 @@ private final class TerminalPictureInPictureController: NSObject {
   private var pictureInPictureController: AVPictureInPictureController?
   private var startCompletion: ((Bool) -> Void)?
   private var starting = false
+  private var startGeneration = 0
+  private var startAttemptsRunning = false
+  private var automaticStartRetries = 0
   private let renderQueue = DispatchQueue(
     label: "app.netcatty.mobile.pip-render",
     qos: .utility
@@ -340,25 +343,26 @@ private final class TerminalPictureInPictureController: NSObject {
       return
     }
     attachSource(to: sourceView)
-    update(arguments: arguments)
     configurePlaybackSession()
-    if pictureInPictureController == nil {
-      let source = AVPictureInPictureController.ContentSource(
-        sampleBufferDisplayLayer: displayLayer,
-        playbackDelegate: self
-      )
-      let controller = AVPictureInPictureController(contentSource: source)
-      controller.delegate = self
-      controller.requiresLinearPlayback = true
-      controller.canStartPictureInPictureAutomaticallyFromInline = false
-      pictureInPictureController = controller
-    }
+    configurePictureInPictureController()
     starting = true
+    startGeneration += 1
+    let generation = startGeneration
+    startAttemptsRunning = false
+    automaticStartRetries = 0
     startCompletion = completion
-    attemptStart(remainingAttempts: 20)
+    update(arguments: arguments) { [weak self] in
+      self?.beginStartAttempts(generation: generation)
+    }
+    // Rendering the first 960x540 terminal frame happens off the main thread.
+    // Keep a fallback in case rendering fails, but normally the first queued
+    // sample buffer starts the PiP readiness checks immediately.
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) { [weak self] in
+      self?.beginStartAttempts(generation: generation)
+    }
   }
 
-  func update(arguments: [String: Any]) {
+  func update(arguments: [String: Any], completion: (() -> Void)? = nil) {
     let title = (arguments["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
     let text = arguments["text"] as? String ?? ""
     let connected = arguments["connected"] as? Bool ?? false
@@ -384,7 +388,12 @@ private final class TerminalPictureInPictureController: NSObject {
     hasher.combine(arguments["foregroundColor"] as? Int ?? 0)
     hasher.combine(arguments["accentColor"] as? Int ?? 0)
     let signature = hasher.finalize()
-    guard signature != lastFrameSignature else { return }
+    guard signature != lastFrameSignature else {
+      if latestPixelBuffer != nil {
+        completion?()
+      }
+      return
+    }
     lastFrameSignature = signature
     renderGeneration += 1
     let generation = renderGeneration
@@ -402,6 +411,7 @@ private final class TerminalPictureInPictureController: NSObject {
         guard let self, generation == self.renderGeneration else { return }
         self.latestPixelBuffer = pixelBuffer
         self.enqueue(pixelBuffer)
+        completion?()
       }
     }
   }
@@ -410,6 +420,9 @@ private final class TerminalPictureInPictureController: NSObject {
     renderGeneration += 1
     lastFrameSignature = nil
     starting = false
+    startGeneration += 1
+    startAttemptsRunning = false
+    automaticStartRetries = 0
     stopFrameHeartbeat()
     finishStart(false)
     if pictureInPictureController?.isPictureInPictureActive == true {
@@ -444,29 +457,77 @@ private final class TerminalPictureInPictureController: NSObject {
     )
   }
 
-  private func attemptStart(remainingAttempts: Int) {
-    guard starting, let controller = pictureInPictureController else { return }
+  private func configurePictureInPictureController() {
+    guard pictureInPictureController == nil else { return }
+    let source = AVPictureInPictureController.ContentSource(
+      sampleBufferDisplayLayer: displayLayer,
+      playbackDelegate: self
+    )
+    let controller = AVPictureInPictureController(contentSource: source)
+    controller.delegate = self
+    controller.requiresLinearPlayback = true
+    controller.canStartPictureInPictureAutomaticallyFromInline = false
+    pictureInPictureController = controller
+  }
+
+  private func beginStartAttempts(generation: Int) {
+    guard starting,
+          generation == startGeneration,
+          !startAttemptsRunning else { return }
+    startAttemptsRunning = true
+    attemptStart(generation: generation, remainingAttempts: 60)
+  }
+
+  private func attemptStart(generation: Int, remainingAttempts: Int) {
+    guard starting,
+          generation == startGeneration,
+          let controller = pictureInPictureController else { return }
     if controller.isPictureInPicturePossible {
       controller.startPictureInPicture()
-      DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
-        guard let self, self.starting else { return }
-        self.starting = false
-        self.finishStart(false)
-        self.onStateChanged(false)
+      DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self, weak controller] in
+        guard let self,
+              let controller,
+              self.starting,
+              generation == self.startGeneration,
+              self.pictureInPictureController === controller,
+              !controller.isPictureInPictureActive else { return }
+        self.retryOrFinishStart(generation: generation)
       }
       return
     }
     guard remainingAttempts > 0 else {
-      starting = false
-      finishStart(false)
-      detachSource()
-      deactivatePlaybackSession()
-      onStateChanged(false)
+      retryOrFinishStart(generation: generation)
       return
     }
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-      self?.attemptStart(remainingAttempts: remainingAttempts - 1)
+      self?.attemptStart(
+        generation: generation,
+        remainingAttempts: remainingAttempts - 1
+      )
     }
+  }
+
+  private func retryOrFinishStart(generation: Int) {
+    guard starting, generation == startGeneration else { return }
+    if automaticStartRetries < 1 {
+      automaticStartRetries += 1
+      startAttemptsRunning = false
+      let previousController = pictureInPictureController
+      previousController?.delegate = nil
+      previousController?.stopPictureInPicture()
+      pictureInPictureController = nil
+      configurePictureInPictureController()
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+        self?.beginStartAttempts(generation: generation)
+      }
+      return
+    }
+    starting = false
+    startAttemptsRunning = false
+    finishStart(false)
+    detachSource()
+    deactivatePlaybackSession()
+    onStateChanged(false)
   }
 
   private func finishStart(_ entered: Bool) {
@@ -699,6 +760,7 @@ extension TerminalPictureInPictureController: AVPictureInPictureControllerDelega
     _ pictureInPictureController: AVPictureInPictureController
   ) {
     starting = false
+    startAttemptsRunning = false
     startFrameHeartbeat()
     finishStart(true)
     onStateChanged(true)
@@ -708,18 +770,15 @@ extension TerminalPictureInPictureController: AVPictureInPictureControllerDelega
     _ pictureInPictureController: AVPictureInPictureController,
     failedToStartPictureInPictureWithError error: Error
   ) {
-    starting = false
-    stopFrameHeartbeat()
-    finishStart(false)
-    detachSource()
-    deactivatePlaybackSession()
-    onStateChanged(false)
+    guard self.pictureInPictureController === pictureInPictureController else { return }
+    retryOrFinishStart(generation: startGeneration)
   }
 
   func pictureInPictureControllerDidStopPictureInPicture(
     _ pictureInPictureController: AVPictureInPictureController
   ) {
     starting = false
+    startAttemptsRunning = false
     stopFrameHeartbeat()
     finishStart(false)
     detachSource()
