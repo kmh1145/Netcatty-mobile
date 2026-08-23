@@ -193,4 +193,150 @@ void main() {
     expect(versions.cloudVersion, 8);
     expect(versions.hasLocalChanges, isTrue);
   });
+
+  test('WebDAV upload uses the desktop temp PUT and MOVE replacement flow',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    final repository = await VaultRepository.open();
+    await repository.saveSyncConnection(const SyncConnection(
+      type: SyncProviderType.webdav,
+      endpoint: 'dav.example.com/netcatty',
+      username: '同步用户',
+      secret: '应用密码',
+    ));
+    await repository.saveMasterPassword('sync-password');
+
+    final remoteFile = await NetcattyCrypto.encrypt(
+      vault: VaultData.empty(),
+      password: 'sync-password',
+      deviceId: 'desktop-device',
+      deviceName: 'Desktop',
+      appVersion: '1.3.4',
+      previousVersion: 3,
+    );
+    var canonical = <int>[...utf8.encode(jsonEncode(remoteFile.toJson()))];
+    List<int>? temporary;
+    var moveCount = 0;
+    final expectedAuthorization =
+        'Basic ${base64Encode(utf8.encode('同步用户:应用密码'))}';
+    final client = MockClient((request) async {
+      expect(request.url.scheme, 'https');
+      expect(request.headers['authorization'], expectedAuthorization);
+      expect(request.headers.containsKey('if-match'), isFalse);
+      expect(request.headers.containsKey('if-none-match'), isFalse);
+      if (request.method == 'GET' &&
+          request.url.path.endsWith('netcatty-vault.json')) {
+        return http.Response.bytes(canonical, 200, headers: {
+          'content-type': 'application/json; charset=utf-8',
+          'etag': '"desktop-revision"',
+        });
+      }
+      if (request.method == 'GET' && request.url.path.endsWith('.tmp')) {
+        return http.Response('', 404);
+      }
+      if (request.method == 'PUT' && request.url.path.endsWith('.tmp')) {
+        temporary = List<int>.from(request.bodyBytes);
+        return http.Response('', 201);
+      }
+      if (request.method == 'MOVE') {
+        moveCount++;
+        expect(request.headers['overwrite'], 'T');
+        expect(
+          request.headers['destination'],
+          'https://dav.example.com/netcatty/netcatty-vault.json',
+        );
+        canonical = temporary!;
+        return http.Response('', 201);
+      }
+      fail('Unexpected ${request.method} request to ${request.url}');
+    });
+    final local = VaultData.empty().copyWith(hosts: [
+      HostProfile.create(
+        id: 'mobile-host',
+        label: 'Mobile server',
+        hostname: 'mobile.example.com',
+        username: 'root',
+      ),
+    ]);
+
+    final result = await CloudSyncService(
+      repository,
+      client: client,
+      deviceId: 'mobile-device',
+      appVersion: '1.3.4',
+    ).push(local);
+
+    expect(moveCount, 1);
+    expect(result.vault.hosts.single.id, 'mobile-host');
+    final uploaded = SyncedVaultFile.fromJson(
+      jsonDecode(utf8.decode(canonical)) as Map<String, dynamic>,
+    );
+    expect(uploaded.meta['version'], 5);
+  });
+
+  test('WebDAV fallback pads a shorter vault for non-truncating servers',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    final repository = await VaultRepository.open();
+    await repository.saveSyncConnection(const SyncConnection(
+      type: SyncProviderType.webdav,
+      endpoint: 'https://dav.example.com/netcatty/',
+      username: 'user',
+      secret: 'password',
+    ));
+    await repository.saveMasterPassword('sync-password');
+
+    final remoteFile = await NetcattyCrypto.encrypt(
+      vault: VaultData.empty(),
+      password: 'sync-password',
+      deviceId: 'desktop-device',
+      deviceName: 'Desktop',
+      appVersion: '1.3.4',
+      previousVersion: 1,
+    );
+    final cleanRemote = utf8.encode(jsonEncode(remoteFile.toJson()));
+    var canonical = <int>[...cleanRemote, ...List<int>.filled(4096, 0x20)];
+    final originalLength = canonical.length;
+    var canonicalPutLength = 0;
+    var canonicalPutCount = 0;
+    final client = MockClient((request) async {
+      if (request.method == 'GET' && request.url.path.endsWith('.tmp')) {
+        return http.Response('', 404);
+      }
+      if (request.method == 'PUT' && request.url.path.endsWith('.tmp')) {
+        return http.Response('', 201);
+      }
+      if (request.method == 'MOVE') return http.Response('', 405);
+      if (request.method == 'DELETE') return http.Response('', 204);
+      if (request.method == 'GET') {
+        return http.Response.bytes(canonical, 200, headers: {
+          'content-type': 'application/json; charset=utf-8',
+        });
+      }
+      if (request.method == 'PUT') {
+        final bytes = request.bodyBytes;
+        canonicalPutLength = bytes.length;
+        canonicalPutCount++;
+        canonical = List<int>.from(bytes);
+        return http.Response('', 204);
+      }
+      fail('Unexpected ${request.method} request to ${request.url}');
+    });
+    final local = VaultData.empty().copyWith(customGroups: ['Mobile']);
+
+    final result = await CloudSyncService(
+      repository,
+      client: client,
+      deviceId: 'mobile-device',
+      appVersion: '1.3.4',
+    ).push(local);
+
+    expect(result.vault.customGroups, contains('Mobile'));
+    expect(canonicalPutCount, 1);
+    expect(canonicalPutLength, greaterThanOrEqualTo(originalLength));
+    expect(
+      utf8.decode(canonical).trimRight().endsWith('}'),
+      isTrue,
+    );
+  });
 }

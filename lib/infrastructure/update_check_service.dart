@@ -40,6 +40,8 @@ class UpdateCheckService {
   })  : _client = client ?? http.Client(),
         _ownsClient = client == null;
 
+  /// GitHub's `latest` endpoint excludes draft and prerelease releases, so the
+  /// normal update channel never advertises beta builds.
   static final latestReleaseApi = Uri.parse(
     'https://api.github.com/repos/kmh1145/Netcatty-mobile/releases/latest',
   );
@@ -82,6 +84,9 @@ class UpdateCheckService {
     }
     if (decoded is! Map) {
       throw const UpdateCheckException('GitHub 返回了无法识别的版本信息');
+    }
+    if (decoded['draft'] == true || decoded['prerelease'] == true) {
+      throw const UpdateCheckException('GitHub 返回的不是正式 Release');
     }
 
     final tagName = decoded['tag_name']?.toString().trim() ?? '';

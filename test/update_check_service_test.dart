@@ -89,6 +89,33 @@ void main() {
     );
   });
 
+  test('prerelease builds are never offered on the stable update channel',
+      () async {
+    final service = UpdateCheckService(
+      client: MockClient((_) async => http.Response(
+            jsonEncode({
+              'tag_name': 'v9.0.0-beta.1',
+              'html_url':
+                  'https://github.com/kmh1145/Netcatty-mobile/releases/tag/v9.0.0-beta.1',
+              'draft': false,
+              'prerelease': true,
+            }),
+            200,
+          )),
+    );
+
+    await expectLater(
+      service.check('1.3.4'),
+      throwsA(
+        isA<UpdateCheckException>().having(
+          (error) => error.message,
+          'message',
+          contains('不是正式 Release'),
+        ),
+      ),
+    );
+  });
+
   test('network failure produces a retryable error', () async {
     final service = UpdateCheckService(
       client: MockClient((_) async {

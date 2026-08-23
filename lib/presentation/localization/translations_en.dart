@@ -235,6 +235,8 @@ const englishTranslations = <String, String>{
       'Mosh requires a native UDP runtime and is not enabled in this version.',
   'PID 必须大于 0': 'PID must be greater than 0',
   'WebDAV 必须使用 HTTPS 地址': 'WebDAV must use an HTTPS address',
+  'WebDAV 上传校验失败：远端文件与上传内容不一致':
+      'WebDAV upload verification failed: the remote file does not match the uploaded content',
   '无法连接 GitHub，请检查网络后重试':
       'Unable to connect to GitHub. Check the network and retry.',
   '系统安全键盘': 'System secure keyboard',
@@ -413,6 +415,10 @@ const englishReplacements = <(String, String)>[
   ('最新 Release 版本号格式无效', 'The latest Release version is invalid'),
   ('最新 Release 缺少版本号', 'The latest Release has no version number'),
   ('GitHub 返回了无法识别的版本信息', 'GitHub returned unrecognized version information'),
+  (
+    'GitHub 返回的不是正式 Release',
+    'GitHub returned a draft or prerelease instead of a stable release'
+  ),
   ('当前为开发版本', 'This is a development build'),
   ('已是最新版本', 'Up to date'),
   ('发现新版本', 'New version available'),

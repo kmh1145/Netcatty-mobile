@@ -90,6 +90,50 @@ class VaultController extends StateNotifier<VaultState> {
     );
   }
 
+  Future<void> upsertSnippet(CommandSnippet snippet) async {
+    final vault =
+        state.data ?? repository.loadVaultPreview() ?? VaultData.empty();
+    final snippets = [...vault.snippets];
+    final index = snippets.indexWhere((value) => value.id == snippet.id);
+    if (index < 0) {
+      snippets.add(snippet);
+    } else {
+      snippets[index] = snippet;
+    }
+    await _replaceMetadata(vault.copyWith(snippets: snippets));
+  }
+
+  Future<void> deleteSnippet(String id) async {
+    final vault =
+        state.data ?? repository.loadVaultPreview() ?? VaultData.empty();
+    await _replaceMetadata(
+      vault.copyWith(
+        snippets: vault.snippets
+            .where((value) => value.id != id)
+            .toList(growable: false),
+      ),
+    );
+  }
+
+  Future<void> _replaceMetadata(VaultData vault) async {
+    final previous = state;
+    final next = stampLocalVaultChanges(
+      previous.data ?? repository.loadVaultPreview() ?? VaultData.empty(),
+      vault,
+    );
+    state = VaultState(data: next, loading: previous.loading);
+    try {
+      await repository.saveVaultMetadata(next);
+    } on Object catch (error) {
+      state = VaultState(
+        data: previous.data,
+        loading: previous.loading,
+        error: error,
+      );
+      rethrow;
+    }
+  }
+
   Future<void> markConnected(HostProfile host) => upsertHost(
         host.copyWith(lastConnectedAt: DateTime.now().millisecondsSinceEpoch),
       );
