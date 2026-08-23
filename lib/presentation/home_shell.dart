@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../application/home_navigation.dart';
 import '../infrastructure/ssh/terminal_picture_in_picture_service.dart';
 import 'localization/localized_widgets.dart';
 import 'screens/settings_screen.dart';
@@ -10,8 +11,6 @@ import 'screens/sftp_screen.dart';
 import 'screens/snippets_screen.dart';
 import 'screens/terminal_screen.dart';
 import 'screens/vault_screen.dart';
-
-final homeTabProvider = StateProvider<int>((ref) => 0);
 
 class HomeShell extends ConsumerWidget {
   const HomeShell({super.key});

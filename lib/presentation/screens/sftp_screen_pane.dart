@@ -27,6 +27,7 @@ class _SftpPaneState extends State<_SftpPane> {
   var _loading = false;
   Object? _error;
   List<RemoteEntry> _entries = const [];
+  String? _highlightedEntryPath;
   _TransferProgressSnapshot? _transfer;
   TransferCancellationToken? _transferCancellation;
 
@@ -242,6 +243,11 @@ class _SftpPaneState extends State<_SftpPane> {
       );
 
   Widget _entryTile(RemoteEntry entry, bool compact) => ListTile(
+        selected: entry.path == _highlightedEntryPath,
+        selectedTileColor: Theme.of(context)
+            .colorScheme
+            .primaryContainer
+            .withValues(alpha: .4),
         dense: true,
         visualDensity: compact
             ? const VisualDensity(horizontal: -4, vertical: -3)
@@ -333,6 +339,7 @@ class _SftpPaneState extends State<_SftpPane> {
       path = service.rootPath;
       _entries = const [];
       _error = null;
+      _highlightedEntryPath = null;
     });
     refresh();
   }
@@ -352,8 +359,22 @@ class _SftpPaneState extends State<_SftpPane> {
   }
 
   void _open(String value) {
-    setState(() => path = value);
+    setState(() {
+      path = value;
+      _highlightedEntryPath = null;
+    });
     refresh();
+  }
+
+  Future<void> openRemoteFileLocation(String filePath) async {
+    if (service.isLocal) return;
+    setState(() {
+      path = service.parentPath(filePath);
+      _entries = const [];
+      _error = null;
+      _highlightedEntryPath = filePath;
+    });
+    await refresh();
   }
 
   void _up() => _open(service.parentPath(path));

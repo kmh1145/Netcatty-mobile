@@ -15,11 +15,13 @@ class DockerManagerPanel extends StatefulWidget {
     required this.session,
     required this.service,
     required this.onOpenTerminal,
+    required this.onOpenConfig,
   });
 
   final ActiveTerminalSession session;
   final SystemManagementService service;
   final Future<void> Function(String label, String command) onOpenTerminal;
+  final ValueChanged<String> onOpenConfig;
 
   @override
   State<DockerManagerPanel> createState() => _DockerManagerPanelState();
@@ -336,6 +338,7 @@ class _DockerManagerPanelState extends State<DockerManagerPanel>
                   session: widget.session,
                   service: widget.service,
                   onOpenTerminal: widget.onOpenTerminal,
+                  onOpenConfig: widget.onOpenConfig,
                   onRequestSudoPassword: _requestSudoPassword,
                 ),
               ],

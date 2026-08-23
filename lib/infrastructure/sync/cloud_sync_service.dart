@@ -9,6 +9,7 @@ import '../../domain/models/settings.dart';
 import '../../domain/models/vault.dart';
 import '../storage/vault_repository.dart';
 import 'netcatty_crypto.dart';
+import 's3_sync_client.dart';
 import 'vault_merge_service.dart';
 
 class CloudSyncResult {
@@ -98,6 +99,9 @@ class CloudSyncService {
     );
   }
 
+  Future<void> testS3Connection(SyncConnection connection) =>
+      _withTimeout(S3SyncClient(client: _client).testConnection(connection));
+
   Future<CloudSyncResult> _synchronize(
     VaultData local, {
     required String createdMessage,
@@ -186,13 +190,7 @@ class CloudSyncService {
       if (connection.resourceId?.isNotEmpty != true) {
         final id = await _discoverGist(connection);
         if (id != null) {
-          connection = SyncConnection(
-            type: connection.type,
-            endpoint: connection.endpoint,
-            username: connection.username,
-            secret: connection.secret,
-            resourceId: id,
-          );
+          connection = connection.copyWith(resourceId: id);
           await repository.saveSyncConnection(connection);
         }
       }
@@ -234,6 +232,22 @@ class CloudSyncService {
     if (connection.type == SyncProviderType.githubGist &&
         (connection.resourceId == null || connection.resourceId!.isEmpty)) {
       return null;
+    }
+    if (connection.type == SyncProviderType.s3) {
+      final response = await _withTimeout(
+        S3SyncClient(client: _client).getVault(connection),
+      );
+      if (response == null) return null;
+      final bytes = utf8.encode(response.body);
+      if (bytes.length > maxResponseBytes) {
+        throw StateError(
+          '云端保险库超过 ${maxResponseBytes ~/ (1024 * 1024)} MB 限制',
+        );
+      }
+      return _RemoteVault(
+        SyncedVaultFile.fromJson(_decodeJsonObject(response.body)),
+        response.revision,
+      );
     }
     final response = connection.type == SyncProviderType.webdav
         ? await _request(_client.get(
@@ -286,6 +300,20 @@ class CloudSyncService {
     String? expectedRevision,
   }) async {
     final body = jsonEncode(file.toJson());
+    if (connection.type == SyncProviderType.s3) {
+      final s3 = S3SyncClient(client: _client);
+      if (expectedRevision != null) {
+        final current = await _withTimeout(s3.getVault(connection));
+        if (current?.revision != expectedRevision) {
+          throw const CloudSyncConflictException();
+        }
+      }
+      await _withTimeout(s3.putVault(connection, body));
+      return _UploadResult(
+        version: _fileVersion(file),
+        connection: connection,
+      );
+    }
     late http.Response response;
     if (connection.type == SyncProviderType.webdav) {
       await _replaceWebdavFile(connection, body);
@@ -333,13 +361,7 @@ class CloudSyncService {
       final created = jsonDecode(response.body) as Map<String, dynamic>;
       final id = created['id']?.toString();
       if (id != null && id.isNotEmpty) {
-        updatedConnection = SyncConnection(
-          type: connection.type,
-          endpoint: connection.endpoint,
-          username: connection.username,
-          secret: connection.secret,
-          resourceId: id,
-        );
+        updatedConnection = connection.copyWith(resourceId: id);
         await repository.saveSyncConnection(
           updatedConnection,
         );
@@ -608,10 +630,16 @@ class CloudSyncService {
     );
   }
 
-  String _syncTarget(SyncConnection connection) =>
-      connection.type == SyncProviderType.githubGist
-          ? 'github:${connection.resourceId ?? ''}'
-          : 'webdav:${_webdavUri(connection)}';
+  String _syncTarget(SyncConnection connection) {
+    switch (connection.type) {
+      case SyncProviderType.githubGist:
+        return 'github:${connection.resourceId ?? ''}';
+      case SyncProviderType.s3:
+        return 's3:${connection.endpoint}|${connection.bucket}|${connection.prefix ?? ''}';
+      case SyncProviderType.webdav:
+        return 'webdav:${_webdavUri(connection)}';
+    }
+  }
 
   int _fileVersion(SyncedVaultFile file) {
     final version = (file.meta['version'] as num?)?.toInt() ?? 0;
@@ -689,6 +717,14 @@ class CloudSyncService {
   }
 
   Future<http.Response> _request(Future<http.Response> request) async {
+    try {
+      return await request.timeout(requestTimeout);
+    } on TimeoutException {
+      throw StateError('云同步请求超时，请检查网络后重试');
+    }
+  }
+
+  Future<T> _withTimeout<T>(Future<T> request) async {
     try {
       return await request.timeout(requestTimeout);
     } on TimeoutException {

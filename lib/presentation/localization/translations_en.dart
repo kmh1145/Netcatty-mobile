@@ -18,6 +18,25 @@ const englishTranslations = <String, String>{
       'Compatible with the desktop netcatty-vault.json encryption format',
   '用户名': 'Username',
   '密码 / 应用密码': 'Password / app password',
+  '对象前缀（可选）': 'Object prefix (optional)',
+  'Session Token（可选）': 'Session token (optional)',
+  '使用路径式访问': 'Use path-style access',
+  '兼容 MinIO 等自建 S3，默认开启':
+      'Compatible with self-hosted S3 services such as MinIO; enabled by default',
+  '允许不安全连接': 'Allow insecure connections',
+  '仅用于 HTTP 或自签名 HTTPS，存在安全风险':
+      'Only for HTTP or self-signed HTTPS; this has security risks',
+  '测试 S3 连接': 'Test S3 connection',
+  'S3 连接成功': 'S3 connection successful',
+  'S3 连接测试失败': 'S3 connection test failed',
+  'S3 配置未保存': 'S3 configuration was not saved',
+  'S3 Endpoint 必须使用 HTTPS，或明确启用不安全连接':
+      'S3 endpoint must use HTTPS unless insecure connections are explicitly enabled',
+  '请填写 S3 Region': 'Enter the S3 region',
+  '请填写 S3 Bucket': 'Enter the S3 bucket',
+  '请填写 S3 Access Key ID': 'Enter the S3 access key ID',
+  '请填写 S3 Secret Access Key': 'Enter the S3 secret access key',
+  '填写 S3 凭据后查看同步版本': 'Enter S3 credentials to view sync versions',
   '尚未登录 GitHub': 'Not signed in to GitHub',
   '已连接 GitHub': 'GitHub connected',
   '登录后自动查找或创建 Netcatty Gist':
@@ -196,6 +215,7 @@ const englishTranslations = <String, String>{
   '重新构建': 'Rebuild',
   '更新镜像并应用': 'Pull images & apply',
   'Compose 配置': 'Compose configuration',
+  '完整命令': 'Full command',
   '新建 tmux session': 'New tmux session',
   'session 名称': 'Session name',
   '启动命令（可选）': 'Startup command (optional)',
@@ -527,6 +547,10 @@ const englishReplacements = <(String, String)>[
   ('刷新 Docker', 'Refresh Docker'),
   ('Docker Compose 当前不可用', 'Docker Compose is unavailable'),
   ('Compose 配置路径无效', 'Invalid Compose configuration path'),
+  (
+    '无法打开 Compose 配置：对应的 SSH 会话已断开',
+    'Cannot open Compose configuration: the SSH session is disconnected'
+  ),
   ('没有发现 Docker Compose 项目', 'No Docker Compose projects found'),
   (
     '通过 Compose 创建过容器后，项目会自动显示在这里',

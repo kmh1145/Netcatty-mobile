@@ -57,7 +57,7 @@ class SystemManagementService {
   List<RemoteProcess> parseProcesses(String raw) {
     final result = <RemoteProcess>[];
     final expression = RegExp(
-      r'^\s*(\d+)\s+(\d+)\s+(\S+)\s+(\S+)\s+([\d.]+)\s+([\d.]+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(.+)$',
+      r'^\s*(\d+)\s+(\d+)\s+(\S+)\s+(\S+)\s+([\d.]+)\s+([\d.]+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(\S+)\s+(.+)$',
     );
     for (final line in const LineSplitter().convert(raw)) {
       final match = expression.firstMatch(line);
@@ -73,7 +73,8 @@ class SystemManagementService {
           rssKb: int.tryParse(match.group(7)!) ?? 0,
           vszKb: int.tryParse(match.group(8)!) ?? 0,
           elapsed: match.group(9)!,
-          command: match.group(10)!.trim(),
+          processName: match.group(10)!,
+          command: match.group(11)!.trim(),
         ),
       );
     }
@@ -1010,4 +1011,4 @@ class _RemoteResult {
 String shellQuote(String value) => "'${value.replaceAll("'", "'\\''")}'";
 
 const _processListCommand =
-    'LC_ALL=C ps -eo pid=,ppid=,user=,stat=,pcpu=,pmem=,rss=,vsz=,etime=,args= 2>/dev/null || LC_ALL=C ps ww 2>/dev/null || LC_ALL=C ps 2>/dev/null';
+    'LC_ALL=C ps -eo pid=,ppid=,user=,stat=,pcpu=,pmem=,rss=,vsz=,etime=,comm=,args= 2>/dev/null || LC_ALL=C ps ww 2>/dev/null || LC_ALL=C ps 2>/dev/null';

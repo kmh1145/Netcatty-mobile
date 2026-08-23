@@ -1,4 +1,4 @@
-enum SyncProviderType { webdav, githubGist }
+enum SyncProviderType { webdav, githubGist, s3 }
 
 const minTerminalFontSize = 6.0;
 const maxTerminalFontSize = 24.0;
@@ -208,6 +208,13 @@ class SyncConnection {
     this.username,
     this.secret,
     this.resourceId,
+    this.region,
+    this.bucket,
+    this.accessKeyId,
+    this.sessionToken,
+    this.prefix,
+    this.forcePathStyle = true,
+    this.allowInsecure = false,
   });
 
   factory SyncConnection.fromJson(Map<String, dynamic> json) => SyncConnection(
@@ -217,8 +224,13 @@ class SyncConnection {
         ),
         endpoint: json['endpoint']?.toString() ?? '',
         username: json['username']?.toString(),
-        secret: json['secret']?.toString(),
         resourceId: json['resourceId']?.toString(),
+        region: json['region']?.toString(),
+        bucket: json['bucket']?.toString(),
+        accessKeyId: json['accessKeyId']?.toString(),
+        prefix: json['prefix']?.toString(),
+        forcePathStyle: json['forcePathStyle'] as bool? ?? true,
+        allowInsecure: json['allowInsecure'] as bool? ?? false,
       );
 
   final SyncProviderType type;
@@ -226,12 +238,54 @@ class SyncConnection {
   final String? username;
   final String? secret;
   final String? resourceId;
+  final String? region;
+  final String? bucket;
+  final String? accessKeyId;
+  final String? sessionToken;
+  final String? prefix;
+  final bool forcePathStyle;
+  final bool allowInsecure;
+
+  SyncConnection copyWith({
+    SyncProviderType? type,
+    String? endpoint,
+    String? username,
+    String? secret,
+    String? resourceId,
+    String? region,
+    String? bucket,
+    String? accessKeyId,
+    String? sessionToken,
+    String? prefix,
+    bool? forcePathStyle,
+    bool? allowInsecure,
+  }) =>
+      SyncConnection(
+        type: type ?? this.type,
+        endpoint: endpoint ?? this.endpoint,
+        username: username ?? this.username,
+        secret: secret ?? this.secret,
+        resourceId: resourceId ?? this.resourceId,
+        region: region ?? this.region,
+        bucket: bucket ?? this.bucket,
+        accessKeyId: accessKeyId ?? this.accessKeyId,
+        sessionToken: sessionToken ?? this.sessionToken,
+        prefix: prefix ?? this.prefix,
+        forcePathStyle: forcePathStyle ?? this.forcePathStyle,
+        allowInsecure: allowInsecure ?? this.allowInsecure,
+      );
 
   Map<String, dynamic> toJson() => {
         'type': type.name,
         'endpoint': endpoint,
         'username': username,
         'resourceId': resourceId,
+        'region': region,
+        'bucket': bucket,
+        'accessKeyId': accessKeyId,
+        'prefix': prefix,
+        'forcePathStyle': forcePathStyle,
+        'allowInsecure': allowInsecure,
       };
 }
 

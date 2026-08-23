@@ -12,12 +12,14 @@ class DockerComposePanel extends StatefulWidget {
     required this.session,
     required this.service,
     required this.onOpenTerminal,
+    required this.onOpenConfig,
     required this.onRequestSudoPassword,
   });
 
   final ActiveTerminalSession session;
   final SystemManagementService service;
   final Future<void> Function(String label, String command) onOpenTerminal;
+  final ValueChanged<String> onOpenConfig;
   final Future<String?> Function(String message) onRequestSudoPassword;
 
   @override
@@ -301,12 +303,21 @@ class _DockerComposePanelState extends State<DockerComposePanel> {
                       busy: _busy.contains(project.name),
                       onAction: (action) => _runAction(project, action),
                       onLogs: () => _openLogs(project),
+                      onOpenConfig: (file) => widget
+                          .onOpenConfig(_resolveConfigPath(project, file)),
                     );
                   },
                 ),
         ),
       ],
     );
+  }
+
+  String _resolveConfigPath(DockerComposeProject project, String file) {
+    if (file.startsWith('/')) return file;
+    final directory = project.workingDirectory.trim();
+    if (directory.isEmpty || directory == '/') return '/$file';
+    return '${directory.endsWith('/') ? directory.substring(0, directory.length - 1) : directory}/$file';
   }
 }
 
@@ -317,6 +328,7 @@ class _ComposeProjectCard extends StatelessWidget {
     required this.busy,
     required this.onAction,
     required this.onLogs,
+    required this.onOpenConfig,
   });
 
   final DockerComposeProject project;
@@ -324,6 +336,7 @@ class _ComposeProjectCard extends StatelessWidget {
   final bool busy;
   final ValueChanged<DockerComposeAction> onAction;
   final VoidCallback onLogs;
+  final ValueChanged<String> onOpenConfig;
 
   @override
   Widget build(BuildContext context) => Card(
@@ -355,13 +368,19 @@ class _ComposeProjectCard extends StatelessWidget {
                   : null,
               childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
               children: [
-                if (project.configFiles.isNotEmpty)
+                for (final file in project.configFiles)
                   ListTile(
                     dense: true,
                     contentPadding: EdgeInsets.zero,
                     leading: const Icon(Icons.description_outlined),
                     title: const LText('Compose 配置'),
-                    subtitle: LText(project.configFiles.join('\n')),
+                    subtitle: LText(
+                      file,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    trailing: const Icon(Icons.folder_open_outlined),
+                    onTap: () => onOpenConfig(file),
                   ),
                 if (services.isEmpty)
                   const ListTile(

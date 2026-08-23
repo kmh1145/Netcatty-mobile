@@ -40,11 +40,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   final username = TextEditingController();
   final providerSecret = TextEditingController();
   final resourceId = TextEditingController();
+  final s3Region = TextEditingController(text: 'us-east-1');
+  final s3Bucket = TextEditingController();
+  final s3AccessKeyId = TextEditingController();
+  final s3SessionToken = TextEditingController();
+  final s3Prefix = TextEditingController();
   final masterPassword = TextEditingController();
   final aiEndpoint = TextEditingController();
   final aiModel = TextEditingController();
   final aiKey = TextEditingController();
   var provider = SyncProviderType.webdav;
+  var s3ForcePathStyle = true;
+  var s3AllowInsecure = false;
   var themeMode = 'dark';
   var uiThemeId = 'tokyo-night';
   var terminalFontSize = 14.0;
@@ -84,6 +91,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     username.dispose();
     providerSecret.dispose();
     resourceId.dispose();
+    s3Region.dispose();
+    s3Bucket.dispose();
+    s3AccessKeyId.dispose();
+    s3SessionToken.dispose();
+    s3Prefix.dispose();
     masterPassword.dispose();
     aiEndpoint.dispose();
     aiModel.dispose();
@@ -99,6 +111,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     username.text = sync?.username ?? '';
     providerSecret.text = sync?.secret ?? '';
     resourceId.text = sync?.resourceId ?? '';
+    s3Region.text =
+        sync?.region?.isNotEmpty == true ? sync!.region! : 'us-east-1';
+    s3Bucket.text = sync?.bucket ?? '';
+    s3AccessKeyId.text = sync?.accessKeyId ?? '';
+    s3SessionToken.text = sync?.sessionToken ?? '';
+    s3Prefix.text = sync?.prefix ?? '';
+    s3ForcePathStyle = sync?.forcePathStyle ?? true;
+    s3AllowInsecure = sync?.allowInsecure ?? false;
     masterPassword.text = await repository.readMasterPassword() ?? '';
     aiEndpoint.text = settings.aiEndpoint;
     aiModel.text = settings.aiModel;
@@ -112,7 +132,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         sync?.type == SyncProviderType.githubGist ? sync?.username : null;
     if (mounted) {
       setState(() => provider = sync?.type ?? SyncProviderType.webdav);
-      if (sync?.type == SyncProviderType.githubGist &&
+      if ((sync?.type == SyncProviderType.githubGist ||
+              sync?.type == SyncProviderType.s3) &&
           sync?.secret?.isNotEmpty == true &&
           masterPassword.text.isNotEmpty) {
         unawaited(_refreshSyncVersions());
@@ -245,16 +266,22 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   child: Column(
                     children: [
                       SegmentedButton<SyncProviderType>(
+                        expandedInsets: EdgeInsets.zero,
                         segments: const [
                           ButtonSegment(
                             value: SyncProviderType.webdav,
-                            label: LText('WebDAV'),
+                            label: _AdaptiveSyncProviderLabel('WebDAV'),
                             icon: Icon(Icons.cloud_outlined),
                           ),
                           ButtonSegment(
                             value: SyncProviderType.githubGist,
-                            label: LText('GitHub Gist'),
+                            label: _AdaptiveSyncProviderLabel('GitHub'),
                             icon: Icon(Icons.code),
+                          ),
+                          ButtonSegment(
+                            value: SyncProviderType.s3,
+                            label: _AdaptiveSyncProviderLabel('S3'),
+                            icon: Icon(Icons.storage_outlined),
                           ),
                         ],
                         selected: {provider},
@@ -285,6 +312,100 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           obscureText: true,
                           decoration: LInputDecoration(labelText: '密码 / 应用密码'),
                         ),
+                      ] else if (provider == SyncProviderType.s3) ...[
+                        TextField(
+                          controller: endpoint,
+                          keyboardType: TextInputType.url,
+                          decoration: LInputDecoration(
+                            labelText: 'S3 Endpoint',
+                            hintText: 'https://s3.example.com',
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: s3Region,
+                                decoration: LInputDecoration(
+                                  labelText: 'Region',
+                                  hintText: 'us-east-1',
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: TextField(
+                                controller: s3Bucket,
+                                decoration: LInputDecoration(
+                                  labelText: 'Bucket',
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        TextField(
+                          controller: s3AccessKeyId,
+                          decoration: LInputDecoration(
+                            labelText: 'Access Key ID',
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        TextField(
+                          controller: providerSecret,
+                          obscureText: true,
+                          onChanged: (_) => setState(() {}),
+                          decoration: LInputDecoration(
+                            labelText: 'Secret Access Key',
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        TextField(
+                          controller: s3SessionToken,
+                          obscureText: true,
+                          decoration: LInputDecoration(
+                            labelText: 'Session Token（可选）',
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        TextField(
+                          controller: s3Prefix,
+                          decoration: LInputDecoration(
+                            labelText: '对象前缀（可选）',
+                            hintText: 'netcatty/mobile',
+                          ),
+                        ),
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: const LText('使用路径式访问'),
+                          subtitle: const LText(
+                            '兼容 MinIO 等自建 S3，默认开启',
+                          ),
+                          value: s3ForcePathStyle,
+                          onChanged: (value) =>
+                              setState(() => s3ForcePathStyle = value),
+                        ),
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: const LText('允许不安全连接'),
+                          subtitle: const LText(
+                            '仅用于 HTTP 或自签名 HTTPS，存在安全风险',
+                          ),
+                          value: s3AllowInsecure,
+                          onChanged: (value) =>
+                              setState(() => s3AllowInsecure = value),
+                        ),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: _busy ? null : _testS3Connection,
+                            icon: const Icon(Icons.wifi_tethering_outlined),
+                            label: const LText('测试 S3 连接'),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        _syncVersionsCard(),
                       ] else ...[
                         ListTile(
                           contentPadding: EdgeInsets.zero,
@@ -321,7 +442,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                 ),
                         ),
                         const SizedBox(height: 10),
-                        _githubSyncVersionsCard(),
+                        _syncVersionsCard(),
                         ExpansionTile(
                           tilePadding: EdgeInsets.zero,
                           title: const LText('高级 / 手动配置'),
@@ -502,7 +623,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         ),
       );
 
-  Widget _githubSyncVersionsCard() {
+  Widget _syncVersionsCard() {
     final colors = Theme.of(context).colorScheme;
     final versions = _syncVersions;
     return Container(
@@ -604,7 +725,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       );
 
   String _syncVersionStatus() {
-    if (providerSecret.text.isEmpty) return '登录 GitHub 后查看同步版本';
+    if (providerSecret.text.isEmpty) {
+      return provider == SyncProviderType.s3
+          ? '填写 S3 凭据后查看同步版本'
+          : '登录 GitHub 后查看同步版本';
+    }
     if (_checkingSyncVersions) return '正在读取本地与云端版本…';
     if (_syncVersionsError != null) {
       return '版本信息读取失败：$_syncVersionsError';
@@ -715,9 +840,22 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       // GitHub 用户名仅用于展示，不参与 API 认证。
       username: provider == SyncProviderType.githubGist
           ? _githubUser
-          : username.text.trim(),
+          : provider == SyncProviderType.webdav
+              ? username.text.trim()
+              : null,
       secret: providerSecret.text,
-      resourceId: resourceId.text.trim(),
+      resourceId: provider == SyncProviderType.githubGist
+          ? resourceId.text.trim()
+          : null,
+      region: provider == SyncProviderType.s3 ? s3Region.text.trim() : null,
+      bucket: provider == SyncProviderType.s3 ? s3Bucket.text.trim() : null,
+      accessKeyId:
+          provider == SyncProviderType.s3 ? s3AccessKeyId.text.trim() : null,
+      sessionToken:
+          provider == SyncProviderType.s3 ? s3SessionToken.text.trim() : null,
+      prefix: provider == SyncProviderType.s3 ? s3Prefix.text.trim() : null,
+      forcePathStyle: s3ForcePathStyle,
+      allowInsecure: s3AllowInsecure,
     );
     final repository = ref.read(vaultRepositoryProvider);
     await repository.saveSyncConnection(connection);
@@ -727,7 +865,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Future<void> _refreshSyncVersions({
     bool saveConfiguration = false,
   }) async {
-    if (provider != SyncProviderType.githubGist ||
+    if ((provider != SyncProviderType.githubGist &&
+            provider != SyncProviderType.s3) ||
         providerSecret.text.isEmpty) {
       return;
     }
@@ -758,6 +897,27 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       if (mounted) setState(() => _syncVersionsError = error);
     } finally {
       if (mounted) setState(() => _checkingSyncVersions = false);
+    }
+  }
+
+  Future<void> _testS3Connection() async {
+    setState(() => _busy = true);
+    try {
+      await _saveSync();
+      final repository = ref.read(vaultRepositoryProvider);
+      final connection = await repository.loadSyncConnection();
+      if (connection == null) throw StateError('S3 配置未保存');
+      final service = CloudSyncService(
+        repository,
+        client: ref.read(httpClientProvider),
+      );
+      await service.testS3Connection(connection);
+      _message('S3 连接成功');
+      await _refreshSyncVersions();
+    } catch (error) {
+      _message('$error');
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 
@@ -945,4 +1105,25 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       ).showSnackBar(SnackBar(content: LText(value)));
     }
   }
+}
+
+class _AdaptiveSyncProviderLabel extends StatelessWidget {
+  const _AdaptiveSyncProviderLabel(this.label);
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+        width: 48,
+        height: 24,
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: LText(
+            label,
+            maxLines: 1,
+            softWrap: false,
+            overflow: TextOverflow.visible,
+          ),
+        ),
+      );
 }

@@ -6,7 +6,7 @@ import '../../application/session_controller.dart';
 import '../../application/settings_controller.dart';
 import '../../application/vault_controller.dart';
 import '../../domain/models/host.dart';
-import '../home_shell.dart';
+import '../../application/home_navigation.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/host_editor.dart';
 import '../widgets/host_system_icon.dart';
