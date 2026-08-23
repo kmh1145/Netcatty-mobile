@@ -12,6 +12,7 @@ class RemoteProcess {
     required this.vszKb,
     required this.elapsed,
     required this.command,
+    this.processName = '',
   });
 
   final int pid;
@@ -24,6 +25,24 @@ class RemoteProcess {
   final int vszKb;
   final String elapsed;
   final String command;
+  final String processName;
+
+  String get name {
+    final explicitName = processName.trim();
+    if (explicitName.isNotEmpty) return explicitName;
+    final value = command.trim();
+    if (value.isEmpty) return '-';
+    if (value.startsWith('[')) {
+      final closingBracket = value.indexOf(']');
+      if (closingBracket >= 0) return value.substring(0, closingBracket + 1);
+    }
+    final executable = value.split(RegExp(r'\s+')).first.replaceAll(
+          RegExp(r'''^["']|["']$'''),
+          '',
+        );
+    final separator = executable.lastIndexOf(RegExp(r'[/\\]'));
+    return separator < 0 ? executable : executable.substring(separator + 1);
+  }
 
   bool get isRunning => state.toUpperCase().startsWith('R');
   bool get isStopped => state.toUpperCase().startsWith('T');

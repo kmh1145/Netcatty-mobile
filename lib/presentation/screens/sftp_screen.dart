@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../application/session_controller.dart';
+import '../../application/home_navigation.dart';
 import '../../infrastructure/ssh/android_document_tree_service.dart';
 import '../../infrastructure/ssh/sftp_service.dart';
 
@@ -28,6 +29,7 @@ class _SftpScreenState extends ConsumerState<SftpScreen> {
   var _rightKey = GlobalKey<_SftpPaneState>();
   String? _leftSourceId;
   String? _rightSourceId = 'local';
+  SftpNavigationRequest? _scheduledNavigation;
   _TransferProgressSnapshot? _transfer;
   TransferCancellationToken? _transferCancellation;
 
@@ -46,6 +48,7 @@ class _SftpScreenState extends ConsumerState<SftpScreen> {
         .sessions
         .where((session) => session.isSsh && session.connected)
         .toList(growable: false);
+    final navigationRequest = ref.watch(sftpNavigationRequestProvider);
     for (final session in sessions) {
       final existing = _remoteServices[session.id];
       if (existing == null || !identical(existing.session, session)) {
@@ -72,6 +75,7 @@ class _SftpScreenState extends ConsumerState<SftpScreen> {
                 : sources.first.id;
         if (!sourceIds.contains(_leftSourceId)) _leftSourceId = preferred;
         if (!sourceIds.contains(_rightSourceId)) _rightSourceId = 'local';
+        _scheduleNavigation(navigationRequest, sourceIds);
         final left = sources.firstWhere((source) => source.id == _leftSourceId);
         final right =
             sources.firstWhere((source) => source.id == _rightSourceId);
@@ -154,6 +158,43 @@ class _SftpScreenState extends ConsumerState<SftpScreen> {
         );
       },
     );
+  }
+
+  void _scheduleNavigation(
+    SftpNavigationRequest? request,
+    Set<String> sourceIds,
+  ) {
+    if (request == null || identical(_scheduledNavigation, request)) return;
+    final sourceId = 'ssh:${request.sessionId}';
+    if (!sourceIds.contains(sourceId)) {
+      _scheduledNavigation = request;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        ref.read(sftpNavigationRequestProvider.notifier).state = null;
+        _scheduledNavigation = null;
+        _message('无法打开 Compose 配置：对应的 SSH 会话已断开');
+      });
+      return;
+    }
+    if (_leftSourceId != sourceId) {
+      _leftSourceId = sourceId;
+      _leftKey = GlobalKey<_SftpPaneState>();
+    }
+    _scheduledNavigation = request;
+    final targetKey = _leftKey;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      final pane = targetKey.currentState;
+      if (pane == null) {
+        _scheduledNavigation = null;
+        setState(() {});
+        return;
+      }
+      await pane.openRemoteFileLocation(request.filePath);
+      if (!mounted) return;
+      ref.read(sftpNavigationRequestProvider.notifier).state = null;
+      _scheduledNavigation = null;
+    });
   }
 
   void _changeSource(bool left, String id) {

@@ -14,11 +14,13 @@ class SystemManagementSheet extends StatefulWidget {
     required this.session,
     required this.snippets,
     required this.onOpenTerminal,
+    required this.onOpenSftp,
   });
 
   final ActiveTerminalSession session;
   final List<CommandSnippet> snippets;
   final Future<void> Function(String label, String command) onOpenTerminal;
+  final ValueChanged<String> onOpenSftp;
 
   @override
   State<SystemManagementSheet> createState() => _SystemManagementSheetState();
@@ -44,6 +46,11 @@ class _SystemManagementSheetState extends State<SystemManagementSheet>
   Future<void> _runInteractive(String label, String command) async {
     Navigator.of(context).pop();
     await widget.onOpenTerminal(label, command);
+  }
+
+  void _openSftp(String filePath) {
+    Navigator.of(context).pop();
+    widget.onOpenSftp(filePath);
   }
 
   @override
@@ -105,6 +112,7 @@ class _SystemManagementSheetState extends State<SystemManagementSheet>
                     session: widget.session,
                     service: _service,
                     onOpenTerminal: _runInteractive,
+                    onOpenConfig: _openSftp,
                   ),
                   TmuxManagerPanel(
                     session: widget.session,

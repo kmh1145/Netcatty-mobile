@@ -260,18 +260,18 @@ class VaultRepository {
       jsonDecode(raw) as Map<String, dynamic>,
     );
     final secret = await _secureStorage.read(key: 'sync.provider.secret');
-    return SyncConnection(
-      type: connection.type,
-      endpoint: connection.endpoint,
-      username: connection.username,
-      secret: secret,
-      resourceId: connection.resourceId,
-    );
+    final sessionToken =
+        await _secureStorage.read(key: 'sync.provider.sessionToken');
+    return connection.copyWith(secret: secret, sessionToken: sessionToken);
   }
 
   Future<void> saveSyncConnection(SyncConnection connection) async {
     await _preferences.setString(_syncKey, jsonEncode(connection.toJson()));
     await _writeSecret('sync.provider.secret', connection.secret);
+    await _writeSecret(
+      'sync.provider.sessionToken',
+      connection.sessionToken,
+    );
   }
 
   Future<SyncVersionCheckpoint?> loadSyncVersionCheckpoint() async {

@@ -339,4 +339,93 @@ void main() {
       isTrue,
     );
   });
+
+  test('S3 sync signs and uploads the desktop-compatible vault object',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    final repository = await VaultRepository.open();
+    const connection = SyncConnection(
+      type: SyncProviderType.s3,
+      endpoint: 'https://minio.example.com/storage',
+      region: 'us-east-1',
+      bucket: 'netcatty',
+      accessKeyId: 'mobile-access-key',
+      secret: 'mobile-secret-key',
+      sessionToken: 'temporary-session-token',
+      prefix: '/vaults/user/',
+    );
+    await repository.saveSyncConnection(connection);
+    await repository.saveMasterPassword('sync-password');
+
+    http.Request? uploaded;
+    final client = MockClient((request) async {
+      expect(
+        request.url.path,
+        '/storage/netcatty/vaults/user/netcatty-vault.json',
+      );
+      expect(
+        request.headers['authorization'],
+        startsWith('AWS4-HMAC-SHA256 Credential=mobile-access-key/'),
+      );
+      expect(
+          request.headers['x-amz-security-token'], 'temporary-session-token');
+      expect(request.headers['x-amz-content-sha256'], isNotEmpty);
+      if (request.method == 'GET') return http.Response('', 404);
+      if (request.method == 'PUT') {
+        uploaded = request;
+        return http.Response('', 200, headers: {'etag': '"s3-revision"'});
+      }
+      fail('Unexpected ${request.method} request to ${request.url}');
+    });
+    final local = VaultData.empty().copyWith(customGroups: ['S3']);
+
+    final result = await CloudSyncService(
+      repository,
+      client: client,
+      deviceId: 'mobile-device',
+      appVersion: '1.3.6',
+    ).push(local);
+
+    expect(uploaded, isNotNull);
+    final encrypted = SyncedVaultFile.fromJson(
+      jsonDecode(uploaded!.body) as Map<String, dynamic>,
+    );
+    expect(encrypted.meta['version'], 1);
+    expect(result.versions.cloudVersion, 1);
+    expect(
+      (await repository.loadSyncVersionCheckpoint())?.target,
+      's3:https://minio.example.com/storage|netcatty|/vaults/user/',
+    );
+
+    final stored = await repository.loadSyncConnection();
+    expect(stored?.sessionToken, 'temporary-session-token');
+    final preferences = await SharedPreferences.getInstance();
+    final serialized = preferences.getString('netcatty_mobile_sync_v1') ?? '';
+    expect(serialized, isNot(contains('mobile-secret-key')));
+    expect(serialized, isNot(contains('temporary-session-token')));
+  });
+
+  test('S3 virtual-host mode signs a bucket host connection test', () async {
+    SharedPreferences.setMockInitialValues({});
+    final repository = await VaultRepository.open();
+    const connection = SyncConnection(
+      type: SyncProviderType.s3,
+      endpoint: 's3.example.com/api',
+      region: 'eu-west-1',
+      bucket: 'vault-bucket',
+      accessKeyId: 'access',
+      secret: 'secret',
+      forcePathStyle: false,
+    );
+    final client = MockClient((request) async {
+      expect(request.method, 'HEAD');
+      expect(request.url.host, 'vault-bucket.s3.example.com');
+      expect(request.url.path, '/api');
+      expect(request.headers['authorization'], contains('/eu-west-1/s3/'));
+      return http.Response('', 200);
+    });
+
+    await CloudSyncService(repository, client: client)
+        .testS3Connection(connection);
+  });
 }

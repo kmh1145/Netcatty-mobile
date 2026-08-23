@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:xterm2/xterm.dart';
 
 import '../../application/session_controller.dart';
+import '../../application/home_navigation.dart';
 import '../../application/settings_controller.dart';
 import '../../application/vault_controller.dart';
 import '../../infrastructure/ai/ai_service.dart';
@@ -310,6 +311,16 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
                                   label,
                                   command,
                                 ),
+                                onOpenSftp: (filePath) {
+                                  ref
+                                      .read(sftpNavigationRequestProvider
+                                          .notifier)
+                                      .state = SftpNavigationRequest(
+                                    sessionId: visibleSession.id,
+                                    filePath: filePath,
+                                  );
+                                  ref.read(homeTabProvider.notifier).state = 2;
+                                },
                               ),
                             )
                         : null,

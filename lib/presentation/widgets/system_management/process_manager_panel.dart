@@ -359,12 +359,12 @@ class _ProcessCard extends StatelessWidget {
                 ),
               ),
               title: LText(
-                process.command,
+                process.name,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
               subtitle: LText(
-                'PID ${process.pid} · ${process.user} · '
+                '${process.user} · '
                 'CPU ${process.cpuPercent.toStringAsFixed(1)}% · '
                 'MEM ${process.memoryPercent.toStringAsFixed(1)}%',
                 maxLines: 1,
@@ -375,6 +375,9 @@ class _ProcessCard extends StatelessWidget {
                 Row(
                   children: [
                     Expanded(
+                      child: _Detail(label: 'PID', value: '${process.pid}'),
+                    ),
+                    Expanded(
                       child: _Detail(label: 'PPID', value: '${process.ppid}'),
                     ),
                     Expanded(
@@ -384,6 +387,23 @@ class _ProcessCard extends StatelessWidget {
                       child: _Detail(label: '运行时长', value: process.elapsed),
                     ),
                   ],
+                ),
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      LText(
+                        '完整命令',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      SelectableText(
+                        process.command,
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                    ],
+                  ),
                 ),
                 const SizedBox(height: 8),
                 Row(

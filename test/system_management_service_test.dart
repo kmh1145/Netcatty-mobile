@@ -9,8 +9,8 @@ void main() {
 
   test('parses canonical process output with resource details', () {
     const output = '''
-  731     1 redis    Ssl   12.5  3.4  40960 162000  1-02:03:04 redis-server *:6379
- 2048   731 app      R      8.0  1.2  12288  64000       12:31 python worker.py --queue high
+  731     1 redis    Ssl   12.5  3.4  40960 162000  1-02:03:04 redis-server redis-server *:6379
+ 2048   731 app      R      8.0  1.2  12288  64000       12:31 python python worker.py --queue high
 ''';
 
     final processes = service.parseProcesses(output);
@@ -21,6 +21,7 @@ void main() {
     expect(processes.first.user, 'redis');
     expect(processes.first.cpuPercent, 12.5);
     expect(processes.first.rssKb, 40960);
+    expect(processes.first.name, 'redis-server');
     expect(processes.first.command, 'redis-server *:6379');
     expect(processes.last.isRunning, isTrue);
   });
@@ -38,6 +39,8 @@ PID   USER     TIME  COMMAND
     expect(processes.last.pid, 25);
     expect(processes.last.user, 'admin');
     expect(processes.last.elapsed, '1:12');
+    expect(processes.first.name, 'init');
+    expect(processes.last.name, 'top');
     expect(processes.last.command, 'top -b');
   });
 
