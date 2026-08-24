@@ -29,6 +29,60 @@ void main() {
     expect(state.copyWith(activePendingId: null).pendingConnections, [pending]);
   });
 
+  test('commands can target a captured session instead of the active tab',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    final repository = await VaultRepository.open();
+    final firstOutput = <String>[];
+    final secondOutput = <String>[];
+    final firstTerminal = Terminal()..onOutput = firstOutput.add;
+    final secondTerminal = Terminal()..onOutput = secondOutput.add;
+    final first = ActiveTerminalSession(
+      id: 'session-first',
+      host: HostProfile.create(
+        id: 'first',
+        label: 'First',
+        hostname: 'first.example.com',
+        username: 'root',
+        port: 22022,
+      ),
+      terminal: firstTerminal,
+      verifyHostKey: _acceptHostKey,
+      keyboardInteractive: null,
+    );
+    final second = ActiveTerminalSession(
+      id: 'session-second',
+      host: _host('second', 'Second'),
+      terminal: secondTerminal,
+      verifyHostKey: _acceptHostKey,
+      keyboardInteractive: null,
+    );
+    final container = ProviderContainer(
+      overrides: [
+        vaultRepositoryProvider.overrideWithValue(repository),
+        sessionControllerProvider.overrideWith(
+          (ref) => _SeededSessionController(
+            ref.read(vaultControllerProvider.notifier),
+            ref,
+            SessionState(sessions: [first, second], activeIndex: 1),
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    final controller = container.read(sessionControllerProvider.notifier);
+
+    controller.sendToSession(first.id, 'ss -lntp');
+    controller.send('pwd', enter: true);
+
+    expect(firstOutput, ['ss -lntp']);
+    expect(secondOutput, ['pwd\r']);
+    expect(
+      () => controller.sendToSession('closed-session', 'whoami'),
+      throwsStateError,
+    );
+  });
+
   testWidgets(
     'connection progress is a dialog in its tab and existing terminal stays usable',
     (tester) async {

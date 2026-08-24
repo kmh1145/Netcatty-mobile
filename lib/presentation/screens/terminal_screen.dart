@@ -16,6 +16,7 @@ import '../../infrastructure/ssh/ssh_service.dart';
 import '../../infrastructure/ssh/terminal_picture_in_picture_service.dart';
 import '../../infrastructure/storage/vault_repository.dart';
 import '../widgets/empty_state.dart';
+import '../widgets/ai_chat_sheet.dart';
 import '../widgets/host_system_icon.dart';
 import '../widgets/port_forward_sheet.dart';
 import '../widgets/server_monitor_sheet.dart';
@@ -37,6 +38,7 @@ class TerminalScreen extends ConsumerStatefulWidget {
 class _TerminalScreenState extends ConsumerState<TerminalScreen> {
   var _split = false;
   StreamSubscription<bool>? _pictureInPictureSubscription;
+  final _aiMessagesBySession = <String, List<AiChatMessage>>{};
 
   @override
   void initState() {
@@ -437,6 +439,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
         false;
     if (!close || !mounted) return;
     await ref.read(sessionControllerProvider.notifier).close(index);
+    _aiMessagesBySession.remove(session.id);
   }
 
   Future<void> _openManagedTerminal(
@@ -459,48 +462,6 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
   }
 
   Future<void> _openAi(ActiveTerminalSession session) async {
-    final request = TextEditingController();
-    final prompt = await showModalBottomSheet<String>(
-      context: context,
-      isScrollControlled: true,
-      builder: (context) => Padding(
-        padding: EdgeInsets.fromLTRB(
-          16,
-          18,
-          16,
-          MediaQuery.viewInsetsOf(context).bottom + 18,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            LText('Catty Agent', style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 6),
-            LText('为 ${session.host.label} 生成安全的运维命令。执行前会让你确认。'),
-            const SizedBox(height: 14),
-            TextField(
-              controller: request,
-              autofocus: true,
-              minLines: 2,
-              maxLines: 5,
-              decoration: LInputDecoration(
-                hintText: '例如：检查磁盘空间并列出最大的 10 个目录',
-              ),
-            ),
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: () => Navigator.pop(context, request.text.trim()),
-                icon: const Icon(Icons.auto_awesome),
-                label: const LText('生成命令'),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (prompt == null || prompt.isEmpty || !mounted) return;
     try {
       final repository = ref.read(vaultRepositoryProvider);
       final settings = await repository.loadSettings();
@@ -508,58 +469,37 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
       if (apiKey == null || apiKey.isEmpty) {
         throw StateError('请先在设置中填写 AI API Key');
       }
-      final suggestion = await AiService(
-        client: ref.read(httpClientProvider),
-      ).suggestCommand(
-        request: prompt,
-        settings: settings,
-        apiKey: apiKey,
-        hostSummary:
-            '${session.host.username}@${session.host.hostname}, ${session.host.data['os'] ?? 'linux'}',
-      );
       if (!mounted) return;
-      final run = await showDialog<bool>(
+      final service = AiService(client: ref.read(httpClientProvider));
+      await showModalBottomSheet<void>(
         context: context,
-        builder: (context) => AlertDialog(
-          title: const LText('确认命令'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              LText(suggestion.explanation),
-              const SizedBox(height: 12),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.black,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: LSelectableText(
-                  suggestion.command,
-                  style: const TextStyle(
-                    fontFamily: 'monospace',
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-            ],
+        useSafeArea: true,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (context) => FractionallySizedBox(
+          heightFactor: .92,
+          child: ClipRRect(
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            child: AiChatSheet(
+              host: session.host,
+              settings: settings,
+              apiKey: apiKey,
+              service: service,
+              initialMessages: _aiMessagesBySession[session.id] ?? const [],
+              onMessagesChanged: (messages) {
+                _aiMessagesBySession[session.id] = messages;
+              },
+              onCommand: (command, execute) async {
+                ref.read(sessionControllerProvider.notifier).sendToSession(
+                      session.id,
+                      command,
+                      enter: execute,
+                    );
+              },
+            ),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const LText('仅粘贴'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const LText('执行'),
-            ),
-          ],
         ),
       );
-      ref
-          .read(sessionControllerProvider.notifier)
-          .send(suggestion.command, enter: run == true);
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(

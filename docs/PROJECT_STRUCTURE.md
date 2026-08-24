@@ -95,7 +95,7 @@ Netcatty-mobile/
 
 | 文件 | 职责 |
 | --- | --- |
-| `ai/ai_service.dart` | OpenAI 兼容 API 请求、终端上下文和命令建议解析 |
+| `ai/ai_service.dart` | OpenAI 兼容聊天请求、多轮终端上下文、普通文本/命令建议解析 |
 
 基础设施层处理外部输入时要先验证类型和边界。Shell 参数必须转义，HTTP 错误不能把 Authorization Header 写入日志。
 
@@ -119,6 +119,7 @@ Netcatty-mobile/
 | `widgets/keychain_sheet.dart` | SSH 密钥管理 |
 | `widgets/host_system_icon.dart` | 根据系统识别信息选择图标 |
 | `widgets/terminal_special_keys.dart` | 默认/自定义快捷键、修饰键状态、自动换行与编辑器 |
+| `widgets/ai_chat_sheet.dart` | Catty 多轮聊天、会话独立历史、命令复制/定向粘贴与执行确认 |
 | `widgets/server_monitor_sheet.dart` | 性能监控面板 |
 | `widgets/port_forward_sheet.dart` | 端口转发配置和活动转发列表 |
 | `widgets/empty_state.dart` | 通用空状态 |

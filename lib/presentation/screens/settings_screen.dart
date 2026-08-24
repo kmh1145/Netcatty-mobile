@@ -504,7 +504,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ),
                 ),
               ),
-              _header('Catty Agent', '使用 OpenAI 兼容接口生成命令，执行前始终确认'),
+              _header('Catty Agent', '使用 OpenAI 兼容接口连续对话，命令执行前始终确认'),
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(14),

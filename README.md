@@ -131,7 +131,7 @@ Netcatty 的 Android / iOS 移动端实现：一个面向服务器管理、SSH �
 - PBKDF2-HMAC-SHA256 600,000 次派生，AES-256-GCM 认证加密
 - 本地普通偏好设置不保存密码、私钥、同步密码、Token 或 API Key
 - Android 禁用明文网络和系统备份；iOS 凭据使用设备 Keychain
-- Catty Agent 只生成建议命令，执行前必须由用户确认
+- Catty Agent 支持结合当前服务器上下文连续对话；建议命令可复制或粘贴，执行前必须由用户确认
 - 设置页自动检查 GitHub 最新 Release，并显示当前是否为最新版本
 
 ## 平台差异
