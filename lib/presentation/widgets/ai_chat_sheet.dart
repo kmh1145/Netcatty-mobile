@@ -19,6 +19,7 @@ class AiChatSheet extends StatefulWidget {
     required this.onMessagesChanged,
     required this.onCommand,
     required this.terminalContext,
+    required this.onModelChanged,
   });
 
   final HostProfile host;
@@ -29,20 +30,39 @@ class AiChatSheet extends StatefulWidget {
   final ValueChanged<List<AiChatMessage>> onMessagesChanged;
   final Future<void> Function(String command, bool execute) onCommand;
   final String Function() terminalContext;
+  final Future<void> Function(String model) onModelChanged;
 
   @override
   State<AiChatSheet> createState() => _AiChatSheetState();
 }
 
 class _AiChatSheetState extends State<AiChatSheet> {
-  late final List<AiChatMessage> _messages = [...widget.initialMessages];
+  late final List<AiChatMessage> _messages;
+  late String _selectedModel;
   final _input = TextEditingController();
   final _scroll = ScrollController();
   var _sending = false;
   String? _error;
 
+  @override
+  void initState() {
+    super.initState();
+    final initialMessages = widget.initialMessages;
+    _messages = initialMessages.length <= maxAiChatHistoryMessages
+        ? [...initialMessages]
+        : initialMessages.sublist(
+            initialMessages.length - maxAiChatHistoryMessages,
+          );
+    _selectedModel = widget.settings.aiModel;
+  }
+
   String get _endpoint =>
       '${widget.host.username}@${widget.host.hostname}:${widget.host.port}';
+
+  String get _modelTooltip {
+    final action = localized('切换模型');
+    return '$action · $_selectedModel';
+  }
 
   String get _hostSummary {
     final protocol = widget.host.protocol.name.toUpperCase();
@@ -66,7 +86,7 @@ class _AiChatSheetState extends State<AiChatSheet> {
     if (prompt.isEmpty || _sending) return;
     final history = List<AiChatMessage>.unmodifiable(_messages);
     setState(() {
-      _messages.add(
+      _appendMessage(
         AiChatMessage(role: AiChatRole.user, content: prompt),
       );
       _input.clear();
@@ -82,10 +102,13 @@ class _AiChatSheetState extends State<AiChatSheet> {
         settings: widget.settings,
         apiKey: widget.apiKey,
         hostSummary: _hostSummary,
-        terminalContext: widget.terminalContext(),
+        terminalContext: widget.settings.aiIncludeTerminalContext
+            ? widget.terminalContext()
+            : '',
+        model: _selectedModel,
       );
       if (!mounted) return;
-      setState(() => _messages.add(reply));
+      setState(() => _appendMessage(reply));
       _notifyMessagesChanged();
     } catch (error) {
       if (!mounted) return;
@@ -100,6 +123,34 @@ class _AiChatSheetState extends State<AiChatSheet> {
 
   void _notifyMessagesChanged() {
     widget.onMessagesChanged(List<AiChatMessage>.unmodifiable(_messages));
+  }
+
+  void _appendMessage(AiChatMessage message) {
+    _messages.add(message);
+    if (_messages.length > maxAiChatHistoryMessages) {
+      _messages.removeRange(
+        0,
+        _messages.length - maxAiChatHistoryMessages,
+      );
+    }
+  }
+
+  Future<void> _selectModel(String model) async {
+    if (_sending || model == _selectedModel) return;
+    final previous = _selectedModel;
+    setState(() {
+      _selectedModel = model;
+      _error = null;
+    });
+    try {
+      await widget.onModelChanged(model);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _selectedModel = previous;
+        _error = '$error';
+      });
+    }
   }
 
   void _scrollToBottom() {
@@ -312,6 +363,40 @@ class _AiChatSheetState extends State<AiChatSheet> {
                 ],
               ),
             ),
+            PopupMenuButton<String>(
+              key: const ValueKey('ai-chat-model-selector'),
+              enabled: !_sending,
+              tooltip: _modelTooltip,
+              onSelected: (model) => unawaited(_selectModel(model)),
+              itemBuilder: (context) => [
+                for (final model in widget.settings.aiModels)
+                  PopupMenuItem(
+                    value: model,
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 28,
+                          child: model == _selectedModel
+                              ? Icon(
+                                  Icons.check,
+                                  size: 18,
+                                  color: Theme.of(context).colorScheme.primary,
+                                )
+                              : null,
+                        ),
+                        Expanded(
+                          child: Text(
+                            model,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+              icon: const Icon(Icons.model_training_outlined),
+            ),
             IconButton(
               key: const ValueKey('ai-chat-new'),
               tooltip: localized('新对话'),
@@ -343,21 +428,25 @@ class _AiChatSheetState extends State<AiChatSheet> {
           ),
           const SizedBox(height: 8),
           LText(
-            'Catty 会结合当前服务器信息和近期终端输出连续对话，并在需要时提供可粘贴或确认执行的命令。',
+            widget.settings.aiIncludeTerminalContext
+                ? 'Catty 会结合当前服务器信息和近期终端输出连续对话，并在需要时提供可粘贴或确认执行的命令。'
+                : 'Catty 会结合当前服务器信息连续对话，并在需要时提供可粘贴或确认执行的命令。',
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.bodyMedium,
           ),
           const SizedBox(height: 8),
           LText(
-            '每次提问会将当前终端的近期输出发送给已配置的 AI 服务。',
+            widget.settings.aiIncludeTerminalContext
+                ? '每次提问会将当前终端的近期输出发送给已配置的 AI 服务。'
+                : '终端输出上传已关闭，可在设置中开启。',
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.bodySmall,
           ),
           const SizedBox(height: 24),
-          for (final prompt in const [
+          for (final prompt in [
             '检查服务器健康状态',
             '分析当前磁盘使用情况',
-            '分析最近的终端输出',
+            if (widget.settings.aiIncludeTerminalContext) '分析最近的终端输出',
             '帮我排查最近的系统错误',
           ])
             Padding(
@@ -395,7 +484,9 @@ class _AiChatSheetState extends State<AiChatSheet> {
                 const SizedBox(width: 6),
                 Expanded(
                   child: LText(
-                    '提问时会自动附带近期终端输出',
+                    widget.settings.aiIncludeTerminalContext
+                        ? '提问时会自动附带近期终端输出'
+                        : '终端输出上传已关闭',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.bodySmall,

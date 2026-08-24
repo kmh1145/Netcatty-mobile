@@ -106,4 +106,50 @@ void main() {
     expect(reply.content, '目前不需要执行命令。');
     expect(reply.command, isNull);
   });
+
+  test('chat API keeps only the latest 30 history messages', () async {
+    late Map<String, dynamic> requestBody;
+    final service = AiService(
+      client: MockClient((request) async {
+        requestBody = jsonDecode(request.body) as Map<String, dynamic>;
+        return http.Response.bytes(
+          utf8.encode(jsonEncode({
+            'choices': [
+              {
+                'message': {
+                  'content': jsonEncode({'message': '完成'}),
+                },
+              },
+            ],
+          })),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      }),
+    );
+    final history = List<AiChatMessage>.generate(
+      35,
+      (index) => AiChatMessage(
+        role: index.isEven ? AiChatRole.user : AiChatRole.assistant,
+        content: 'history-$index',
+      ),
+    );
+
+    await service.sendMessage(
+      request: 'current-request',
+      history: history,
+      settings: const AppSettings(),
+      apiKey: 'secret',
+      hostSummary: 'root@example.com:2222',
+    );
+
+    final messages = (requestBody['messages'] as List).cast<Map>();
+    final historyMessages = messages.where(
+      (message) => message['content'].toString().startsWith('history-'),
+    );
+    expect(historyMessages, hasLength(30));
+    expect(messages.any((message) => message['content'] == 'history-4'), false);
+    expect(messages.any((message) => message['content'] == 'history-5'), true);
+    expect(messages.last['content'], 'current-request');
+  });
 }

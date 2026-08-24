@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -42,6 +44,7 @@ void main() {
             ],
             onMessagesChanged: (_) {},
             terminalContext: () => 'nginx is active',
+            onModelChanged: (_) async {},
             onCommand: (command, execute) async {
               sent.add((command: command, execute: execute));
             },
@@ -109,9 +112,129 @@ void main() {
     expect(find.text('旧消息 0 的较长内容'), findsNothing);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('disabled terminal sharing never reads or sends terminal text',
+      (tester) async {
+    var terminalReads = 0;
+    late Map<String, dynamic> requestBody;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: _testSheet(
+            terminalContext: () {
+              terminalReads++;
+              return 'private terminal output';
+            },
+            service: AiService(
+              client: MockClient((request) async {
+                requestBody = jsonDecode(request.body) as Map<String, dynamic>;
+                return _chatResponse('已分析');
+              }),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.enterText(
+      find.byKey(const ValueKey('ai-chat-input')),
+      '检查状态',
+    );
+    await tester.tap(find.byKey(const ValueKey('ai-chat-send')));
+    await tester.pumpAndSettle();
+
+    expect(terminalReads, 0);
+    expect(jsonEncode(requestBody), isNot(contains('private terminal output')));
+    expect(find.text('终端输出上传已关闭'), findsOneWidget);
+  });
+
+  testWidgets('chat model selector switches the model used by requests',
+      (tester) async {
+    late Map<String, dynamic> requestBody;
+    final changedModels = <String>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: _testSheet(
+            settings: const AppSettings(
+              aiModel: 'model-a',
+              aiModels: ['model-a', 'model-b'],
+              aiIncludeTerminalContext: true,
+            ),
+            service: AiService(
+              client: MockClient((request) async {
+                requestBody = jsonDecode(request.body) as Map<String, dynamic>;
+                return _chatResponse('已切换');
+              }),
+            ),
+            terminalContext: () => 'shared terminal output',
+            onModelChanged: (model) async => changedModels.add(model),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('ai-chat-model-selector')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('model-b').last);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('ai-chat-input')),
+      '继续',
+    );
+    await tester.tap(find.byKey(const ValueKey('ai-chat-send')));
+    await tester.pumpAndSettle();
+
+    expect(changedModels, ['model-b']);
+    expect(requestBody['model'], 'model-b');
+    expect(jsonEncode(requestBody), contains('shared terminal output'));
+  });
+
+  testWidgets('persisted chat history is capped at 30 messages',
+      (tester) async {
+    var persisted = <AiChatMessage>[];
+    final initialMessages = List<AiChatMessage>.generate(
+      30,
+      (index) => AiChatMessage(
+        role: index.isEven ? AiChatRole.user : AiChatRole.assistant,
+        content: 'old-$index',
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: _testSheet(
+            initialMessages: initialMessages,
+            service: AiService(
+              client: MockClient((_) async => _chatResponse('new-reply')),
+            ),
+            onMessagesChanged: (messages) => persisted = messages,
+          ),
+        ),
+      ),
+    );
+
+    await tester.enterText(
+      find.byKey(const ValueKey('ai-chat-input')),
+      'new-request',
+    );
+    await tester.tap(find.byKey(const ValueKey('ai-chat-send')));
+    await tester.pumpAndSettle();
+
+    expect(persisted, hasLength(30));
+    expect(persisted.first.content, 'old-2');
+    expect(persisted.last.content, 'new-reply');
+  });
 }
 
-AiChatSheet _testSheet({List<AiChatMessage> initialMessages = const []}) {
+AiChatSheet _testSheet({
+  List<AiChatMessage> initialMessages = const [],
+  AppSettings settings = const AppSettings(),
+  AiService? service,
+  String Function()? terminalContext,
+  Future<void> Function(String model)? onModelChanged,
+  ValueChanged<List<AiChatMessage>>? onMessagesChanged,
+}) {
   return AiChatSheet(
     host: HostProfile.create(
       id: 'test',
@@ -120,14 +243,31 @@ AiChatSheet _testSheet({List<AiChatMessage> initialMessages = const []}) {
       username: 'root',
       port: 2222,
     ),
-    settings: const AppSettings(),
+    settings: settings,
     apiKey: 'unused',
-    service: AiService(
-      client: MockClient((_) async => http.Response('unexpected request', 500)),
-    ),
+    service: service ??
+        AiService(
+          client:
+              MockClient((_) async => http.Response('unexpected request', 500)),
+        ),
     initialMessages: initialMessages,
-    onMessagesChanged: (_) {},
-    terminalContext: () => 'recent terminal output',
+    onMessagesChanged: onMessagesChanged ?? (_) {},
+    terminalContext: terminalContext ?? () => 'recent terminal output',
+    onModelChanged: onModelChanged ?? (_) async {},
     onCommand: (_, __) async {},
   );
 }
+
+http.Response _chatResponse(String message) => http.Response.bytes(
+      utf8.encode(jsonEncode({
+        'choices': [
+          {
+            'message': {
+              'content': jsonEncode({'message': message}),
+            },
+          },
+        ],
+      })),
+      200,
+      headers: {'content-type': 'application/json; charset=utf-8'},
+    );

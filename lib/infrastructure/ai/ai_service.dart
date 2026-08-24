@@ -49,10 +49,12 @@ class AiService {
     required String apiKey,
     required String hostSummary,
     String terminalContext = '',
+    String? model,
   }) async {
     final endpoint = settings.aiEndpoint.replaceFirst(RegExp(r'/$'), '');
-    final recentHistory =
-        history.length <= 24 ? history : history.sublist(history.length - 24);
+    final recentHistory = history.length <= maxAiChatHistoryMessages
+        ? history
+        : history.sublist(history.length - maxAiChatHistoryMessages);
     final response = await _client
         .post(
           Uri.parse('$endpoint/chat/completions'),
@@ -61,7 +63,7 @@ class AiService {
             'content-type': 'application/json',
           },
           body: jsonEncode({
-            'model': settings.aiModel,
+            'model': model ?? settings.aiModel,
             'temperature': 0.2,
             'response_format': {'type': 'json_object'},
             'messages': [

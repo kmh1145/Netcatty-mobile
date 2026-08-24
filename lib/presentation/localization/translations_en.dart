@@ -75,6 +75,14 @@ const englishTranslations = <String, String>{
       'Chat through an OpenAI-compatible API and always confirm before executing commands',
   'API 地址': 'API endpoint',
   '模型': 'Model',
+  '当前模型': 'Current model',
+  '添加': 'Add',
+  '添加模型': 'Add model',
+  '例如：gpt-4.1-mini': 'For example: gpt-4.1-mini',
+  '切换模型': 'Switch model',
+  '向 AI 发送近期终端输出': 'Send recent terminal output to AI',
+  '关闭后只发送服务器基本信息和对话内容':
+      'When disabled, only basic server information and chat messages are sent',
   '保存 AI 设置': 'Save AI settings',
   '开始新对话？': 'Start a new chat?',
   '当前终端的 AI 对话记录将被清空。':
@@ -89,8 +97,13 @@ const englishTranslations = <String, String>{
   '有什么可以帮你？': 'How can I help?',
   'Catty 会结合当前服务器信息和近期终端输出连续对话，并在需要时提供可粘贴或确认执行的命令。':
       'Catty keeps the current server and recent terminal output in context, and provides commands you can paste or confirm when needed.',
+  'Catty 会结合当前服务器信息连续对话，并在需要时提供可粘贴或确认执行的命令。':
+      'Catty keeps the current server in context and provides commands you can paste or confirm when needed.',
   '每次提问会将当前终端的近期输出发送给已配置的 AI 服务。':
       'Each question sends recent output from the current terminal to the configured AI service.',
+  '终端输出上传已关闭，可在设置中开启。':
+      'Terminal output sharing is disabled. You can enable it in Settings.',
+  '终端输出上传已关闭': 'Terminal output sharing is disabled',
   '提问时会自动附带近期终端输出': 'Recent terminal output is attached automatically',
   '检查服务器健康状态': 'Check server health',
   '分析当前磁盘使用情况': 'Analyze current disk usage',

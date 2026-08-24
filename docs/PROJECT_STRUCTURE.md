@@ -40,7 +40,7 @@ Netcatty-mobile/
 | --- | --- | --- |
 | `models/host.dart` | `HostProfile`、`SshKeyProfile`、`CommandSnippet`、`ProxyProfile` | 保留原始 Map 的未知字段；认证字段与安全存储键保持一致 |
 | `models/vault.dart` | `VaultData` | 桌面/移动兼容的顶层保险库；新增字段需要兼容旧数据 |
-| `models/settings.dart` | `AppSettings`、`SyncConnection`、`TerminalCustomKey` | 默认快捷键迁移要有版本化测试 |
+| `models/settings.dart` | `AppSettings`、`SyncConnection`、`TerminalCustomKey` | 默认快捷键、AI 多模型列表与隐私开关迁移要有版本化测试 |
 | `models/vault_sync_state.dart` | 记录级修订时钟、删除墓碑与本地变更标记 | 元数据位于加密 Payload 内，不得移动到明文 Envelope |
 | `models/server_stats.dart` | `ServerSystemInfo`、`ServerStats` | 容忍远程采集缺字段 |
 | `models/system_management.dart` | 进程、Docker、Compose、tmux 模型和枚举 | 与远程输出解析及 UI 操作保持一一对应 |
@@ -95,7 +95,7 @@ Netcatty-mobile/
 
 | 文件 | 职责 |
 | --- | --- |
-| `ai/ai_service.dart` | OpenAI 兼容聊天请求、多轮终端上下文、普通文本/命令建议解析 |
+| `ai/ai_service.dart` | OpenAI 兼容聊天请求、最近 30 条多轮上下文、可选终端输出、普通文本/命令建议解析 |
 
 基础设施层处理外部输入时要先验证类型和边界。Shell 参数必须转义，HTTP 错误不能把 Authorization Header 写入日志。
 
@@ -119,7 +119,7 @@ Netcatty-mobile/
 | `widgets/keychain_sheet.dart` | SSH 密钥管理 |
 | `widgets/host_system_icon.dart` | 根据系统识别信息选择图标 |
 | `widgets/terminal_special_keys.dart` | 默认/自定义快捷键、修饰键状态、自动换行与编辑器 |
-| `widgets/ai_chat_sheet.dart` | Catty 多轮聊天、会话独立历史、命令复制/定向粘贴与执行确认 |
+| `widgets/ai_chat_sheet.dart` | Catty 多轮聊天、模型切换、终端输出共享状态、会话独立历史、命令复制/定向粘贴与执行确认 |
 | `widgets/server_monitor_sheet.dart` | 性能监控面板 |
 | `widgets/port_forward_sheet.dart` | 端口转发配置和活动转发列表 |
 | `widgets/empty_state.dart` | 通用空状态 |
