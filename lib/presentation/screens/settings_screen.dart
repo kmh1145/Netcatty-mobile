@@ -57,6 +57,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   var terminalFontSize = 14.0;
   var terminalSecureKeyboard = false;
   var _savingTerminalSecureKeyboard = false;
+  var aiModels = <String>[defaultAiModel];
+  var selectedAiModel = defaultAiModel;
+  var aiIncludeTerminalContext = false;
   var language = 'zh-CN';
   var _loaded = false;
   var _busy = false;
@@ -121,7 +124,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     s3AllowInsecure = sync?.allowInsecure ?? false;
     masterPassword.text = await repository.readMasterPassword() ?? '';
     aiEndpoint.text = settings.aiEndpoint;
-    aiModel.text = settings.aiModel;
+    aiModels = [...settings.aiModels];
+    selectedAiModel = settings.aiModel;
+    aiIncludeTerminalContext = settings.aiIncludeTerminalContext;
     themeMode = settings.themeMode;
     uiThemeId = settings.uiThemeId;
     terminalFontSize = settings.terminalFontSize;
@@ -504,7 +509,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ),
                 ),
               ),
-              _header('Catty Agent', '使用 OpenAI 兼容接口生成命令，执行前始终确认'),
+              _header('Catty Agent', '使用 OpenAI 兼容接口连续对话，命令执行前始终确认'),
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(14),
@@ -515,15 +520,83 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         decoration: LInputDecoration(labelText: 'API 地址'),
                       ),
                       const SizedBox(height: 10),
+                      DropdownButtonFormField<String>(
+                        key: ValueKey(
+                          'ai-model-$selectedAiModel-${aiModels.join('|')}',
+                        ),
+                        initialValue: selectedAiModel,
+                        isExpanded: true,
+                        decoration: LInputDecoration(labelText: '当前模型'),
+                        items: [
+                          for (final model in aiModels)
+                            DropdownMenuItem(
+                              value: model,
+                              child: Text(
+                                model,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                        ],
+                        onChanged: (value) {
+                          if (value != null) {
+                            setState(() => selectedAiModel = value);
+                          }
+                        },
+                      ),
+                      const SizedBox(height: 10),
                       TextField(
+                        key: const ValueKey('ai-model-input'),
                         controller: aiModel,
-                        decoration: LInputDecoration(labelText: '模型'),
+                        textInputAction: TextInputAction.done,
+                        onSubmitted: (_) => _addAiModel(),
+                        decoration: LInputDecoration(
+                          labelText: '添加模型',
+                          hintText: '例如：gpt-4.1-mini',
+                          suffixIcon: IconButton(
+                            key: const ValueKey('ai-model-add'),
+                            tooltip: localized('添加'),
+                            onPressed: _addAiModel,
+                            icon: const Icon(Icons.add),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            for (final model in aiModels)
+                              InputChip(
+                                label: Text(model),
+                                selected: model == selectedAiModel,
+                                onSelected: (_) =>
+                                    setState(() => selectedAiModel = model),
+                                onDeleted: aiModels.length <= 1
+                                    ? null
+                                    : () => _removeAiModel(model),
+                              ),
+                          ],
+                        ),
                       ),
                       const SizedBox(height: 10),
                       TextField(
                         controller: aiKey,
                         obscureText: true,
                         decoration: LInputDecoration(labelText: 'API Key'),
+                      ),
+                      SwitchListTile.adaptive(
+                        contentPadding: EdgeInsets.zero,
+                        title: const LText('向 AI 发送近期终端输出'),
+                        subtitle: const LText(
+                          '关闭后只发送服务器基本信息和对话内容',
+                        ),
+                        value: aiIncludeTerminalContext,
+                        onChanged: (value) => setState(
+                          () => aiIncludeTerminalContext = value,
+                        ),
                       ),
                       const SizedBox(height: 12),
                       SizedBox(
@@ -1013,11 +1086,31 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     await ref.read(settingsControllerProvider.notifier).update(
           current.copyWith(
             aiEndpoint: aiEndpoint.text.trim(),
-            aiModel: aiModel.text.trim(),
+            aiModel: selectedAiModel,
+            aiModels: List<String>.unmodifiable(aiModels),
+            aiIncludeTerminalContext: aiIncludeTerminalContext,
           ),
         );
     await repository.saveAiApiKey(aiKey.text);
     _message('AI 设置已保存');
+  }
+
+  void _addAiModel() {
+    final value = aiModel.text.trim();
+    if (value.isEmpty) return;
+    setState(() {
+      if (!aiModels.contains(value)) aiModels.add(value);
+      selectedAiModel = value;
+      aiModel.clear();
+    });
+  }
+
+  void _removeAiModel(String model) {
+    if (aiModels.length <= 1) return;
+    setState(() {
+      aiModels.remove(model);
+      if (selectedAiModel == model) selectedAiModel = aiModels.first;
+    });
   }
 
   Future<void> _saveAppearance() async {

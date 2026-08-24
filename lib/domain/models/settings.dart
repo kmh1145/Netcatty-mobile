@@ -2,6 +2,8 @@ enum SyncProviderType { webdav, githubGist, s3 }
 
 const minTerminalFontSize = 6.0;
 const maxTerminalFontSize = 24.0;
+const defaultAiModel = 'gpt-4.1-mini';
+const maxAiChatHistoryMessages = 30;
 
 class TerminalCustomKey {
   const TerminalCustomKey({
@@ -37,7 +39,9 @@ class AppSettings {
     this.terminalSecureKeyboard = false,
     this.language = 'zh-CN',
     this.aiEndpoint = 'https://api.openai.com/v1',
-    this.aiModel = 'gpt-4.1-mini',
+    this.aiModel = defaultAiModel,
+    this.aiModels = const [defaultAiModel],
+    this.aiIncludeTerminalContext = false,
     this.terminalQuickKeys = defaultTerminalQuickKeys,
     this.terminalCustomKeys = const [],
   });
@@ -66,6 +70,12 @@ class AppSettings {
             _sameStrings(rawStoredOrder, previousMobileDefaultTerminalQuickKeys)
         ? defaultTerminalQuickKeys
         : storedOrder;
+    final selectedAiModel =
+        json['aiModel']?.toString().trim() ?? defaultAiModel;
+    final aiModels = _normalizeAiModels(
+      json['aiModels'],
+      selectedAiModel: selectedAiModel,
+    );
     return AppSettings(
       themeMode: json['themeMode']?.toString() ?? 'dark',
       uiThemeId: json['uiThemeId']?.toString() ?? 'tokyo-night',
@@ -76,7 +86,10 @@ class AppSettings {
       terminalSecureKeyboard: json['terminalSecureKeyboard'] == true,
       language: json['language']?.toString() ?? 'zh-CN',
       aiEndpoint: json['aiEndpoint']?.toString() ?? 'https://api.openai.com/v1',
-      aiModel: json['aiModel']?.toString() ?? 'gpt-4.1-mini',
+      aiModel:
+          aiModels.contains(selectedAiModel) ? selectedAiModel : aiModels.first,
+      aiModels: aiModels,
+      aiIncludeTerminalContext: json['aiIncludeTerminalContext'] == true,
       terminalQuickKeys: order,
       terminalCustomKeys: customKeys,
     );
@@ -90,6 +103,8 @@ class AppSettings {
   final String language;
   final String aiEndpoint;
   final String aiModel;
+  final List<String> aiModels;
+  final bool aiIncludeTerminalContext;
   final List<String> terminalQuickKeys;
   final List<TerminalCustomKey> terminalCustomKeys;
 
@@ -102,6 +117,8 @@ class AppSettings {
     String? language,
     String? aiEndpoint,
     String? aiModel,
+    List<String>? aiModels,
+    bool? aiIncludeTerminalContext,
     List<String>? terminalQuickKeys,
     List<TerminalCustomKey>? terminalCustomKeys,
   }) =>
@@ -115,6 +132,9 @@ class AppSettings {
         language: language ?? this.language,
         aiEndpoint: aiEndpoint ?? this.aiEndpoint,
         aiModel: aiModel ?? this.aiModel,
+        aiModels: aiModels ?? this.aiModels,
+        aiIncludeTerminalContext:
+            aiIncludeTerminalContext ?? this.aiIncludeTerminalContext,
         terminalQuickKeys: terminalQuickKeys ?? this.terminalQuickKeys,
         terminalCustomKeys: terminalCustomKeys ?? this.terminalCustomKeys,
       );
@@ -128,6 +148,8 @@ class AppSettings {
         'language': language,
         'aiEndpoint': aiEndpoint,
         'aiModel': aiModel,
+        'aiModels': aiModels,
+        'aiIncludeTerminalContext': aiIncludeTerminalContext,
         'terminalQuickKeys': terminalQuickKeys,
         'terminalCustomKeys':
             terminalCustomKeys.map((key) => key.toJson()).toList(),
@@ -135,6 +157,28 @@ class AppSettings {
 
   static String _serverViewMode(String? value) =>
       const {'grid', 'list', 'tree'}.contains(value) ? value! : 'grid';
+
+  static List<String> _normalizeAiModels(
+    Object? value, {
+    required String selectedAiModel,
+  }) {
+    final models = <String>[];
+    void add(String model) {
+      final normalized = model.trim();
+      if (normalized.isNotEmpty && !models.contains(normalized)) {
+        models.add(normalized);
+      }
+    }
+
+    if (value is List) {
+      for (final model in value) {
+        add(model.toString());
+      }
+    }
+    add(selectedAiModel);
+    if (models.isEmpty) add(defaultAiModel);
+    return List<String>.unmodifiable(models);
+  }
 }
 
 const defaultTerminalQuickKeys = <String>[

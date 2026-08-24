@@ -416,6 +416,18 @@ class SessionController extends StateNotifier<SessionState> {
   void send(String text, {bool enter = false}) {
     final session = state.active;
     if (session == null) return;
+    sendToSession(session.id, text, enter: enter);
+  }
+
+  void sendToSession(String sessionId, String text, {bool enter = false}) {
+    final session =
+        state.sessions.where((value) => value.id == sessionId).firstOrNull;
+    if (session == null) {
+      throw StateError('目标终端会话已关闭');
+    }
+    if (!session.connected) {
+      throw StateError('目标终端连接已断开');
+    }
     session.terminal.textInput(enter ? '$text\r' : text);
   }
 

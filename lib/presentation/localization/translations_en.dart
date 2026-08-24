@@ -71,9 +71,47 @@ const englishTranslations = <String, String>{
   '本地与云端版本一致': 'Local and cloud versions match',
   '使用 OpenAI 兼容接口生成命令，执行前始终确认':
       'Generate commands through an OpenAI-compatible API and always confirm before execution',
+  '使用 OpenAI 兼容接口连续对话，命令执行前始终确认':
+      'Chat through an OpenAI-compatible API and always confirm before executing commands',
   'API 地址': 'API endpoint',
   '模型': 'Model',
+  '当前模型': 'Current model',
+  '添加': 'Add',
+  '添加模型': 'Add model',
+  '例如：gpt-4.1-mini': 'For example: gpt-4.1-mini',
+  '切换模型': 'Switch model',
+  '向 AI 发送近期终端输出': 'Send recent terminal output to AI',
+  '关闭后只发送服务器基本信息和对话内容':
+      'When disabled, only basic server information and chat messages are sent',
   '保存 AI 设置': 'Save AI settings',
+  '开始新对话？': 'Start a new chat?',
+  '当前终端的 AI 对话记录将被清空。':
+      'The AI conversation for this terminal will be cleared.',
+  '新对话': 'New chat',
+  '确认执行命令': 'Confirm command execution',
+  '命令将发送到': 'The command will be sent to',
+  '命令已发送到': 'Command sent to',
+  '命令已粘贴到': 'Command pasted into',
+  '粘贴到终端': 'Paste into terminal',
+  '复制命令': 'Copy command',
+  '有什么可以帮你？': 'How can I help?',
+  'Catty 会结合当前服务器信息和近期终端输出连续对话，并在需要时提供可粘贴或确认执行的命令。':
+      'Catty keeps the current server and recent terminal output in context, and provides commands you can paste or confirm when needed.',
+  'Catty 会结合当前服务器信息连续对话，并在需要时提供可粘贴或确认执行的命令。':
+      'Catty keeps the current server in context and provides commands you can paste or confirm when needed.',
+  '每次提问会将当前终端的近期输出发送给已配置的 AI 服务。':
+      'Each question sends recent output from the current terminal to the configured AI service.',
+  '终端输出上传已关闭，可在设置中开启。':
+      'Terminal output sharing is disabled. You can enable it in Settings.',
+  '终端输出上传已关闭': 'Terminal output sharing is disabled',
+  '提问时会自动附带近期终端输出': 'Recent terminal output is attached automatically',
+  '检查服务器健康状态': 'Check server health',
+  '分析当前磁盘使用情况': 'Analyze current disk usage',
+  '分析最近的终端输出': 'Analyze recent terminal output',
+  '帮我排查最近的系统错误': 'Help investigate recent system errors',
+  '向 Catty 询问当前服务器…': 'Ask Catty about the current server…',
+  '发送': 'Send',
+  'Catty 正在思考…': 'Catty is thinking…',
   '数据管理': 'Data management',
   '导入导出会保留桌面端未知字段和插件数据':
       'Import and export preserve unknown desktop fields and plugin data',
@@ -245,6 +283,12 @@ const englishTranslations = <String, String>{
   '生成命令': 'Generate command',
   '确认命令': 'Confirm command',
   '执行': 'Run',
+  '目标终端会话已关闭': 'The target terminal session has been closed',
+  '目标终端连接已断开': 'The target terminal connection is disconnected',
+  'AI 返回格式不正确': 'The AI response format is invalid',
+  'AI 没有返回有效回复': 'The AI did not return a valid response',
+  'AI 返回了空回复': 'The AI returned an empty response',
+  '可以使用以下命令：': 'You can use the following command:',
   '等待终端输出…': 'Waiting for terminal output…',
   '已是最新版本': 'Up to date',
   '正在检查更新…': 'Checking for updates…',
@@ -263,6 +307,8 @@ const englishTranslations = <String, String>{
   '安全键盘设置保存失败：': 'Failed to save secure keyboard setting: ',
   "Catty Agent', '使用 OpenAI 兼容接口生成命令，执行前始终确认":
       "Catty Agent', 'Generate commands with an OpenAI-compatible API and always confirm before execution",
+  "Catty Agent', '使用 OpenAI 兼容接口连续对话，命令执行前始终确认":
+      "Catty Agent', 'Chat through an OpenAI-compatible API and always confirm before executing commands",
   '正在等待 GitHub 授权…': 'Waiting for GitHub authorization…',
   '尚未挂载手机目录\n点上方文件夹按钮选择目录':
       'No phone folder is mounted\nTap the folder button above to choose one',
