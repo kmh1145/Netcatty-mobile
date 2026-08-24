@@ -489,6 +489,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
               onMessagesChanged: (messages) {
                 _aiMessagesBySession[session.id] = messages;
               },
+              terminalContext: () => terminalAiContextText(session.terminal),
               onCommand: (command, execute) async {
                 ref.read(sessionControllerProvider.notifier).sendToSession(
                       session.id,

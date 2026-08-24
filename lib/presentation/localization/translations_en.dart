@@ -87,10 +87,14 @@ const englishTranslations = <String, String>{
   '粘贴到终端': 'Paste into terminal',
   '复制命令': 'Copy command',
   '有什么可以帮你？': 'How can I help?',
-  'Catty 会结合当前服务器信息连续对话，并在需要时提供可粘贴或确认执行的命令。':
-      'Catty keeps the current server in context and provides commands you can paste or confirm when needed.',
+  'Catty 会结合当前服务器信息和近期终端输出连续对话，并在需要时提供可粘贴或确认执行的命令。':
+      'Catty keeps the current server and recent terminal output in context, and provides commands you can paste or confirm when needed.',
+  '每次提问会将当前终端的近期输出发送给已配置的 AI 服务。':
+      'Each question sends recent output from the current terminal to the configured AI service.',
+  '提问时会自动附带近期终端输出': 'Recent terminal output is attached automatically',
   '检查服务器健康状态': 'Check server health',
   '分析当前磁盘使用情况': 'Analyze current disk usage',
+  '分析最近的终端输出': 'Analyze recent terminal output',
   '帮我排查最近的系统错误': 'Help investigate recent system errors',
   '向 Catty 询问当前服务器…': 'Ask Catty about the current server…',
   '发送': 'Send',

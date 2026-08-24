@@ -18,6 +18,7 @@ class AiChatSheet extends StatefulWidget {
     required this.initialMessages,
     required this.onMessagesChanged,
     required this.onCommand,
+    required this.terminalContext,
   });
 
   final HostProfile host;
@@ -27,6 +28,7 @@ class AiChatSheet extends StatefulWidget {
   final List<AiChatMessage> initialMessages;
   final ValueChanged<List<AiChatMessage>> onMessagesChanged;
   final Future<void> Function(String command, bool execute) onCommand;
+  final String Function() terminalContext;
 
   @override
   State<AiChatSheet> createState() => _AiChatSheetState();
@@ -80,6 +82,7 @@ class _AiChatSheetState extends State<AiChatSheet> {
         settings: widget.settings,
         apiKey: widget.apiKey,
         hostSummary: _hostSummary,
+        terminalContext: widget.terminalContext(),
       );
       if (!mounted) return;
       setState(() => _messages.add(reply));
@@ -104,7 +107,7 @@ class _AiChatSheetState extends State<AiChatSheet> {
       if (!_scroll.hasClients) return;
       unawaited(
         _scroll.animateTo(
-          _scroll.position.maxScrollExtent,
+          _scroll.position.minScrollExtent,
           duration: const Duration(milliseconds: 220),
           curve: Curves.easeOut,
         ),
@@ -190,80 +193,91 @@ class _AiChatSheetState extends State<AiChatSheet> {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    return Material(
-      color: colors.surface,
-      child: SafeArea(
-        top: false,
-        child: Column(
-          children: [
-            const SizedBox(height: 8),
-            Container(
-              width: 38,
-              height: 4,
-              decoration: BoxDecoration(
-                color: colors.onSurfaceVariant.withValues(alpha: .35),
-                borderRadius: BorderRadius.circular(99),
-              ),
-            ),
-            _buildHeader(context),
-            const Divider(height: 1),
-            Expanded(
-              child: _messages.isEmpty
-                  ? _buildEmptyState(context)
-                  : ListView.builder(
-                      key: const ValueKey('ai-chat-message-list'),
-                      controller: _scroll,
-                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
-                      itemCount: _messages.length + (_sending ? 1 : 0),
-                      itemBuilder: (context, index) {
-                        if (index == _messages.length) {
-                          return const _ThinkingBubble();
-                        }
-                        final message = _messages[index];
-                        return _MessageBubble(
-                          message: message,
-                          onPaste: message.command == null
-                              ? null
-                              : () => _handleCommand(message.command!, false),
-                          onExecute: message.command == null
-                              ? null
-                              : () => _handleCommand(message.command!, true),
-                        );
-                      },
-                    ),
-            ),
-            if (_error != null)
+    return AnimatedPadding(
+      key: const ValueKey('ai-chat-keyboard-padding'),
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.viewInsetsOf(context).bottom,
+      ),
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOut,
+      child: Material(
+        color: colors.surface,
+        child: SafeArea(
+          top: false,
+          child: Column(
+            children: [
+              const SizedBox(height: 8),
               Container(
-                key: const ValueKey('ai-chat-error'),
-                width: double.infinity,
-                margin: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                width: 38,
+                height: 4,
                 decoration: BoxDecoration(
-                  color: colors.errorContainer,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.error_outline, color: colors.onErrorContainer),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: LText(
-                        _error!,
-                        style: TextStyle(color: colors.onErrorContainer),
-                      ),
-                    ),
-                    IconButton(
-                      tooltip: localized('关闭'),
-                      visualDensity: VisualDensity.compact,
-                      onPressed: () => setState(() => _error = null),
-                      icon: const Icon(Icons.close, size: 18),
-                    ),
-                  ],
+                  color: colors.onSurfaceVariant.withValues(alpha: .35),
+                  borderRadius: BorderRadius.circular(99),
                 ),
               ),
-            _buildComposer(context),
-          ],
+              _buildHeader(context),
+              const Divider(height: 1),
+              Expanded(
+                child: _messages.isEmpty
+                    ? _buildEmptyState(context)
+                    : ListView.builder(
+                        key: const ValueKey('ai-chat-message-list'),
+                        controller: _scroll,
+                        reverse: true,
+                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
+                        itemCount: _messages.length + (_sending ? 1 : 0),
+                        itemBuilder: (context, index) {
+                          if (_sending && index == 0) {
+                            return const _ThinkingBubble();
+                          }
+                          final offset = _sending ? index - 1 : index;
+                          final message =
+                              _messages[_messages.length - 1 - offset];
+                          return _MessageBubble(
+                            message: message,
+                            onPaste: message.command == null
+                                ? null
+                                : () => _handleCommand(message.command!, false),
+                            onExecute: message.command == null
+                                ? null
+                                : () => _handleCommand(message.command!, true),
+                          );
+                        },
+                      ),
+              ),
+              if (_error != null)
+                Container(
+                  key: const ValueKey('ai-chat-error'),
+                  width: double.infinity,
+                  margin: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: colors.errorContainer,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.error_outline, color: colors.onErrorContainer),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: LText(
+                          _error!,
+                          style: TextStyle(color: colors.onErrorContainer),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: localized('关闭'),
+                        visualDensity: VisualDensity.compact,
+                        onPressed: () => setState(() => _error = null),
+                        icon: const Icon(Icons.close, size: 18),
+                      ),
+                    ],
+                  ),
+                ),
+              _buildComposer(context),
+            ],
+          ),
         ),
       ),
     );
@@ -329,14 +343,21 @@ class _AiChatSheetState extends State<AiChatSheet> {
           ),
           const SizedBox(height: 8),
           LText(
-            'Catty 会结合当前服务器信息连续对话，并在需要时提供可粘贴或确认执行的命令。',
+            'Catty 会结合当前服务器信息和近期终端输出连续对话，并在需要时提供可粘贴或确认执行的命令。',
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.bodyMedium,
+          ),
+          const SizedBox(height: 8),
+          LText(
+            '每次提问会将当前终端的近期输出发送给已配置的 AI 服务。',
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodySmall,
           ),
           const SizedBox(height: 24),
           for (final prompt in const [
             '检查服务器健康状态',
             '分析当前磁盘使用情况',
+            '分析最近的终端输出',
             '帮我排查最近的系统错误',
           ])
             Padding(
@@ -354,50 +375,69 @@ class _AiChatSheetState extends State<AiChatSheet> {
       );
 
   Widget _buildComposer(BuildContext context) => Container(
-        padding: EdgeInsets.fromLTRB(
-          12,
-          10,
-          12,
-          MediaQuery.viewInsetsOf(context).bottom > 0 ? 8 : 12,
-        ),
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
         decoration: BoxDecoration(
           color: Theme.of(context).colorScheme.surface,
           border: Border(
             top: BorderSide(color: Theme.of(context).dividerColor),
           ),
         ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Expanded(
-              child: TextField(
-                key: const ValueKey('ai-chat-input'),
-                controller: _input,
-                enabled: !_sending,
-                minLines: 1,
-                maxLines: 4,
-                textInputAction: TextInputAction.newline,
-                decoration: LInputDecoration(
-                  hintText: '向 Catty 询问当前服务器…',
-                  filled: true,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(16),
-                    borderSide: BorderSide.none,
+            Row(
+              children: [
+                Icon(
+                  Icons.terminal,
+                  size: 14,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: LText(
+                    '提问时会自动附带近期终端输出',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ),
-              ),
+              ],
             ),
-            const SizedBox(width: 8),
-            IconButton.filled(
-              key: const ValueKey('ai-chat-send'),
-              tooltip: localized('发送'),
-              onPressed: _sending ? null : _send,
-              icon: _sending
-                  ? const SizedBox.square(
-                      dimension: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.arrow_upward),
+            const SizedBox(height: 7),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Expanded(
+                  child: TextField(
+                    key: const ValueKey('ai-chat-input'),
+                    controller: _input,
+                    enabled: !_sending,
+                    minLines: 1,
+                    maxLines: 4,
+                    textInputAction: TextInputAction.newline,
+                    decoration: LInputDecoration(
+                      hintText: '向 Catty 询问当前服务器…',
+                      filled: true,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton.filled(
+                  key: const ValueKey('ai-chat-send'),
+                  tooltip: localized('发送'),
+                  onPressed: _sending ? null : _send,
+                  icon: _sending
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.arrow_upward),
+                ),
+              ],
             ),
           ],
         ),

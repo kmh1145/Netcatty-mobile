@@ -41,6 +41,7 @@ void main() {
               ),
             ],
             onMessagesChanged: (_) {},
+            terminalContext: () => 'nginx is active',
             onCommand: (command, execute) async {
               sent.add((command: command, execute: execute));
             },
@@ -60,4 +61,73 @@ void main() {
     expect(find.text('命令已粘贴到 NAS'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('keyboard keeps the composer visible above its inset',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MediaQuery(
+          data: const MediaQueryData(
+            size: Size(390, 844),
+            viewInsets: EdgeInsets.only(bottom: 300),
+          ),
+          child: Scaffold(body: _testSheet()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final input = find.byKey(const ValueKey('ai-chat-input'));
+    expect(input, findsOneWidget);
+    expect(tester.getBottomRight(input).dy, lessThanOrEqualTo(544));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('opening an existing chat starts at the latest message',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(320, 480));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final messages = List<AiChatMessage>.generate(
+      30,
+      (index) => AiChatMessage(
+        role: index.isEven ? AiChatRole.user : AiChatRole.assistant,
+        content: index == 29 ? '最新一条消息' : '旧消息 $index 的较长内容',
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: _testSheet(initialMessages: messages)),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('最新一条消息'), findsOneWidget);
+    expect(find.text('旧消息 0 的较长内容'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+}
+
+AiChatSheet _testSheet({List<AiChatMessage> initialMessages = const []}) {
+  return AiChatSheet(
+    host: HostProfile.create(
+      id: 'test',
+      label: 'Test',
+      hostname: 'test.example.com',
+      username: 'root',
+      port: 2222,
+    ),
+    settings: const AppSettings(),
+    apiKey: 'unused',
+    service: AiService(
+      client: MockClient((_) async => http.Response('unexpected request', 500)),
+    ),
+    initialMessages: initialMessages,
+    onMessagesChanged: (_) {},
+    terminalContext: () => 'recent terminal output',
+    onCommand: (_, __) async {},
+  );
 }
