@@ -16,6 +16,18 @@ const englishTranslations = <String, String>{
   '云同步': 'Cloud sync',
   '兼容桌面端 netcatty-vault.json 加密格式':
       'Compatible with the desktop netcatty-vault.json encryption format',
+  '自动同步': 'Auto-sync',
+  '数据变更后自动同步，并在启动、返回前台及每 5 分钟检查云端':
+      'Sync after local changes and check the cloud at startup, on resume, and every 5 minutes',
+  '正在同步本地与云端数据…': 'Syncing local and cloud data…',
+  '自动同步已开启': 'Auto-sync enabled',
+  '自动同步已关闭': 'Auto-sync disabled',
+  '已关闭；开启后会在数据变更、启动和返回前台时自动同步':
+      'Off; enable to sync after changes, at startup, and when returning to the app',
+  '上次自动同步失败，将自动重试：\${syncState.lastError}':
+      'Last auto-sync failed and will retry: \${syncState.lastError}',
+  '最近同步 \$hour:\$minute · 数据变更后约 3 秒自动同步':
+      'Last synced at \$hour:\$minute · syncs about 3 seconds after changes',
   '用户名': 'Username',
   '密码 / 应用密码': 'Password / app password',
   '对象前缀（可选）': 'Object prefix (optional)',

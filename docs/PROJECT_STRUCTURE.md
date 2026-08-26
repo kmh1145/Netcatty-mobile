@@ -82,10 +82,11 @@ Netcatty-mobile/
 
 | 文件 | 职责 |
 | --- | --- |
+| `application/auto_sync_controller.dart` | 自动同步开关、修改防抖、前台/周期刷新、失败退避和并发修改保护 |
 | `storage/vault_repository.dart` | SharedPreferences、安全存储、Vault/设置/同步连接的持久化 |
 | `storage/vault_export_service.dart` | 保险库 JSON 选择路径、保存和取消处理 |
 | `sync/netcatty_crypto.dart` | 桌面兼容 PBKDF2 + AES-GCM 加密格式 |
-| `sync/cloud_sync_service.dart` | WebDAV/Gist 下载、解密、合并、加密上传与 Gist 发现 |
+| `sync/cloud_sync_service.dart` | WebDAV/Gist/S3 下载、解密、合并、加密上传与 Gist 发现 |
 | `sync/vault_merge_service.dart` | 按记录修订与墓碑合并多设备 Vault，解决删除复活和全量覆盖 |
 | `sync/github_auth_service.dart` | GitHub OAuth Device Flow、轮询、网络重试和用户信息读取 |
 | `http_client_provider.dart` | 共享 HTTP Client、统一请求超时和连接复用 |
@@ -109,7 +110,7 @@ Netcatty-mobile/
 | `screens/terminal_screen.dart` / `terminal_screen_pane.dart` | Pending 弹窗、多标签、终端输入、分屏、全屏、选区和底部工具栏 |
 | `screens/sftp_screen.dart` / `sftp_screen_pane.dart` | 双栏来源选择、文件操作、跨服务复制、续传和传输进度 |
 | `screens/snippets_screen.dart` | 命令片段列表、新增、编辑和发送 |
-| `screens/settings_screen.dart` / `settings_screen_dialogs.dart` | 云同步、GitHub 登录、主题、语言、安全键盘、导入导出与应用版本 |
+| `screens/settings_screen.dart` / `settings_screen_dialogs.dart` | 云同步与自动同步、GitHub 登录、主题、语言、安全键盘、导入导出与应用版本 |
 
 ### 通用组件
 

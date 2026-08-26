@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../application/auto_sync_controller.dart';
 import '../../application/settings_controller.dart';
 import '../../application/vault_controller.dart';
 import '../../domain/models/settings.dart';
@@ -60,6 +61,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   var aiModels = <String>[defaultAiModel];
   var selectedAiModel = defaultAiModel;
   var aiIncludeTerminalContext = false;
+  var autoSyncEnabled = false;
+  var _savingAutoSync = false;
   var language = 'zh-CN';
   var _loaded = false;
   var _busy = false;
@@ -127,6 +130,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     aiModels = [...settings.aiModels];
     selectedAiModel = settings.aiModel;
     aiIncludeTerminalContext = settings.aiIncludeTerminalContext;
+    autoSyncEnabled = settings.autoSyncEnabled;
     themeMode = settings.themeMode;
     uiThemeId = settings.uiThemeId;
     terminalFontSize = settings.terminalFontSize;
@@ -147,7 +151,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => SafeArea(
+  Widget build(BuildContext context) => _buildSettings(
+        context,
+        ref.watch(autoSyncControllerProvider),
+      );
+
+  Widget _buildSettings(
+    BuildContext context,
+    AutoSyncState autoSyncState,
+  ) =>
+      SafeArea(
         child: Scaffold(
           appBar: AppBar(title: const LText('设置')),
           body: ListView(
@@ -478,6 +491,24 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         decoration: LInputDecoration(
                           labelText: 'Netcatty 同步主密码',
                         ),
+                      ),
+                      const SizedBox(height: 6),
+                      SwitchListTile(
+                        key: const ValueKey('cloud-auto-sync'),
+                        contentPadding: EdgeInsets.zero,
+                        secondary: autoSyncState.syncing
+                            ? const SizedBox.square(
+                                dimension: 24,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2.5,
+                                ),
+                              )
+                            : const Icon(Icons.sync_outlined),
+                        title: const LText('自动同步'),
+                        subtitle: LText(_autoSyncStatus(autoSyncState)),
+                        value: autoSyncEnabled,
+                        onChanged:
+                            _busy || _savingAutoSync ? null : _setAutoSync,
                       ),
                       const SizedBox(height: 14),
                       Row(
@@ -933,6 +964,48 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final repository = ref.read(vaultRepositoryProvider);
     await repository.saveSyncConnection(connection);
     await repository.saveMasterPassword(masterPassword.text);
+  }
+
+  String _autoSyncStatus(AutoSyncState syncState) {
+    if (!syncState.enabled) {
+      return '已关闭；开启后会在数据变更、启动和返回前台时自动同步';
+    }
+    if (syncState.syncing) return '正在同步本地与云端数据…';
+    if (syncState.lastError != null) {
+      if (NetcattyLocalizations.isEnglish) {
+        return 'Last auto-sync failed and will retry: ${syncState.lastError}';
+      }
+      return '上次自动同步失败，将自动重试：${syncState.lastError}';
+    }
+    final syncedAt = syncState.lastSyncedAt;
+    if (syncedAt != null) {
+      final local = syncedAt.toLocal();
+      final hour = local.hour.toString().padLeft(2, '0');
+      final minute = local.minute.toString().padLeft(2, '0');
+      if (NetcattyLocalizations.isEnglish) {
+        return 'Last synced at $hour:$minute · syncs about 3 seconds after changes';
+      }
+      return '最近同步 $hour:$minute · 数据变更后约 3 秒自动同步';
+    }
+    return '数据变更后自动同步，并在启动、返回前台及每 5 分钟检查云端';
+  }
+
+  Future<void> _setAutoSync(bool enabled) async {
+    setState(() => _savingAutoSync = true);
+    try {
+      if (enabled) await _saveSync();
+      final repository = ref.read(vaultRepositoryProvider);
+      final current = await repository.loadSettings();
+      await ref.read(settingsControllerProvider.notifier).update(
+            current.copyWith(autoSyncEnabled: enabled),
+          );
+      if (mounted) setState(() => autoSyncEnabled = enabled);
+      _message(enabled ? '自动同步已开启' : '自动同步已关闭');
+    } on Object catch (error) {
+      _message('$error');
+    } finally {
+      if (mounted) setState(() => _savingAutoSync = false);
+    }
   }
 
   Future<void> _refreshSyncVersions({

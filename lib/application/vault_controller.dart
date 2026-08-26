@@ -61,7 +61,7 @@ class VaultController extends StateNotifier<VaultState> {
     final next = remote
         ? vault
         : stampLocalVaultChanges(state.data ?? VaultData.empty(), vault);
-    await repository.saveVault(next);
+    await repository.saveVault(next, remote: remote);
     state = VaultState(data: next);
   }
 
