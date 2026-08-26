@@ -42,6 +42,7 @@ class AppSettings {
     this.aiModel = defaultAiModel,
     this.aiModels = const [defaultAiModel],
     this.aiIncludeTerminalContext = false,
+    this.autoSyncEnabled = false,
     this.terminalQuickKeys = defaultTerminalQuickKeys,
     this.terminalCustomKeys = const [],
   });
@@ -90,6 +91,7 @@ class AppSettings {
           aiModels.contains(selectedAiModel) ? selectedAiModel : aiModels.first,
       aiModels: aiModels,
       aiIncludeTerminalContext: json['aiIncludeTerminalContext'] == true,
+      autoSyncEnabled: json['autoSyncEnabled'] == true,
       terminalQuickKeys: order,
       terminalCustomKeys: customKeys,
     );
@@ -105,6 +107,7 @@ class AppSettings {
   final String aiModel;
   final List<String> aiModels;
   final bool aiIncludeTerminalContext;
+  final bool autoSyncEnabled;
   final List<String> terminalQuickKeys;
   final List<TerminalCustomKey> terminalCustomKeys;
 
@@ -119,6 +122,7 @@ class AppSettings {
     String? aiModel,
     List<String>? aiModels,
     bool? aiIncludeTerminalContext,
+    bool? autoSyncEnabled,
     List<String>? terminalQuickKeys,
     List<TerminalCustomKey>? terminalCustomKeys,
   }) =>
@@ -135,6 +139,7 @@ class AppSettings {
         aiModels: aiModels ?? this.aiModels,
         aiIncludeTerminalContext:
             aiIncludeTerminalContext ?? this.aiIncludeTerminalContext,
+        autoSyncEnabled: autoSyncEnabled ?? this.autoSyncEnabled,
         terminalQuickKeys: terminalQuickKeys ?? this.terminalQuickKeys,
         terminalCustomKeys: terminalCustomKeys ?? this.terminalCustomKeys,
       );
@@ -150,6 +155,7 @@ class AppSettings {
         'aiModel': aiModel,
         'aiModels': aiModels,
         'aiIncludeTerminalContext': aiIncludeTerminalContext,
+        'autoSyncEnabled': autoSyncEnabled,
         'terminalQuickKeys': terminalQuickKeys,
         'terminalCustomKeys':
             terminalCustomKeys.map((key) => key.toJson()).toList(),

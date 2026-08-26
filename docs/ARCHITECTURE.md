@@ -147,7 +147,7 @@ Docker 调用会探测直接访问、免密 sudo 和需要密码的 sudo。破�
 
 ## 云同步
 
-`CloudSyncService` 支持 WebDAV 和 GitHub 私有 Gist。GitHub 登录使用 OAuth Device Flow，访问 Token 保存到安全存储；同步主密码与 Provider Token 分离。
+`CloudSyncService` 支持 WebDAV、GitHub 私有 Gist 和 S3。GitHub 登录使用 OAuth Device Flow，访问 Token 保存到安全存储；同步主密码与 Provider Token 分离。
 
 `NetcattyCrypto` 的 wire format：
 
@@ -164,6 +164,8 @@ Docker 调用会探测直接访问、免密 sudo 和需要密码的 sudo。破�
 保险库加载采用快照优先策略：主机元数据、分组和命令片段从 SharedPreferences 内存快照同步提供给 UI，密码、私钥和代理凭据随后从系统安全存储并行补齐。`VaultController.ready()` 是连接、编辑、导出和持久化操作的同步屏障；只读列表不得等待逐项 Keychain/Keystore 查询，也不得用尚未补齐敏感字段的快照覆盖完整保险库。
 
 客户端在本地保存最近一次成功同步的版本号与保险库指纹。设置页读取加密文件公开的 `meta.version` 作为云端版本，并通过当前保险库指纹判断本地是否存在待同步修改；该检查不保存明文保险库或同步密码。
+
+`AutoSyncController` 复用同一套拉取、记录级合并和条件写入流程。自动同步默认关闭；开启后会在本地 Vault 修改约 3 秒后同步，在应用启动、返回前台及每 5 分钟检查云端。存储层区分本地修改与云端应用事件，避免下载结果再次触发上传循环；同步请求期间出现的新本地修改会先合并回结果，再排队补充一次同步。
 
 ## 更新检查
 

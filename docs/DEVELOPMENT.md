@@ -118,7 +118,8 @@ Windows 无法完成原生 iOS 编译；涉及 Swift、Info.plist 或 iOS Plugin
 - 中文输入、文本选择、拖动选区、复制与粘贴
 - 性能面板与系统识别
 - 进程、Docker/Compose 和 tmux 操作的确认弹窗
-- WebDAV 与 GitHub Gist 拉取、合并和上传
+- WebDAV、GitHub Gist 与 S3 拉取、合并和上传
+- 自动同步开关、修改防抖、前台刷新、失败重试及同步期间继续编辑
 - 保险库导入/导出
 
 ### Android

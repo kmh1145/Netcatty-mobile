@@ -14,6 +14,15 @@ final vaultRepositoryProvider = Provider<VaultRepository>(
   (ref) => throw StateError('VaultRepository has not been initialized'),
 );
 
+enum VaultChangeOrigin { local, remote }
+
+class VaultChange {
+  const VaultChange(this.vault, this.origin);
+
+  final VaultData vault;
+  final VaultChangeOrigin origin;
+}
+
 class VaultRepository {
   VaultRepository._(this._preferences, this._secureStorage);
 
@@ -27,7 +36,7 @@ class VaultRepository {
 
   final SharedPreferences _preferences;
   final FlutterSecureStorage _secureStorage;
-  final _changes = StreamController<VaultData>.broadcast();
+  final _changes = StreamController<VaultChange>.broadcast();
   VaultData? _cachedVault;
   Future<VaultData>? _vaultLoad;
   bool _vaultSecretsLoaded = false;
@@ -46,7 +55,13 @@ class VaultRepository {
     return repository;
   }
 
-  Stream<VaultData> get changes => _changes.stream;
+  Stream<VaultData> get changes => _changes.stream.map((event) => event.vault);
+
+  /// Emits only user-originated mutations. Cloud sync listens to this stream
+  /// so applying a downloaded vault never schedules an upload loop.
+  Stream<VaultData> get localChanges => _changes.stream
+      .where((event) => event.origin == VaultChangeOrigin.local)
+      .map((event) => event.vault);
 
   /// Returns the non-secret part of the vault directly from the in-memory
   /// preferences snapshot. This lets list-oriented screens render without
@@ -148,7 +163,7 @@ class VaultRepository {
     }
   }
 
-  Future<void> saveVault(VaultData vault) async {
+  Future<void> saveVault(VaultData vault, {bool remote = false}) async {
     final activeLoad = _vaultLoad;
     if (activeLoad != null) await activeLoad;
     final previousRaw = _preferences.getString(_vaultKey);
@@ -199,7 +214,10 @@ class VaultRepository {
     await _preferences.setString(_vaultKey, jsonEncode(sanitized.toJson()));
     _cachedVault = vault;
     _vaultSecretsLoaded = true;
-    _changes.add(vault);
+    _changes.add(VaultChange(
+      vault,
+      remote ? VaultChangeOrigin.remote : VaultChangeOrigin.local,
+    ));
   }
 
   /// Persists fields that never contain credentials without touching the
@@ -211,7 +229,7 @@ class VaultRepository {
     try {
       final sanitized = _withoutSecrets(vault);
       await _preferences.setString(_vaultKey, jsonEncode(sanitized.toJson()));
-      _changes.add(vault);
+      _changes.add(VaultChange(vault, VaultChangeOrigin.local));
     } on Object {
       if (identical(_cachedVault, vault)) _cachedVault = previousCache;
       rethrow;

@@ -113,7 +113,7 @@ class CloudSyncService {
         try {
           final uploaded =
               await _uploadNew(setup.connection, local, setup.password);
-          await repository.saveVault(local);
+          await repository.saveVault(local, remote: true);
           await _saveCheckpoint(
             local,
             uploaded.connection,
@@ -158,7 +158,7 @@ class CloudSyncService {
           );
           finalVersion = uploaded.version;
         }
-        await repository.saveVault(merged);
+        await repository.saveVault(merged, remote: true);
         await _saveCheckpoint(merged, setup.connection, finalVersion);
         return CloudSyncResult(
           vault: merged,

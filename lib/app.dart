@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'application/auto_sync_controller.dart';
 import 'application/settings_controller.dart';
 import 'application/session_controller.dart';
 import 'infrastructure/ssh/connection_platform_service.dart';
@@ -18,14 +19,23 @@ class NetcattyApp extends ConsumerStatefulWidget {
 
 class _NetcattyAppState extends ConsumerState<NetcattyApp>
     with WidgetsBindingObserver {
+  late final ProviderSubscription<bool> _autoSyncSubscription;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _autoSyncSubscription = ref.listenManual<bool>(
+      settingsControllerProvider.select((settings) => settings.autoSyncEnabled),
+      (_, enabled) =>
+          ref.read(autoSyncControllerProvider.notifier).setEnabled(enabled),
+      fireImmediately: true,
+    );
   }
 
   @override
   void dispose() {
+    _autoSyncSubscription.close();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -35,6 +45,7 @@ class _NetcattyAppState extends ConsumerState<NetcattyApp>
     if (state == AppLifecycleState.resumed) {
       ConnectionPlatformService.endBackgroundGrace();
       ref.read(sessionControllerProvider.notifier).setBackgrounded(false);
+      ref.read(autoSyncControllerProvider.notifier).onAppResumed();
     } else if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden) {

@@ -27,16 +27,20 @@ void main() {
       'uiThemeId': 'catppuccin',
       'serverViewMode': 'tree',
       'terminalSecureKeyboard': true,
+      'autoSyncEnabled': true,
       'language': 'en',
     });
     expect(settings.uiThemeId, 'catppuccin');
     expect(settings.serverViewMode, 'tree');
     expect(settings.terminalSecureKeyboard, isTrue);
+    expect(settings.autoSyncEnabled, isTrue);
     expect(settings.language, 'en');
     expect(AppSettings.fromJson({'serverViewMode': 'invalid'}).serverViewMode,
         'grid');
     expect(settings.toJson()['serverViewMode'], 'tree');
     expect(settings.toJson()['terminalSecureKeyboard'], isTrue);
+    expect(settings.toJson()['autoSyncEnabled'], isTrue);
+    expect(const AppSettings().autoSyncEnabled, isFalse);
   });
 
   test('desktop and detected OS names normalize to bundled icon ids', () {
