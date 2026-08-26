@@ -114,4 +114,52 @@ void main() {
 
     expect(deleted, isTrue);
   });
+
+  testWidgets('successful host deletion closes the editor sheet',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final repository = await VaultRepository.open();
+    final host = HostProfile.create(
+      id: 'host-1',
+      label: 'Example',
+      hostname: 'example.com',
+      username: 'root',
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [vaultRepositoryProvider.overrideWithValue(repository)],
+        child: MaterialApp(
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: FilledButton(
+                onPressed: () => showModalBottomSheet<void>(
+                  context: context,
+                  isScrollControlled: true,
+                  builder: (_) => HostEditor(
+                    host: host,
+                    onDelete: () async => true,
+                  ),
+                ),
+                child: const Text('Edit'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Edit'));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('delete-host-from-editor')),
+      500,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.byKey(const ValueKey('delete-host-from-editor')));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(HostEditor), findsNothing);
+    expect(find.text('Edit'), findsOneWidget);
+  });
 }

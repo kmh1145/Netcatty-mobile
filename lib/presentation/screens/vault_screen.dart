@@ -28,13 +28,23 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
     final settings = ref.watch(settingsControllerProvider);
     final viewMode = settings.serverViewMode;
     final vault = state.data;
+    final groups = vault?.customGroups ?? const <String>[];
+    final selectedGroup = groups.contains(_group) ? _group : null;
+    if (_group != null && selectedGroup == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _group != null && !groups.contains(_group)) {
+          setState(() => _group = null);
+        }
+      });
+    }
     final hosts = (vault?.hosts ?? const <HostProfile>[]).where((host) {
       final query = _search.text.toLowerCase();
       final matchesQuery = query.isEmpty ||
           host.label.toLowerCase().contains(query) ||
           host.hostname.toLowerCase().contains(query) ||
           host.tags.any((tag) => tag.toLowerCase().contains(query));
-      return matchesQuery && (_group == null || host.group == _group);
+      return matchesQuery &&
+          (selectedGroup == null || host.group == selectedGroup);
     }).toList()
       ..sort((a, b) {
         if (a.pinned != b.pinned) return a.pinned ? -1 : 1;
@@ -112,7 +122,7 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
               ),
             ),
           ),
-          if ((vault?.customGroups.isNotEmpty ?? false))
+          if (groups.isNotEmpty)
             SizedBox(
               height: 48,
               child: ListView(
@@ -124,14 +134,14 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
                 children: [
                   ChoiceChip(
                     label: const LText('全部'),
-                    selected: _group == null,
+                    selected: selectedGroup == null,
                     onSelected: (_) => setState(() => _group = null),
                   ),
                   const SizedBox(width: 8),
-                  for (final group in vault!.customGroups) ...[
+                  for (final group in groups) ...[
                     ChoiceChip(
                       label: LText(group),
-                      selected: _group == group,
+                      selected: selectedGroup == group,
                       onSelected: (_) => setState(() => _group = group),
                     ),
                     const SizedBox(width: 8),
