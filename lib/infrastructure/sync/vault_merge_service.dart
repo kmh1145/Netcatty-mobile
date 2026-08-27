@@ -98,11 +98,74 @@ VaultData mergeVaults({
     customGroups: groups,
     proxyProfiles: proxies,
     extras: {
-      ...remote.extras,
-      ...local.extras,
+      ..._mergeOpaqueExtras(local.extras, remote.extras),
       VaultSyncState.storageKey: state.toJson(),
     },
   );
+}
+
+/// Desktop Netcatty owns every opaque payload field except the mobile sync
+/// sidecar and the host-key trust records maintained by this client. A mobile
+/// vault can contain an older cached copy of `settings` (including AI
+/// providers), notes, plugin sidecars, or other desktop-only data. Letting that
+/// cache win would roll the desktop back whenever an unrelated mobile entity
+/// changed, so the freshly downloaded snapshot is authoritative here.
+Map<String, dynamic> _mergeOpaqueExtras(
+  Map<String, dynamic> local,
+  Map<String, dynamic> remote,
+) {
+  final result = Map<String, dynamic>.from(remote);
+
+  // Preserve current and future mobile-private sidecars without allowing them
+  // to overwrite a newer copy already present in the downloaded vault.
+  for (final entry in local.entries) {
+    if (entry.key.startsWith('_netcattyMobile')) {
+      result.putIfAbsent(entry.key, () => entry.value);
+    }
+  }
+
+  final knownHosts = _mergeKnownHosts(
+    remote['knownHosts'],
+    local['knownHosts'],
+  );
+  if (knownHosts == null) {
+    result.remove('knownHosts');
+  } else {
+    result['knownHosts'] = knownHosts;
+  }
+  return result;
+}
+
+List<dynamic>? _mergeKnownHosts(Object? remote, Object? local) {
+  if (remote is! List && local is! List) return null;
+  final merged = <String, dynamic>{};
+
+  void addAll(Object? value, String source) {
+    if (value is! List) return;
+    for (var index = 0; index < value.length; index++) {
+      final item = value[index];
+      merged[_knownHostKey(item, source, index)] = item;
+    }
+  }
+
+  addAll(remote, 'remote');
+  // A fingerprint accepted on this phone is device-local state and must not be
+  // discarded merely because desktop cloud snapshots omit knownHosts.
+  addAll(local, 'local');
+  return merged.values.toList(growable: false);
+}
+
+String _knownHostKey(Object? value, String source, int index) {
+  if (value is Map) {
+    final hostname = value['hostname']?.toString().trim() ?? '';
+    if (hostname.isNotEmpty) {
+      final port = (value['port'] as num?)?.toInt() ?? 22;
+      return '$hostname:$port';
+    }
+    final id = value['id']?.toString().trim() ?? '';
+    if (id.isNotEmpty) return 'id:$id';
+  }
+  return '$source:$index';
 }
 
 List<T> _mergeEntities<T>({
