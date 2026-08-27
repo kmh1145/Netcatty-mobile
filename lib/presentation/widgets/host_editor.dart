@@ -540,7 +540,10 @@ class _HostEditorState extends ConsumerState<HostEditor> {
 
   Future<void> _delete() async {
     FocusManager.instance.primaryFocus?.unfocus();
-    if (await widget.onDelete!() && mounted) Navigator.pop(context);
+    final navigator = Navigator.of(context);
+    if (await widget.onDelete!() && navigator.canPop()) {
+      navigator.pop();
+    }
   }
 
   void _save() {
