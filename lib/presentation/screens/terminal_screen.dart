@@ -16,6 +16,7 @@ import '../../infrastructure/ssh/ssh_service.dart';
 import '../../infrastructure/ssh/terminal_picture_in_picture_service.dart';
 import '../../infrastructure/storage/vault_repository.dart';
 import '../widgets/empty_state.dart';
+import '../widgets/custom_background.dart';
 import '../widgets/ai_chat_sheet.dart';
 import '../widgets/host_system_icon.dart';
 import '../widgets/port_forward_sheet.dart';
@@ -66,6 +67,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
     final visibleSession = selectedPending == null ? state.active : null;
     final fullscreen = ref.watch(terminalFullscreenProvider);
     final pictureInPicture = ref.watch(terminalPictureInPictureProvider);
+    final customBackground = hasCustomBackground(settings);
     if ((fullscreen || pictureInPicture) && visibleSession == null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
@@ -103,9 +105,15 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
                         Expanded(
                           child: state.tabCount == 0
                               ? const LText('终端')
-                              : ListView.builder(
+                              : ReorderableListView.builder(
                                   scrollDirection: Axis.horizontal,
+                                  buildDefaultDragHandles: false,
                                   itemCount: state.tabCount,
+                                  onReorderItem: ref
+                                      .read(
+                                        sessionControllerProvider.notifier,
+                                      )
+                                      .reorderSessionTab,
                                   itemBuilder: (_, index) {
                                     final host = tabHosts[index];
                                     final occurrence = tabHosts
@@ -121,6 +129,9 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
                                       final failed = pending.phase ==
                                           PendingConnectionPhase.failed;
                                       return Padding(
+                                        key: ValueKey(
+                                          'pending-terminal-tab-${pending.id}',
+                                        ),
                                         padding: const EdgeInsets.symmetric(
                                           vertical: 7,
                                           horizontal: 2,
@@ -165,34 +176,42 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
                                       );
                                     }
                                     final session = state.sessions[index];
-                                    return Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                        vertical: 7,
-                                        horizontal: 2,
+                                    return ReorderableDelayedDragStartListener(
+                                      key: ValueKey(
+                                        'terminal-tab-${session.id}',
                                       ),
-                                      child: InputChip(
-                                        selected: state.activeIndex == index,
-                                        showCheckmark: false,
-                                        avatar: Icon(
-                                          session.connected
-                                              ? Icons.circle
-                                              : Icons.error_outline,
-                                          size: session.connected ? 10 : 16,
-                                          color: session.connected
-                                              ? Colors.greenAccent
-                                              : Colors.orangeAccent,
+                                      index: index,
+                                      child: Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          vertical: 7,
+                                          horizontal: 2,
                                         ),
-                                        label: LText(
-                                          duplicateCount > 1
-                                              ? '${session.host.label} #$occurrence'
-                                              : session.host.label,
+                                        child: InputChip(
+                                          selected: state.activeIndex == index,
+                                          showCheckmark: false,
+                                          avatar: Icon(
+                                            session.connected
+                                                ? Icons.circle
+                                                : Icons.error_outline,
+                                            size: session.connected ? 10 : 16,
+                                            color: session.connected
+                                                ? Colors.greenAccent
+                                                : Colors.orangeAccent,
+                                          ),
+                                          label: LText(
+                                            duplicateCount > 1
+                                                ? '${session.host.label} #$occurrence'
+                                                : session.host.label,
+                                          ),
+                                          onPressed: () => ref
+                                              .read(
+                                                sessionControllerProvider
+                                                    .notifier,
+                                              )
+                                              .activate(index),
+                                          onDeleted: () =>
+                                              _confirmClose(index, session),
                                         ),
-                                        onPressed: () => ref
-                                            .read(sessionControllerProvider
-                                                .notifier)
-                                            .activate(index),
-                                        onDeleted: () =>
-                                            _confirmClose(index, session),
                                       ),
                                     );
                                   },
@@ -254,6 +273,8 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
                                     secureKeyboard:
                                         settings.terminalSecureKeyboard,
                                     pictureInPicture: pictureInPicture,
+                                    transparentBackground:
+                                        customBackground && !pictureInPicture,
                                   );
                                 }
                                 final secondIndex = (state.activeIndex + 1) %
@@ -267,6 +288,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
                                       secureKeyboard:
                                           settings.terminalSecureKeyboard,
                                       pictureInPicture: false,
+                                      transparentBackground: customBackground,
                                     ),
                                   ),
                                   const Divider(height: 1, thickness: 1),
@@ -279,6 +301,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
                                       secureKeyboard:
                                           settings.terminalSecureKeyboard,
                                       pictureInPicture: false,
+                                      transparentBackground: customBackground,
                                     ),
                                   ),
                                 ];

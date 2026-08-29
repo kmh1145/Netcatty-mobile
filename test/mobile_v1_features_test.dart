@@ -6,6 +6,7 @@ import 'package:netcatty_mobile/domain/models/settings.dart';
 import 'package:netcatty_mobile/infrastructure/ssh/server_monitor_service.dart';
 import 'package:netcatty_mobile/infrastructure/ssh/sftp_service.dart';
 import 'package:netcatty_mobile/presentation/theme.dart';
+import 'package:netcatty_mobile/presentation/widgets/custom_background.dart';
 
 void main() {
   test('desktop theme catalogue exposes 62 light and 62 dark themes', () {
@@ -28,19 +29,43 @@ void main() {
       'serverViewMode': 'tree',
       'terminalSecureKeyboard': true,
       'autoSyncEnabled': true,
+      'customBackgroundEnabled': true,
+      'customBackgroundPath': '/app/background.jpg',
+      'customBackgroundOpacity': 0.65,
+      'customBackgroundAlignment': 'bottomRight',
       'language': 'en',
     });
     expect(settings.uiThemeId, 'catppuccin');
     expect(settings.serverViewMode, 'tree');
     expect(settings.terminalSecureKeyboard, isTrue);
     expect(settings.autoSyncEnabled, isTrue);
+    expect(settings.customBackgroundEnabled, isTrue);
+    expect(settings.customBackgroundPath, '/app/background.jpg');
+    expect(settings.customBackgroundOpacity, 0.65);
+    expect(settings.customBackgroundAlignment, 'bottomRight');
     expect(settings.language, 'en');
     expect(AppSettings.fromJson({'serverViewMode': 'invalid'}).serverViewMode,
         'grid');
     expect(settings.toJson()['serverViewMode'], 'tree');
     expect(settings.toJson()['terminalSecureKeyboard'], isTrue);
     expect(settings.toJson()['autoSyncEnabled'], isTrue);
+    expect(settings.toJson()['customBackgroundPath'], '/app/background.jpg');
     expect(const AppSettings().autoSyncEnabled, isFalse);
+    expect(
+      AppSettings.fromJson({
+        'customBackgroundOpacity': 5,
+        'customBackgroundAlignment': 'invalid',
+      }).customBackgroundOpacity,
+      1,
+    );
+    expect(
+      AppSettings.fromJson({
+        'customBackgroundAlignment': 'invalid',
+      }).customBackgroundAlignment,
+      'center',
+    );
+    expect(resolveCustomBackgroundAlignment('topLeft'), Alignment.topLeft);
+    expect(resolveCustomBackgroundAlignment('invalid'), Alignment.center);
   });
 
   test('desktop and detected OS names normalize to bundled icon ids', () {

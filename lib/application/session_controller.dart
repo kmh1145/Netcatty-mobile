@@ -426,6 +426,23 @@ class SessionController extends StateNotifier<SessionState> {
     );
   }
 
+  void reorderSessionTab(int oldIndex, int newIndex) {
+    final sessions = [...state.sessions];
+    if (oldIndex < 0 || oldIndex >= sessions.length) return;
+    final activeId = state.active?.id;
+    final insertionIndex = newIndex.clamp(0, sessions.length - 1);
+    if (insertionIndex == oldIndex) return;
+    final moved = sessions.removeAt(oldIndex);
+    sessions.insert(insertionIndex, moved);
+    final activeIndex = activeId == null
+        ? 0
+        : sessions.indexWhere((session) => session.id == activeId);
+    state = state.copyWith(
+      sessions: sessions,
+      activeIndex: activeIndex < 0 ? 0 : activeIndex,
+    );
+  }
+
   Future<void> close(int index) async {
     if (index < 0 || index >= state.sessions.length) return;
     final sessions = [...state.sessions];

@@ -120,6 +120,68 @@ void main() {
     );
   });
 
+  test('terminal session tabs reorder without changing the active session',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    final repository = await VaultRepository.open();
+    final first = ActiveTerminalSession(
+      id: 'session-first',
+      host: _host('first', 'First'),
+      terminal: Terminal(),
+      verifyHostKey: _acceptHostKey,
+      keyboardInteractive: null,
+    );
+    final second = ActiveTerminalSession(
+      id: 'session-second',
+      host: _host('second', 'Second'),
+      terminal: Terminal(),
+      verifyHostKey: _acceptHostKey,
+      keyboardInteractive: null,
+    );
+    final pending = PendingTerminalConnection(
+      id: 'pending-third',
+      host: _host('third', 'Third'),
+    );
+    final container = ProviderContainer(
+      overrides: [
+        vaultRepositoryProvider.overrideWithValue(repository),
+        sessionControllerProvider.overrideWith(
+          (ref) => _SeededSessionController(
+            ref.read(vaultControllerProvider.notifier),
+            ref,
+            SessionState(
+              sessions: [first, second],
+              activeIndex: 1,
+              pendingConnections: [pending],
+            ),
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    final controller = container.read(sessionControllerProvider.notifier);
+
+    controller.reorderSessionTab(0, 1);
+    var state = container.read(sessionControllerProvider);
+    expect(state.sessions.map((session) => session.id), [second.id, first.id]);
+    expect(state.active?.id, second.id);
+
+    controller.reorderSessionTab(0, 2);
+    state = container.read(sessionControllerProvider);
+    expect(state.sessions.map((session) => session.id), [first.id, second.id]);
+    expect(state.active?.id, second.id);
+    expect(state.pendingConnections.single.id, pending.id);
+
+    controller.reorderSessionTab(2, 0);
+    expect(
+      container
+          .read(sessionControllerProvider)
+          .sessions
+          .map((session) => session.id),
+      [first.id, second.id],
+    );
+  });
+
   testWidgets(
     'connection progress is a dialog in its tab and existing terminal stays usable',
     (tester) async {
@@ -175,6 +237,15 @@ void main() {
       );
       expect(find.text('已有终端'), findsOneWidget);
       expect(find.text('正在连接'), findsWidgets);
+      expect(find.byType(ReorderableListView), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('terminal-tab-session-1')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('pending-terminal-tab-pending-1')),
+        findsOneWidget,
+      );
       expect(
         find.byKey(const ValueKey('cancel-pending-connection')),
         findsOneWidget,
