@@ -74,7 +74,7 @@ Netcatty-mobile/
 | `ssh/server_monitor_service.dart` | 系统识别与 CPU/内存/磁盘/网络/负载采集 |
 | `ssh/sftp_service.dart` | `FileTransferService`、远程/本地文件实现、递归传输、进度和 iOS 有界并发 |
 | `ssh/android_document_tree_service.dart` | Android SAF Dart 适配器，通过 MethodChannel 读写授权目录 |
-| `ssh/system_management_service.dart` | 进程信号、Docker、Compose、tmux 命令构造、权限探测和输出解析 |
+| `ssh/system_management_service.dart` | 进程信号、Docker、Compose、systemd/OpenRC、tmux 命令构造、权限探测和输出解析 |
 | `ssh/connection_platform_service.dart` | 活动 SSH 会话与原生后台策略之间的桥接 |
 | `ssh/terminal_picture_in_picture_service.dart` | Android/iOS PiP MethodChannel 封装 |
 
@@ -84,6 +84,7 @@ Netcatty-mobile/
 | --- | --- |
 | `application/auto_sync_controller.dart` | 自动同步开关、修改防抖、前台/周期刷新、失败退避和并发修改保护 |
 | `storage/vault_repository.dart` | SharedPreferences、安全存储、Vault/设置/同步连接的持久化 |
+| `storage/background_image_service.dart` | 自定义背景复制、便携路径引用、旧 App 容器绝对路径迁移和清理 |
 | `storage/vault_export_service.dart` | 保险库 JSON 选择路径、保存和取消处理 |
 | `sync/netcatty_crypto.dart` | 桌面兼容 PBKDF2 + AES-GCM 加密格式 |
 | `sync/cloud_sync_service.dart` | WebDAV/Gist/S3 下载、解密、合并、加密上传与 Gist 发现 |
@@ -108,9 +109,9 @@ Netcatty-mobile/
 | --- | --- |
 | `screens/vault_screen.dart` | 主机搜索、筛选、网格/列表/树形视图、连接详情与编辑入口 |
 | `screens/terminal_screen.dart` / `terminal_screen_pane.dart` | Pending 弹窗、多标签、终端输入、分屏、全屏、选区和底部工具栏 |
-| `screens/sftp_screen.dart` / `sftp_screen_pane.dart` | 双栏来源选择、文件操作、跨服务复制、续传和传输进度 |
+| `screens/sftp_screen.dart` / `sftp_screen_pane.dart` | 单/双栏来源选择、文件操作、跨服务复制、续传和传输进度 |
 | `screens/snippets_screen.dart` | 命令片段列表、新增、编辑和发送 |
-| `screens/settings_screen.dart` / `settings_screen_dialogs.dart` | 云同步与自动同步、GitHub 登录、主题、语言、安全键盘、导入导出与应用版本 |
+| `screens/settings_screen.dart` / `settings_screen_dialogs.dart` | 云同步与自动同步、GitHub 登录、主题、自定义背景、语言、安全键盘、导入导出与应用版本 |
 
 ### 通用组件
 
@@ -129,11 +130,13 @@ Netcatty-mobile/
 
 ```text
 presentation/widgets/system_management/
-├─ system_management_sheet.dart   进程 / Docker / tmux 顶层 Tab
+├─ system_management_sheet.dart   进程 / Docker / 服务 / tmux 顶层 Tab
 ├─ process_manager_panel.dart      进程筛选、排序、详情与信号操作
 ├─ docker_manager_panel.dart       容器 / 镜像管理
 ├─ docker_compose_panel.dart       Compose 项目与常用操作
 ├─ docker_image_badge.dart         镜像品牌识别与图标
+├─ service_manager_panel.dart      systemd / OpenRC 服务筛选与操作
+├─ management_filter_chip.dart     系统管理页共用状态筛选标签
 └─ tmux_manager_panel.dart         Session / Window / Client 管理
 ```
 
