@@ -124,11 +124,11 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
           ),
           if (groups.isNotEmpty)
             SizedBox(
-              height: 56,
+              height: 48,
               child: ListView(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 12,
-                  vertical: 8,
+                  vertical: 6,
                 ),
                 scrollDirection: Axis.horizontal,
                 children: [
@@ -523,17 +523,17 @@ class _VaultGroupChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => SizedBox(
-        height: 40,
+        height: 36,
         child: ChoiceChip(
           selected: selected,
           showCheckmark: false,
           onSelected: (_) => onSelected(),
           materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          visualDensity: VisualDensity.standard,
+          visualDensity: const VisualDensity(horizontal: -1, vertical: -1),
           padding: EdgeInsets.zero,
-          labelPadding: const EdgeInsets.symmetric(horizontal: 10),
+          labelPadding: const EdgeInsets.symmetric(horizontal: 8),
           label: ConstrainedBox(
-            constraints: const BoxConstraints(minWidth: 56, minHeight: 32),
+            constraints: const BoxConstraints(minWidth: 52, minHeight: 28),
             child: Center(
               child: LText(
                 label,

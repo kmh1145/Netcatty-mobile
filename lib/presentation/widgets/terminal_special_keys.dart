@@ -23,6 +23,7 @@ class TerminalSpecialKeys extends ConsumerStatefulWidget {
     required this.onFullscreen,
     required this.split,
     required this.onSplit,
+    this.transparentBackground = false,
   });
 
   final List<String> order;
@@ -38,6 +39,7 @@ class TerminalSpecialKeys extends ConsumerStatefulWidget {
   final VoidCallback onFullscreen;
   final bool split;
   final VoidCallback? onSplit;
+  final bool transparentBackground;
 
   @override
   ConsumerState<TerminalSpecialKeys> createState() =>
@@ -61,7 +63,10 @@ class _TerminalSpecialKeysState extends ConsumerState<TerminalSpecialKeys> {
     return AnimatedBuilder(
       animation: widget.inputController,
       builder: (context, _) => Material(
-        color: Theme.of(context).colorScheme.surface,
+        key: const ValueKey('terminal-special-keys-surface'),
+        color: widget.transparentBackground
+            ? Colors.transparent
+            : Theme.of(context).colorScheme.surface,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(8, 6, 8, 4),
           child: Column(

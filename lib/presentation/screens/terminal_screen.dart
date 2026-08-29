@@ -366,6 +366,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
                     onSplit: state.sessions.length > 1
                         ? () => setState(() => _split = !_split)
                         : null,
+                    transparentBackground: customBackground,
                   ),
               ],
             ),

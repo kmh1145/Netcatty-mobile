@@ -57,6 +57,6 @@ void main() {
     final labelCenter = tester.getCenter(label);
     expect((chipCenter.dx - labelCenter.dx).abs(), lessThan(1));
     expect((chipCenter.dy - labelCenter.dy).abs(), lessThan(1));
-    expect(tester.getSize(chip).height, 40);
+    expect(tester.getSize(chip).height, 36);
   });
 }

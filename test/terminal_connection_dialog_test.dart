@@ -388,6 +388,16 @@ void main() {
         expect(terminalView.backgroundOpacity, 0);
         expect(terminalView.theme.background, isNot(Colors.transparent));
         expect(terminalView.theme.background.toARGB32() >>> 24, 255);
+        expect(
+          tester
+              .widget<Material>(
+                find.byKey(
+                  const ValueKey('terminal-special-keys-surface'),
+                ),
+              )
+              .color,
+          Colors.transparent,
+        );
       },
     );
   }
@@ -438,6 +448,14 @@ void main() {
       TextInputType.emailAddress,
     );
     expect(tester.widget<TerminalView>(normalView).backgroundOpacity, 1);
+    expect(
+      tester
+          .widget<Material>(
+            find.byKey(const ValueKey('terminal-special-keys-surface')),
+          )
+          .color,
+      isNot(Colors.transparent),
+    );
     final normalState = tester.state<TerminalViewState>(normalView);
 
     await settingsController.updateTerminalSecureKeyboard(true);
