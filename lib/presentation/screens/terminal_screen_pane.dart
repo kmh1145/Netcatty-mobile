@@ -5,11 +5,13 @@ class _ConnectionStatusPane extends StatelessWidget {
     required this.pending,
     this.onReturn,
     this.onClose,
+    this.onCancel,
   });
 
   final PendingTerminalConnection pending;
   final VoidCallback? onReturn;
   final VoidCallback? onClose;
+  final VoidCallback? onCancel;
 
   @override
   Widget build(BuildContext context) {
@@ -77,7 +79,9 @@ class _ConnectionStatusPane extends StatelessWidget {
                             ),
                       ),
                     ],
-                    if (onReturn != null || onClose != null) ...[
+                    if (onReturn != null ||
+                        onClose != null ||
+                        onCancel != null) ...[
                       const SizedBox(height: 18),
                       Wrap(
                         alignment: WrapAlignment.center,
@@ -95,6 +99,13 @@ class _ConnectionStatusPane extends StatelessWidget {
                               onPressed: onClose,
                               icon: const Icon(Icons.close),
                               label: const LText('关闭标签页'),
+                            ),
+                          if (onCancel != null)
+                            FilledButton.icon(
+                              key: const ValueKey('cancel-pending-connection'),
+                              onPressed: onCancel,
+                              icon: const Icon(Icons.stop_circle_outlined),
+                              label: const LText('终止连接'),
                             ),
                         ],
                       ),
@@ -155,11 +166,13 @@ class _TerminalPane extends StatefulWidget {
     required this.fontSize,
     required this.secureKeyboard,
     required this.pictureInPicture,
+    required this.transparentBackground,
   });
   final ActiveTerminalSession session;
   final double fontSize;
   final bool secureKeyboard;
   final bool pictureInPicture;
+  final bool transparentBackground;
 
   @override
   State<_TerminalPane> createState() => _TerminalPaneState();
@@ -242,6 +255,8 @@ class _TerminalPaneState extends State<_TerminalPane> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final paneBackground =
+        widget.transparentBackground ? Colors.transparent : scheme.surface;
     final terminalTheme = TerminalTheme(
       cursor: scheme.primary,
       selection: scheme.primary.withValues(alpha: 0.35),
@@ -268,7 +283,7 @@ class _TerminalPaneState extends State<_TerminalPane> {
       searchHitForeground: scheme.onSurface,
     );
     return ColoredBox(
-      color: scheme.surface,
+      color: paneBackground,
       child: AnimatedBuilder(
         animation: Listenable.merge([_controller, _scrollController]),
         builder: (context, _) {
@@ -290,6 +305,7 @@ class _TerminalPaneState extends State<_TerminalPane> {
                 controller: _controller,
                 scrollController: _scrollController,
                 theme: terminalTheme,
+                backgroundOpacity: widget.transparentBackground ? 0 : 1,
                 keyboardAppearance: Theme.of(context).brightness,
                 keyboardType: widget.secureKeyboard
                     ? TextInputType.visiblePassword

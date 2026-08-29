@@ -21,6 +21,13 @@ typedef KeyboardInteractiveHandler = Future<List<String>?> Function(
   List<({String text, bool echo})> prompts,
 );
 
+class ConnectionCancelledException implements Exception {
+  const ConnectionCancelledException();
+
+  @override
+  String toString() => '连接已由用户终止';
+}
+
 /// Applies one-shot toolbar modifiers to the next system-keyboard input.
 /// This bridges Flutter's soft keyboard and the terminal toolbar, which do
 /// not share hardware modifier state on Android or iOS.
@@ -127,6 +134,12 @@ class ActiveTerminalSession {
 }
 
 class SshService {
+  final _pendingConnections = <String, _PendingConnection>{};
+
+  void cancelConnection(String sessionId) {
+    _pendingConnections[sessionId]?.cancel();
+  }
+
   Future<ActiveTerminalSession> connect({
     required String sessionId,
     required HostProfile host,
@@ -137,83 +150,110 @@ class SshService {
     KeyboardInteractiveHandler? keyboardInteractive,
     Terminal? terminal,
   }) async {
-    if (host.protocol == HostProtocol.telnet) {
-      return _connectTelnet(
-        sessionId,
-        host,
-        verifyHostKey,
-        keyboardInteractive,
-        terminal,
-      );
-    }
-    if (host.protocol == HostProtocol.mosh) {
-      throw UnsupportedError('Mosh 需要平台原生 UDP 运行时，当前版本尚未启用。');
-    }
-
-    final chain = _resolveHostChain(host, hosts);
-    final route = [...chain, host];
-    final clients = <SSHClient>[];
-    SSHSocket? transport;
+    _pendingConnections.remove(sessionId)?.cancel();
+    final pending = _PendingConnection();
+    _pendingConnections[sessionId] = pending;
     try {
-      for (var index = 0; index < route.length; index++) {
-        final current = route[index];
-        transport ??= await _openTransport(
-          current,
-          proxyProfiles,
-          timeout: _connectTimeout(current),
-        );
-        final client = _createClient(
-          transport,
-          current,
-          keys,
+      if (host.protocol == HostProtocol.telnet) {
+        return await _connectTelnet(
+          sessionId,
+          host,
           verifyHostKey,
           keyboardInteractive,
+          terminal,
+          pending,
         );
-        clients.add(client);
-        if (index < route.length - 1) {
-          final next = route[index + 1];
-          transport = await client.forwardLocal(next.hostname, next.port);
-        }
+      }
+      if (host.protocol == HostProtocol.mosh) {
+        throw UnsupportedError('Mosh 需要平台原生 UDP 运行时，当前版本尚未启用。');
       }
 
-      final client = clients.last;
-      final session = await client.shell(
-        pty: const SSHPtyConfig(type: 'xterm-256color', width: 80, height: 24),
-        environment: _environment(host),
-      );
-      final output = terminal ?? Terminal(maxLines: 10000);
-      final input = TerminalInputController();
-      output.onOutput = (value) => session.write(
-            Uint8List.fromList(utf8.encode(input.consume(value))),
+      final chain = _resolveHostChain(host, hosts);
+      final route = [...chain, host];
+      final clients = <SSHClient>[];
+      SSHSocket? transport;
+      try {
+        for (var index = 0; index < route.length; index++) {
+          final current = route[index];
+          final activeTransport = transport ??
+              await pending.waitFor<SSHSocket>(
+                _openTransport(
+                  current,
+                  proxyProfiles,
+                  timeout: _connectTimeout(current),
+                ),
+                onCancelled: (socket) => socket.destroy(),
+              );
+          transport = activeTransport;
+          pending.transport = activeTransport;
+          pending.throwIfCancelled();
+          final client = _createClient(
+            activeTransport,
+            current,
+            keys,
+            verifyHostKey,
+            keyboardInteractive,
           );
-      output.onResize = (width, height, pixelWidth, pixelHeight) {
-        session.resizeTerminal(width, height, pixelWidth, pixelHeight);
-      };
-      session.stdout.listen(
-        (data) => output.write(utf8.decode(data, allowMalformed: true)),
-      );
-      session.stderr.listen(
-        (data) => output.write(utf8.decode(data, allowMalformed: true)),
-      );
-      final startup = host.startupCommand;
-      if (startup != null && startup.isNotEmpty) {
-        session.write(Uint8List.fromList(utf8.encode('$startup\n')));
+          clients.add(client);
+          pending.clients.add(client);
+          pending.throwIfCancelled();
+          if (index < route.length - 1) {
+            final next = route[index + 1];
+            transport = await pending.waitFor<SSHForwardChannel>(
+              client.forwardLocal(next.hostname, next.port),
+              onCancelled: (socket) => socket.destroy(),
+            );
+            pending.transport = transport;
+          }
+        }
+
+        final client = clients.last;
+        final session = await pending.waitFor(
+          client.shell(
+            pty: const SSHPtyConfig(
+                type: 'xterm-256color', width: 80, height: 24),
+            environment: _environment(host),
+          ),
+          onCancelled: (value) => value.close(),
+        );
+        final output = terminal ?? Terminal(maxLines: 10000);
+        final input = TerminalInputController();
+        output.onOutput = (value) => session.write(
+              Uint8List.fromList(utf8.encode(input.consume(value))),
+            );
+        output.onResize = (width, height, pixelWidth, pixelHeight) {
+          session.resizeTerminal(width, height, pixelWidth, pixelHeight);
+        };
+        session.stdout.listen(
+          (data) => output.write(utf8.decode(data, allowMalformed: true)),
+        );
+        session.stderr.listen(
+          (data) => output.write(utf8.decode(data, allowMalformed: true)),
+        );
+        final startup = host.startupCommand;
+        if (startup != null && startup.isNotEmpty) {
+          session.write(Uint8List.fromList(utf8.encode('$startup\n')));
+        }
+        return ActiveTerminalSession(
+          id: sessionId,
+          host: host,
+          terminal: output,
+          verifyHostKey: verifyHostKey,
+          keyboardInteractive: keyboardInteractive,
+          input: input,
+          sshClients: clients,
+          sshSession: session,
+        );
+      } catch (_) {
+        for (final client in clients.reversed) {
+          client.close();
+        }
+        rethrow;
       }
-      return ActiveTerminalSession(
-        id: sessionId,
-        host: host,
-        terminal: output,
-        verifyHostKey: verifyHostKey,
-        keyboardInteractive: keyboardInteractive,
-        input: input,
-        sshClients: clients,
-        sshSession: session,
-      );
-    } catch (_) {
-      for (final client in clients.reversed) {
-        client.close();
+    } finally {
+      if (identical(_pendingConnections[sessionId], pending)) {
+        _pendingConnections.remove(sessionId);
       }
-      rethrow;
     }
   }
 
@@ -427,12 +467,18 @@ class SshService {
     HostKeyVerifier verifyHostKey,
     KeyboardInteractiveHandler? keyboardInteractive,
     Terminal? existingTerminal,
+    _PendingConnection pending,
   ) async {
-    final socket = await Socket.connect(
-      host.hostname,
-      host.port,
-      timeout: const Duration(seconds: 15),
+    final socket = await pending.waitFor(
+      Socket.connect(
+        host.hostname,
+        host.port,
+        timeout: const Duration(seconds: 15),
+      ),
+      onCancelled: (value) => value.destroy(),
     );
+    pending.telnetSocket = socket;
+    pending.throwIfCancelled();
     final terminal = existingTerminal ?? Terminal(maxLines: 10000);
     final input = TerminalInputController();
     terminal.onOutput =
@@ -460,6 +506,56 @@ class SshService {
       input: input,
       telnetSocket: socket,
     );
+  }
+}
+
+const _connectionCancelledMarker = Object();
+
+class _PendingConnectionResult<T> {
+  const _PendingConnectionResult(this.value);
+  final T value;
+}
+
+class _PendingConnection {
+  final cancelled = Completer<void>();
+  final clients = <SSHClient>[];
+  SSHSocket? transport;
+  Socket? telnetSocket;
+
+  bool get isCancelled => cancelled.isCompleted;
+
+  void cancel() {
+    if (cancelled.isCompleted) return;
+    cancelled.complete();
+    telnetSocket?.destroy();
+    transport?.destroy();
+    for (final client in clients.reversed) {
+      client.close();
+    }
+  }
+
+  void throwIfCancelled() {
+    if (isCancelled) throw const ConnectionCancelledException();
+  }
+
+  Future<T> waitFor<T>(
+    Future<T> operation, {
+    void Function(T value)? onCancelled,
+  }) async {
+    throwIfCancelled();
+    final winner = await Future.any<Object>([
+      operation.then<Object>(_PendingConnectionResult<T>.new),
+      cancelled.future.then<Object>((_) => _connectionCancelledMarker),
+    ]);
+    if (identical(winner, _connectionCancelledMarker)) {
+      unawaited(
+        operation.then<void>((value) {
+          onCancelled?.call(value);
+        }).catchError((Object _) {}),
+      );
+      throw const ConnectionCancelledException();
+    }
+    return (winner as _PendingConnectionResult<T>).value;
   }
 }
 

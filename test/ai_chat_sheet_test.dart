@@ -45,6 +45,7 @@ void main() {
             onMessagesChanged: (_) {},
             terminalContext: () => 'nginx is active',
             onModelChanged: (_) async {},
+            onReasoningEffortChanged: (_) async {},
             onCommand: (command, execute) async {
               sent.add((command: command, execute: execute));
             },
@@ -190,6 +191,47 @@ void main() {
     expect(jsonEncode(requestBody), contains('shared terminal output'));
   });
 
+  testWidgets('reasoning selector sits above the input and updates requests',
+      (tester) async {
+    late Map<String, dynamic> requestBody;
+    final changedEfforts = <String>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: _testSheet(
+            settings: const AppSettings(aiReasoningEffort: 'low'),
+            service: AiService(
+              client: MockClient((request) async {
+                requestBody = jsonDecode(request.body) as Map<String, dynamic>;
+                return _chatResponse('已调整');
+              }),
+            ),
+            onReasoningEffortChanged: (effort) async {
+              changedEfforts.add(effort);
+            },
+          ),
+        ),
+      ),
+    );
+
+    final selector = find.byKey(
+      const ValueKey('ai-chat-reasoning-selector'),
+    );
+    final input = find.byKey(const ValueKey('ai-chat-input'));
+    expect(
+        tester.getTopLeft(selector).dy, lessThan(tester.getTopLeft(input).dy));
+    await tester.tap(selector);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('思考：高').last);
+    await tester.pumpAndSettle();
+    await tester.enterText(input, '深入分析');
+    await tester.tap(find.byKey(const ValueKey('ai-chat-send')));
+    await tester.pumpAndSettle();
+
+    expect(changedEfforts, ['high']);
+    expect(requestBody['reasoning_effort'], 'high');
+  });
+
   testWidgets('persisted chat history is capped at 30 messages',
       (tester) async {
     var persisted = <AiChatMessage>[];
@@ -233,6 +275,7 @@ AiChatSheet _testSheet({
   AiService? service,
   String Function()? terminalContext,
   Future<void> Function(String model)? onModelChanged,
+  Future<void> Function(String effort)? onReasoningEffortChanged,
   ValueChanged<List<AiChatMessage>>? onMessagesChanged,
 }) {
   return AiChatSheet(
@@ -254,6 +297,7 @@ AiChatSheet _testSheet({
     onMessagesChanged: onMessagesChanged ?? (_) {},
     terminalContext: terminalContext ?? () => 'recent terminal output',
     onModelChanged: onModelChanged ?? (_) async {},
+    onReasoningEffortChanged: onReasoningEffortChanged ?? (_) async {},
     onCommand: (_, __) async {},
   );
 }

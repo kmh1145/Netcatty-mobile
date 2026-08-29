@@ -294,6 +294,7 @@ class _ProcessManagerPanelState extends State<ProcessManagerPanel> {
                   FilterChip(
                     label: const LText('仅运行中'),
                     selected: _runningOnly,
+                    showCheckmark: false,
                     onSelected: (value) => setState(() => _runningOnly = value),
                   ),
                   IconButton(

@@ -44,6 +44,7 @@ void main() {
       settings: const AppSettings(
         aiEndpoint: 'https://ai.example.com/v1/',
         aiModel: 'test-model',
+        aiReasoningEffort: 'high',
       ),
       apiKey: 'secret',
       hostSummary: 'SSH session NAS; endpoint root@nas.example.com:22022',
@@ -54,6 +55,7 @@ void main() {
     expect(reply.content, '可以继续检查服务状态。');
     expect(reply.command, 'systemctl --failed');
     expect(requestBody['model'], 'test-model');
+    expect(requestBody['reasoning_effort'], 'high');
     final messages = (requestBody['messages'] as List).cast<Map>();
     expect(
       messages[1]['content'],
@@ -76,6 +78,34 @@ void main() {
     );
     expect(messages.last, {'role': 'user', 'content': '继续检查'});
     expect(messages.first['content'], contains('never assume port 22'));
+  });
+
+  test('fetches and normalizes models from an OpenAI-compatible API', () async {
+    late http.Request captured;
+    final service = AiService(
+      client: MockClient((request) async {
+        captured = request;
+        return http.Response(
+          jsonEncode({
+            'data': [
+              {'id': 'model-z'},
+              {'id': 'model-a'},
+              {'id': 'model-z'},
+            ],
+          }),
+          200,
+        );
+      }),
+    );
+
+    final models = await service.fetchModels(
+      endpoint: 'https://ai.example.com/v1/',
+      apiKey: 'secret',
+    );
+
+    expect(captured.url.toString(), 'https://ai.example.com/v1/models');
+    expect(captured.headers['authorization'], 'Bearer secret');
+    expect(models, ['model-a', 'model-z']);
   });
 
   test('plain text replies from compatible providers remain usable', () async {

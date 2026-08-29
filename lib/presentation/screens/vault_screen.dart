@@ -128,21 +128,23 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
               child: ListView(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 12,
-                  vertical: 8,
+                  vertical: 6,
                 ),
                 scrollDirection: Axis.horizontal,
                 children: [
-                  ChoiceChip(
-                    label: const LText('全部'),
+                  _VaultGroupChip(
+                    key: const ValueKey('vault-group-chip-all'),
+                    label: '全部',
                     selected: selectedGroup == null,
-                    onSelected: (_) => setState(() => _group = null),
+                    onSelected: () => setState(() => _group = null),
                   ),
                   const SizedBox(width: 8),
                   for (final group in groups) ...[
-                    ChoiceChip(
-                      label: LText(group),
+                    _VaultGroupChip(
+                      key: ValueKey('vault-group-chip-$group'),
+                      label: group,
                       selected: selectedGroup == group,
-                      onSelected: (_) => setState(() => _group = group),
+                      onSelected: () => setState(() => _group = group),
                     ),
                     const SizedBox(width: 8),
                   ],
@@ -505,6 +507,44 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
     await ref.read(vaultControllerProvider.notifier).deleteHost(host.id);
     return true;
   }
+}
+
+class _VaultGroupChip extends StatelessWidget {
+  const _VaultGroupChip({
+    super.key,
+    required this.label,
+    required this.selected,
+    required this.onSelected,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onSelected;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+        height: 36,
+        child: ChoiceChip(
+          selected: selected,
+          showCheckmark: false,
+          onSelected: (_) => onSelected(),
+          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          visualDensity: const VisualDensity(horizontal: -1, vertical: -1),
+          padding: EdgeInsets.zero,
+          labelPadding: const EdgeInsets.symmetric(horizontal: 8),
+          label: ConstrainedBox(
+            constraints: const BoxConstraints(minWidth: 52, minHeight: 28),
+            child: Center(
+              child: LText(
+                label,
+                textAlign: TextAlign.center,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ),
+        ),
+      );
 }
 
 class _HostTree extends StatelessWidget {

@@ -6,6 +6,7 @@ import '../../../infrastructure/ssh/ssh_service.dart';
 import '../../../infrastructure/ssh/system_management_service.dart';
 import 'docker_manager_panel.dart';
 import 'process_manager_panel.dart';
+import 'service_manager_panel.dart';
 import 'tmux_manager_panel.dart';
 
 class SystemManagementSheet extends StatefulWidget {
@@ -34,7 +35,7 @@ class _SystemManagementSheetState extends State<SystemManagementSheet>
   @override
   void initState() {
     super.initState();
-    _tabs = TabController(length: 3, vsync: this);
+    _tabs = TabController(length: 4, vsync: this);
   }
 
   @override
@@ -93,9 +94,15 @@ class _SystemManagementSheetState extends State<SystemManagementSheet>
             ),
             TabBar(
               controller: _tabs,
+              isScrollable: true,
+              tabAlignment: TabAlignment.center,
               tabs: const [
                 Tab(icon: Icon(Icons.account_tree_outlined), text: '进程'),
                 Tab(icon: Icon(Icons.view_in_ar_outlined), text: 'Docker'),
+                Tab(
+                  icon: Icon(Icons.miscellaneous_services_outlined),
+                  text: '服务',
+                ),
                 Tab(icon: Icon(Icons.terminal_outlined), text: 'tmux'),
               ],
             ),
@@ -113,6 +120,10 @@ class _SystemManagementSheetState extends State<SystemManagementSheet>
                     service: _service,
                     onOpenTerminal: _runInteractive,
                     onOpenConfig: _openSftp,
+                  ),
+                  ServiceManagerPanel(
+                    session: widget.session,
+                    service: _service,
                   ),
                   TmuxManagerPanel(
                     session: widget.session,

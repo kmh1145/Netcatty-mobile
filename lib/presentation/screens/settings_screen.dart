@@ -14,6 +14,8 @@ import '../../application/settings_controller.dart';
 import '../../application/vault_controller.dart';
 import '../../domain/models/settings.dart';
 import '../../domain/models/vault.dart';
+import '../../infrastructure/ai/ai_service.dart';
+import '../../infrastructure/storage/background_image_service.dart';
 import '../../infrastructure/storage/vault_repository.dart';
 import '../../infrastructure/storage/vault_export_service.dart';
 import '../../infrastructure/http_client_provider.dart';
@@ -23,6 +25,7 @@ import '../../infrastructure/update_check_service.dart';
 import '../theme.dart';
 import '../localization/localized_widgets.dart';
 import '../widgets/keychain_sheet.dart';
+import '../widgets/custom_background.dart';
 
 part 'settings_screen_dialogs.dart';
 
@@ -36,6 +39,7 @@ class SettingsScreen extends ConsumerStatefulWidget {
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   late final Future<PackageInfo> _packageInfo;
   late final UpdateCheckService _updateCheckService;
+  final _backgroundImageService = BackgroundImageService();
   late Future<UpdateCheckResult> _updateCheck;
   final endpoint = TextEditingController();
   final username = TextEditingController();
@@ -57,10 +61,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   var uiThemeId = 'tokyo-night';
   var terminalFontSize = 14.0;
   var terminalSecureKeyboard = false;
+  var customBackgroundEnabled = false;
+  var customBackgroundPath = '';
+  var customBackgroundOpacity = 0.35;
+  var customBackgroundAlignment = 'center';
+  var customBackgroundScope = 'global';
+  var _persistedBackgroundPath = '';
   var _savingTerminalSecureKeyboard = false;
   var aiModels = <String>[defaultAiModel];
   var selectedAiModel = defaultAiModel;
+  var aiReasoningEffort = defaultAiReasoningEffort;
   var aiIncludeTerminalContext = false;
+  var _fetchingAiModels = false;
   var autoSyncEnabled = false;
   var _savingAutoSync = false;
   var language = 'zh-CN';
@@ -92,6 +104,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   @override
   void dispose() {
+    if (customBackgroundPath.isNotEmpty &&
+        customBackgroundPath != _persistedBackgroundPath) {
+      unawaited(_backgroundImageService.remove(customBackgroundPath));
+    }
     _updateCheckService.close();
     endpoint.dispose();
     username.dispose();
@@ -129,12 +145,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     aiEndpoint.text = settings.aiEndpoint;
     aiModels = [...settings.aiModels];
     selectedAiModel = settings.aiModel;
+    aiReasoningEffort = settings.aiReasoningEffort;
     aiIncludeTerminalContext = settings.aiIncludeTerminalContext;
     autoSyncEnabled = settings.autoSyncEnabled;
     themeMode = settings.themeMode;
     uiThemeId = settings.uiThemeId;
     terminalFontSize = settings.terminalFontSize;
     terminalSecureKeyboard = settings.terminalSecureKeyboard;
+    customBackgroundEnabled = settings.customBackgroundEnabled;
+    customBackgroundPath = settings.customBackgroundPath;
+    customBackgroundOpacity = settings.customBackgroundOpacity;
+    customBackgroundAlignment = settings.customBackgroundAlignment;
+    customBackgroundScope = settings.customBackgroundScope;
+    _persistedBackgroundPath = settings.customBackgroundPath;
     language = settings.language;
     aiKey.text = await repository.readAiApiKey() ?? '';
     _githubUser =
@@ -222,6 +245,143 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           );
                         },
                       ),
+                      SwitchListTile(
+                        key: const ValueKey('custom-background-switch'),
+                        contentPadding: EdgeInsets.zero,
+                        title: const LText('自定义背景'),
+                        subtitle: LText(
+                          customBackgroundPath.isEmpty
+                              ? '选择图片后可调整显示效果'
+                              : '背景图片已保存到 App 本地目录',
+                        ),
+                        value: customBackgroundEnabled,
+                        onChanged: (value) async {
+                          if (value && customBackgroundPath.isEmpty) {
+                            await _pickBackgroundImage();
+                            return;
+                          }
+                          if (mounted) {
+                            setState(() => customBackgroundEnabled = value);
+                          }
+                        },
+                      ),
+                      if (customBackgroundEnabled) ...[
+                        SegmentedButton<String>(
+                          key: const ValueKey('custom-background-scope'),
+                          expandedInsets: EdgeInsets.zero,
+                          segments: const [
+                            ButtonSegment(
+                              value: 'global',
+                              icon: Icon(Icons.layers_outlined),
+                              label: LText('全局背景'),
+                            ),
+                            ButtonSegment(
+                              value: 'terminal',
+                              icon: Icon(Icons.terminal_outlined),
+                              label: LText('仅终端'),
+                            ),
+                          ],
+                          selected: {customBackgroundScope},
+                          onSelectionChanged: (value) => setState(
+                            () => customBackgroundScope = value.first,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: LText(
+                            customBackgroundScope == 'global'
+                                ? '背景应用到所有页面、顶部栏和底部导航栏'
+                                : '背景仅应用到终端页面',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        _backgroundPreview(),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                key: const ValueKey(
+                                  'custom-background-picker',
+                                ),
+                                onPressed: _pickBackgroundImage,
+                                icon: const Icon(Icons.image_outlined),
+                                label: LText(
+                                  customBackgroundPath.isEmpty
+                                      ? '选择背景图片'
+                                      : '更换背景图片',
+                                ),
+                              ),
+                            ),
+                            if (customBackgroundPath.isNotEmpty) ...[
+                              const SizedBox(width: 8),
+                              IconButton.outlined(
+                                key: const ValueKey(
+                                  'custom-background-remove',
+                                ),
+                                tooltip: localized('移除背景图片'),
+                                onPressed: _removeBackgroundImage,
+                                icon: const Icon(Icons.delete_outline),
+                              ),
+                            ],
+                          ],
+                        ),
+                        Row(
+                          children: [
+                            const LText('背景不透明度'),
+                            Expanded(
+                              child: Slider(
+                                key: const ValueKey(
+                                  'custom-background-opacity',
+                                ),
+                                value: customBackgroundOpacity,
+                                min: 0.05,
+                                max: 1,
+                                divisions: 19,
+                                label:
+                                    '${(customBackgroundOpacity * 100).round()}%',
+                                onChanged: (value) => setState(
+                                  () => customBackgroundOpacity = value,
+                                ),
+                              ),
+                            ),
+                            SizedBox(
+                              width: 42,
+                              child: LText(
+                                '${(customBackgroundOpacity * 100).round()}%',
+                                textAlign: TextAlign.end,
+                              ),
+                            ),
+                          ],
+                        ),
+                        DropdownButtonFormField<String>(
+                          key: ValueKey(
+                            'custom-background-alignment-$customBackgroundAlignment',
+                          ),
+                          initialValue: customBackgroundAlignment,
+                          decoration: LInputDecoration(labelText: '背景对齐方式'),
+                          items: [
+                            for (final value
+                                in supportedCustomBackgroundAlignments)
+                              DropdownMenuItem(
+                                value: value,
+                                child: LText(
+                                  _backgroundAlignmentLabel(value),
+                                ),
+                              ),
+                          ],
+                          onChanged: (value) {
+                            if (value != null) {
+                              setState(
+                                () => customBackgroundAlignment = value,
+                              );
+                            }
+                          },
+                        ),
+                        const SizedBox(height: 8),
+                      ],
                       Row(
                         children: [
                           const LText('终端字号'),
@@ -551,6 +711,31 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         decoration: LInputDecoration(labelText: 'API 地址'),
                       ),
                       const SizedBox(height: 10),
+                      TextField(
+                        controller: aiKey,
+                        obscureText: true,
+                        decoration: LInputDecoration(labelText: 'API Key'),
+                      ),
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          key: const ValueKey('ai-model-fetch'),
+                          onPressed: _fetchingAiModels ? null : _fetchAiModels,
+                          icon: _fetchingAiModels
+                              ? const SizedBox.square(
+                                  dimension: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.cloud_download_outlined),
+                          label: LText(
+                            _fetchingAiModels ? '正在拉取模型…' : '自动拉取模型',
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
                       DropdownButtonFormField<String>(
                         key: ValueKey(
                           'ai-model-$selectedAiModel-${aiModels.join('|')}',
@@ -572,6 +757,27 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         onChanged: (value) {
                           if (value != null) {
                             setState(() => selectedAiModel = value);
+                          }
+                        },
+                      ),
+                      const SizedBox(height: 10),
+                      DropdownButtonFormField<String>(
+                        key: ValueKey(
+                          'ai-reasoning-effort-$aiReasoningEffort',
+                        ),
+                        initialValue: aiReasoningEffort,
+                        isExpanded: true,
+                        decoration: LInputDecoration(labelText: '默认思考强度'),
+                        items: [
+                          for (final effort in supportedAiReasoningEfforts)
+                            DropdownMenuItem(
+                              value: effort,
+                              child: LText(_reasoningEffortLabel(effort)),
+                            ),
+                        ],
+                        onChanged: (value) {
+                          if (value != null) {
+                            setState(() => aiReasoningEffort = value);
                           }
                         },
                       ),
@@ -611,12 +817,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               ),
                           ],
                         ),
-                      ),
-                      const SizedBox(height: 10),
-                      TextField(
-                        controller: aiKey,
-                        obscureText: true,
-                        decoration: LInputDecoration(labelText: 'API Key'),
                       ),
                       SwitchListTile.adaptive(
                         contentPadding: EdgeInsets.zero,
@@ -1161,11 +1361,36 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             aiEndpoint: aiEndpoint.text.trim(),
             aiModel: selectedAiModel,
             aiModels: List<String>.unmodifiable(aiModels),
+            aiReasoningEffort: aiReasoningEffort,
             aiIncludeTerminalContext: aiIncludeTerminalContext,
           ),
         );
     await repository.saveAiApiKey(aiKey.text);
     _message('AI 设置已保存');
+  }
+
+  Future<void> _fetchAiModels() async {
+    if (_fetchingAiModels) return;
+    setState(() => _fetchingAiModels = true);
+    try {
+      final models =
+          await AiService(client: ref.read(httpClientProvider)).fetchModels(
+        endpoint: aiEndpoint.text,
+        apiKey: aiKey.text,
+      );
+      if (!mounted) return;
+      setState(() {
+        aiModels = [...models];
+        if (!aiModels.contains(selectedAiModel)) {
+          selectedAiModel = aiModels.first;
+        }
+      });
+      _message('已拉取 ${models.length} 个模型');
+    } catch (error) {
+      _message('$error');
+    } finally {
+      if (mounted) setState(() => _fetchingAiModels = false);
+    }
   }
 
   void _addAiModel() {
@@ -1186,6 +1411,99 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     });
   }
 
+  String _reasoningEffortLabel(String effort) => switch (effort) {
+        'minimal' => '极低',
+        'low' => '低',
+        'medium' => '中',
+        'high' => '高',
+        _ => '模型默认',
+      };
+
+  Widget _backgroundPreview() {
+    if (customBackgroundPath.isEmpty) return const SizedBox.shrink();
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(10),
+      child: AspectRatio(
+        aspectRatio: 16 / 7,
+        child: ColoredBox(
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+          child: Opacity(
+            opacity: customBackgroundOpacity,
+            child: Image.file(
+              File(customBackgroundPath),
+              key: ValueKey('custom-background-preview-$customBackgroundPath'),
+              fit: BoxFit.cover,
+              alignment: resolveCustomBackgroundAlignment(
+                customBackgroundAlignment,
+              ),
+              gaplessPlayback: true,
+              errorBuilder: (_, __, ___) => const Center(
+                child: LText('背景图片无法读取，请重新选择'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickBackgroundImage() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.image,
+        allowMultiple: false,
+        withData: false,
+        withReadStream: true,
+      );
+      if (result == null || result.files.isEmpty) return;
+      final selected = result.files.single;
+      final stored = await _backgroundImageService.persist(
+        sourcePath: selected.path,
+        bytes: selected.bytes,
+        stream: selected.readStream,
+        extension: selected.extension,
+      );
+      if (customBackgroundPath.isNotEmpty &&
+          customBackgroundPath != _persistedBackgroundPath) {
+        await _backgroundImageService.remove(customBackgroundPath);
+      }
+      if (!mounted) {
+        await _backgroundImageService.remove(stored);
+        return;
+      }
+      setState(() {
+        customBackgroundPath = stored;
+        customBackgroundEnabled = true;
+      });
+    } catch (error) {
+      _message('选择背景图片失败：$error');
+    }
+  }
+
+  Future<void> _removeBackgroundImage() async {
+    final staged = customBackgroundPath;
+    if (staged.isNotEmpty && staged != _persistedBackgroundPath) {
+      await _backgroundImageService.remove(staged);
+    }
+    if (!mounted) return;
+    setState(() {
+      customBackgroundPath = '';
+      customBackgroundEnabled = false;
+    });
+  }
+
+  String _backgroundAlignmentLabel(String value) => switch (value) {
+        'topLeft' => '左上',
+        'topCenter' => '顶部居中',
+        'topRight' => '右上',
+        'centerLeft' => '左侧居中',
+        'centerRight' => '右侧居中',
+        'bottomLeft' => '左下',
+        'bottomCenter' => '底部居中',
+        'bottomRight' => '右下',
+        _ => '居中',
+      };
+
   Future<void> _saveAppearance() async {
     final current = ref.read(settingsControllerProvider);
     await ref.read(settingsControllerProvider.notifier).update(
@@ -1194,9 +1512,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             uiThemeId: uiThemeId,
             terminalFontSize: terminalFontSize,
             terminalSecureKeyboard: terminalSecureKeyboard,
+            customBackgroundEnabled: customBackgroundEnabled,
+            customBackgroundPath: customBackgroundPath,
+            customBackgroundOpacity: customBackgroundOpacity,
+            customBackgroundAlignment: customBackgroundAlignment,
+            customBackgroundScope: customBackgroundScope,
             language: language,
           ),
         );
+    final previousBackgroundPath = _persistedBackgroundPath;
+    _persistedBackgroundPath = customBackgroundPath;
+    if (previousBackgroundPath.isNotEmpty &&
+        previousBackgroundPath != customBackgroundPath) {
+      await _backgroundImageService.remove(previousBackgroundPath);
+    }
     _message('外观设置已保存');
   }
 

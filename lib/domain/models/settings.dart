@@ -4,6 +4,26 @@ const minTerminalFontSize = 6.0;
 const maxTerminalFontSize = 24.0;
 const defaultAiModel = 'gpt-4.1-mini';
 const maxAiChatHistoryMessages = 30;
+const defaultAiReasoningEffort = 'default';
+const supportedAiReasoningEfforts = <String>[
+  defaultAiReasoningEffort,
+  'minimal',
+  'low',
+  'medium',
+  'high',
+];
+const supportedCustomBackgroundAlignments = <String>{
+  'topLeft',
+  'topCenter',
+  'topRight',
+  'centerLeft',
+  'center',
+  'centerRight',
+  'bottomLeft',
+  'bottomCenter',
+  'bottomRight',
+};
+const supportedCustomBackgroundScopes = <String>{'global', 'terminal'};
 
 class TerminalCustomKey {
   const TerminalCustomKey({
@@ -37,10 +57,16 @@ class AppSettings {
     this.serverViewMode = 'grid',
     this.terminalFontSize = 14,
     this.terminalSecureKeyboard = false,
+    this.customBackgroundEnabled = false,
+    this.customBackgroundPath = '',
+    this.customBackgroundOpacity = 0.35,
+    this.customBackgroundAlignment = 'center',
+    this.customBackgroundScope = 'global',
     this.language = 'zh-CN',
     this.aiEndpoint = 'https://api.openai.com/v1',
     this.aiModel = defaultAiModel,
     this.aiModels = const [defaultAiModel],
+    this.aiReasoningEffort = defaultAiReasoningEffort,
     this.aiIncludeTerminalContext = false,
     this.autoSyncEnabled = false,
     this.terminalQuickKeys = defaultTerminalQuickKeys,
@@ -85,11 +111,26 @@ class AppSettings {
           .clamp(minTerminalFontSize, maxTerminalFontSize)
           .toDouble(),
       terminalSecureKeyboard: json['terminalSecureKeyboard'] == true,
+      customBackgroundEnabled: json['customBackgroundEnabled'] == true,
+      customBackgroundPath: json['customBackgroundPath']?.toString() ?? '',
+      customBackgroundOpacity:
+          ((json['customBackgroundOpacity'] as num?)?.toDouble() ?? 0.35)
+              .clamp(0.05, 1.0)
+              .toDouble(),
+      customBackgroundAlignment: _customBackgroundAlignment(
+        json['customBackgroundAlignment']?.toString(),
+      ),
+      customBackgroundScope: _customBackgroundScope(
+        json['customBackgroundScope']?.toString(),
+      ),
       language: json['language']?.toString() ?? 'zh-CN',
       aiEndpoint: json['aiEndpoint']?.toString() ?? 'https://api.openai.com/v1',
       aiModel:
           aiModels.contains(selectedAiModel) ? selectedAiModel : aiModels.first,
       aiModels: aiModels,
+      aiReasoningEffort: _aiReasoningEffort(
+        json['aiReasoningEffort']?.toString(),
+      ),
       aiIncludeTerminalContext: json['aiIncludeTerminalContext'] == true,
       autoSyncEnabled: json['autoSyncEnabled'] == true,
       terminalQuickKeys: order,
@@ -102,10 +143,16 @@ class AppSettings {
   final String serverViewMode;
   final double terminalFontSize;
   final bool terminalSecureKeyboard;
+  final bool customBackgroundEnabled;
+  final String customBackgroundPath;
+  final double customBackgroundOpacity;
+  final String customBackgroundAlignment;
+  final String customBackgroundScope;
   final String language;
   final String aiEndpoint;
   final String aiModel;
   final List<String> aiModels;
+  final String aiReasoningEffort;
   final bool aiIncludeTerminalContext;
   final bool autoSyncEnabled;
   final List<String> terminalQuickKeys;
@@ -117,10 +164,16 @@ class AppSettings {
     String? serverViewMode,
     double? terminalFontSize,
     bool? terminalSecureKeyboard,
+    bool? customBackgroundEnabled,
+    String? customBackgroundPath,
+    double? customBackgroundOpacity,
+    String? customBackgroundAlignment,
+    String? customBackgroundScope,
     String? language,
     String? aiEndpoint,
     String? aiModel,
     List<String>? aiModels,
+    String? aiReasoningEffort,
     bool? aiIncludeTerminalContext,
     bool? autoSyncEnabled,
     List<String>? terminalQuickKeys,
@@ -133,10 +186,20 @@ class AppSettings {
         terminalFontSize: terminalFontSize ?? this.terminalFontSize,
         terminalSecureKeyboard:
             terminalSecureKeyboard ?? this.terminalSecureKeyboard,
+        customBackgroundEnabled:
+            customBackgroundEnabled ?? this.customBackgroundEnabled,
+        customBackgroundPath: customBackgroundPath ?? this.customBackgroundPath,
+        customBackgroundOpacity:
+            customBackgroundOpacity ?? this.customBackgroundOpacity,
+        customBackgroundAlignment:
+            customBackgroundAlignment ?? this.customBackgroundAlignment,
+        customBackgroundScope:
+            customBackgroundScope ?? this.customBackgroundScope,
         language: language ?? this.language,
         aiEndpoint: aiEndpoint ?? this.aiEndpoint,
         aiModel: aiModel ?? this.aiModel,
         aiModels: aiModels ?? this.aiModels,
+        aiReasoningEffort: aiReasoningEffort ?? this.aiReasoningEffort,
         aiIncludeTerminalContext:
             aiIncludeTerminalContext ?? this.aiIncludeTerminalContext,
         autoSyncEnabled: autoSyncEnabled ?? this.autoSyncEnabled,
@@ -150,10 +213,16 @@ class AppSettings {
         'serverViewMode': serverViewMode,
         'terminalFontSize': terminalFontSize,
         'terminalSecureKeyboard': terminalSecureKeyboard,
+        'customBackgroundEnabled': customBackgroundEnabled,
+        'customBackgroundPath': customBackgroundPath,
+        'customBackgroundOpacity': customBackgroundOpacity,
+        'customBackgroundAlignment': customBackgroundAlignment,
+        'customBackgroundScope': customBackgroundScope,
         'language': language,
         'aiEndpoint': aiEndpoint,
         'aiModel': aiModel,
         'aiModels': aiModels,
+        'aiReasoningEffort': aiReasoningEffort,
         'aiIncludeTerminalContext': aiIncludeTerminalContext,
         'autoSyncEnabled': autoSyncEnabled,
         'terminalQuickKeys': terminalQuickKeys,
@@ -163,6 +232,17 @@ class AppSettings {
 
   static String _serverViewMode(String? value) =>
       const {'grid', 'list', 'tree'}.contains(value) ? value! : 'grid';
+
+  static String _customBackgroundAlignment(String? value) =>
+      supportedCustomBackgroundAlignments.contains(value) ? value! : 'center';
+
+  static String _customBackgroundScope(String? value) =>
+      supportedCustomBackgroundScopes.contains(value) ? value! : 'global';
+
+  static String _aiReasoningEffort(String? value) =>
+      supportedAiReasoningEfforts.contains(value)
+          ? value!
+          : defaultAiReasoningEffort;
 
   static List<String> _normalizeAiModels(
     Object? value, {

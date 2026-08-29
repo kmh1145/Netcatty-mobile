@@ -136,14 +136,15 @@ FileTransferService
 
 ## 系统管理
 
-`SystemManagementService` 将远程命令输出转换为 `domain/models/system_management.dart` 中的模型。UI 由 `SystemManagementSheet` 和四组 Panel 组成：
+`SystemManagementService` 将远程命令输出转换为 `domain/models/system_management.dart` 中的模型。UI 由 `SystemManagementSheet` 和五组 Panel 组成：
 
 - `ProcessManagerPanel`
 - `DockerManagerPanel`
 - `DockerComposePanel`
+- `ServiceManagerPanel`
 - `TmuxManagerPanel`
 
-Docker 调用会探测直接访问、免密 sudo 和需要密码的 sudo。破坏性操作（KILL、删除容器/镜像、Compose Down 等）必须保留二次确认。远程命令参数要经过 Shell 转义，解析逻辑应配套单元测试。
+Docker 与服务管理调用会探测直接访问、免密 sudo 和需要密码的 sudo。服务面板自动识别 systemd/OpenRC，并提供启动、停止、重启和开机自启管理。破坏性操作（KILL、删除容器/镜像、Compose Down 等）必须保留二次确认。远程命令参数要经过 Shell 转义，解析逻辑应配套单元测试。
 
 ## 云同步
 

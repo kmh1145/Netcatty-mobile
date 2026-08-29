@@ -9,6 +9,7 @@ import 'package:uuid/uuid.dart';
 import '../../domain/models/host.dart';
 import '../../domain/models/settings.dart';
 import '../../domain/models/vault.dart';
+import 'background_image_service.dart';
 
 final vaultRepositoryProvider = Provider<VaultRepository>(
   (ref) => throw StateError('VaultRepository has not been initialized'),
@@ -24,7 +25,11 @@ class VaultChange {
 }
 
 class VaultRepository {
-  VaultRepository._(this._preferences, this._secureStorage);
+  VaultRepository._(
+    this._preferences,
+    this._secureStorage,
+    this._backgroundImageService,
+  );
 
   static const _vaultKey = 'netcatty_mobile_vault_v1';
   static const _settingsKey = 'netcatty_mobile_settings_v1';
@@ -36,12 +41,15 @@ class VaultRepository {
 
   final SharedPreferences _preferences;
   final FlutterSecureStorage _secureStorage;
+  final BackgroundImageService _backgroundImageService;
   final _changes = StreamController<VaultChange>.broadcast();
   VaultData? _cachedVault;
   Future<VaultData>? _vaultLoad;
   bool _vaultSecretsLoaded = false;
 
-  static Future<VaultRepository> open() async {
+  static Future<VaultRepository> open({
+    BackgroundImageService? backgroundImageService,
+  }) async {
     final repository = VaultRepository._(
       await SharedPreferences.getInstance(),
       const FlutterSecureStorage(
@@ -50,6 +58,7 @@ class VaultRepository {
           accessibility: KeychainAccessibility.first_unlock_this_device,
         ),
       ),
+      backgroundImageService ?? BackgroundImageService(),
     );
     repository.loadVaultPreview();
     return repository;
@@ -263,13 +272,50 @@ class VaultRepository {
 
   Future<AppSettings> loadSettings() async {
     final raw = _preferences.getString(_settingsKey);
-    return raw == null
-        ? const AppSettings()
-        : AppSettings.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+    if (raw == null) return const AppSettings();
+    final settings = AppSettings.fromJson(
+      jsonDecode(raw) as Map<String, dynamic>,
+    );
+    String resolvedPath;
+    try {
+      resolvedPath = await _backgroundImageService.resolveStoredPath(
+        settings.customBackgroundPath,
+      );
+    } on Object {
+      return settings;
+    }
+    final resolved = resolvedPath == settings.customBackgroundPath
+        ? settings
+        : settings.copyWith(customBackgroundPath: resolvedPath);
+    var portablePath = settings.customBackgroundPath;
+    if (!portablePath.startsWith(BackgroundImageService.managedPathPrefix)) {
+      try {
+        portablePath = await _backgroundImageService.toStoredPath(resolvedPath);
+      } on Object {
+        return resolved;
+      }
+    }
+    if (portablePath != settings.customBackgroundPath) {
+      await _preferences.setString(
+        _settingsKey,
+        jsonEncode(
+          resolved.copyWith(customBackgroundPath: portablePath).toJson(),
+        ),
+      );
+    }
+    return resolved;
   }
 
-  Future<void> saveSettings(AppSettings settings) =>
-      _preferences.setString(_settingsKey, jsonEncode(settings.toJson()));
+  Future<void> saveSettings(AppSettings settings) async {
+    var portablePath = settings.customBackgroundPath;
+    try {
+      portablePath = await _backgroundImageService.toStoredPath(portablePath);
+    } on Object {
+      // Keep settings writable if the platform storage API is unavailable.
+    }
+    final persisted = settings.copyWith(customBackgroundPath: portablePath);
+    await _preferences.setString(_settingsKey, jsonEncode(persisted.toJson()));
+  }
 
   Future<SyncConnection?> loadSyncConnection() async {
     final raw = _preferences.getString(_syncKey);

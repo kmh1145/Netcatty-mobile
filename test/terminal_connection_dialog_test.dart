@@ -29,6 +29,43 @@ void main() {
     expect(state.copyWith(activePendingId: null).pendingConnections, [pending]);
   });
 
+  test('cancelling a pending connection removes its tab and stops transport',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    final repository = await VaultRepository.open();
+    final host = _host('cancel', '等待连接');
+    final pending = PendingTerminalConnection(id: 'pending-cancel', host: host);
+    final service = _TrackingSshService();
+    final container = ProviderContainer(
+      overrides: [
+        vaultRepositoryProvider.overrideWithValue(repository),
+        sessionControllerProvider.overrideWith(
+          (ref) => _SeededSessionController(
+            ref.read(vaultControllerProvider.notifier),
+            ref,
+            SessionState(
+              pendingConnections: [pending],
+              activePendingId: pending.id,
+            ),
+            service: service,
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    container
+        .read(sessionControllerProvider.notifier)
+        .cancelPendingConnection(pending.id);
+
+    expect(service.cancelledIds, [pending.id]);
+    expect(
+      container.read(sessionControllerProvider).pendingConnections,
+      isEmpty,
+    );
+    expect(container.read(sessionControllerProvider).activePendingId, isNull);
+  });
+
   test('commands can target a captured session instead of the active tab',
       () async {
     SharedPreferences.setMockInitialValues({});
@@ -80,6 +117,68 @@ void main() {
     expect(
       () => controller.sendToSession('closed-session', 'whoami'),
       throwsStateError,
+    );
+  });
+
+  test('terminal session tabs reorder without changing the active session',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    final repository = await VaultRepository.open();
+    final first = ActiveTerminalSession(
+      id: 'session-first',
+      host: _host('first', 'First'),
+      terminal: Terminal(),
+      verifyHostKey: _acceptHostKey,
+      keyboardInteractive: null,
+    );
+    final second = ActiveTerminalSession(
+      id: 'session-second',
+      host: _host('second', 'Second'),
+      terminal: Terminal(),
+      verifyHostKey: _acceptHostKey,
+      keyboardInteractive: null,
+    );
+    final pending = PendingTerminalConnection(
+      id: 'pending-third',
+      host: _host('third', 'Third'),
+    );
+    final container = ProviderContainer(
+      overrides: [
+        vaultRepositoryProvider.overrideWithValue(repository),
+        sessionControllerProvider.overrideWith(
+          (ref) => _SeededSessionController(
+            ref.read(vaultControllerProvider.notifier),
+            ref,
+            SessionState(
+              sessions: [first, second],
+              activeIndex: 1,
+              pendingConnections: [pending],
+            ),
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    final controller = container.read(sessionControllerProvider.notifier);
+
+    controller.reorderSessionTab(0, 1);
+    var state = container.read(sessionControllerProvider);
+    expect(state.sessions.map((session) => session.id), [second.id, first.id]);
+    expect(state.active?.id, second.id);
+
+    controller.reorderSessionTab(0, 2);
+    state = container.read(sessionControllerProvider);
+    expect(state.sessions.map((session) => session.id), [first.id, second.id]);
+    expect(state.active?.id, second.id);
+    expect(state.pendingConnections.single.id, pending.id);
+
+    controller.reorderSessionTab(2, 0);
+    expect(
+      container
+          .read(sessionControllerProvider)
+          .sessions
+          .map((session) => session.id),
+      [first.id, second.id],
     );
   });
 
@@ -138,6 +237,30 @@ void main() {
       );
       expect(find.text('已有终端'), findsOneWidget);
       expect(find.text('正在连接'), findsWidgets);
+      expect(find.byType(ReorderableListView), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('terminal-tab-session-1')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('pending-terminal-tab-pending-1')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('cancel-pending-connection')),
+        findsOneWidget,
+      );
+
+      await tester.tap(
+        find.byKey(const ValueKey('cancel-pending-connection')),
+      );
+      await tester.pump();
+
+      expect(
+        find.byKey(const ValueKey('terminal-connection-status-dialog')),
+        findsNothing,
+      );
+      expect(find.byType(TerminalView), findsOneWidget);
 
       await tester.tap(find.text('已有终端'));
       await tester.pump();
@@ -147,7 +270,7 @@ void main() {
         findsNothing,
       );
       expect(find.byType(TerminalView), findsOneWidget);
-      expect(find.text('正在连接'), findsOneWidget);
+      expect(find.text('正在连接'), findsNothing);
       expect(
         tester.widget<TerminalView>(find.byType(TerminalView)).deleteDetection,
         isTrue,
@@ -214,6 +337,71 @@ void main() {
     },
   );
 
+  for (final brightness in Brightness.values) {
+    testWidgets(
+      'custom background makes the xterm canvas transparent in ${brightness.name} mode',
+      (tester) async {
+        SharedPreferences.setMockInitialValues({});
+        final repository = await VaultRepository.open();
+        final settingsController = _SeededSettingsController(
+          repository,
+          const AppSettings(
+            customBackgroundEnabled: true,
+            customBackgroundPath: '/app/background.jpg',
+            customBackgroundScope: 'terminal',
+          ),
+        );
+        final session = ActiveTerminalSession(
+          id: 'transparent-${brightness.name}',
+          host: _host('transparent', '透明终端'),
+          terminal: Terminal(),
+          verifyHostKey: _acceptHostKey,
+          keyboardInteractive: null,
+        );
+
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              vaultRepositoryProvider.overrideWithValue(repository),
+              settingsControllerProvider.overrideWith(
+                (ref) => settingsController,
+              ),
+              sessionControllerProvider.overrideWith(
+                (ref) => _SeededSessionController(
+                  ref.read(vaultControllerProvider.notifier),
+                  ref,
+                  SessionState(sessions: [session]),
+                ),
+              ),
+            ],
+            child: MaterialApp(
+              theme: ThemeData(brightness: brightness),
+              home: const Scaffold(body: TerminalScreen()),
+            ),
+          ),
+        );
+        await tester.pump();
+
+        final terminalView = tester.widget<TerminalView>(
+          find.byType(TerminalView),
+        );
+        expect(terminalView.backgroundOpacity, 0);
+        expect(terminalView.theme.background, isNot(Colors.transparent));
+        expect(terminalView.theme.background.toARGB32() >>> 24, 255);
+        expect(
+          tester
+              .widget<Material>(
+                find.byKey(
+                  const ValueKey('terminal-special-keys-surface'),
+                ),
+              )
+              .color,
+          Colors.transparent,
+        );
+      },
+    );
+  }
+
   testWidgets('secure keyboard change recreates and persists the IME mode',
       (tester) async {
     SharedPreferences.setMockInitialValues({});
@@ -259,6 +447,15 @@ void main() {
       tester.widget<TerminalView>(normalView).keyboardType,
       TextInputType.emailAddress,
     );
+    expect(tester.widget<TerminalView>(normalView).backgroundOpacity, 1);
+    expect(
+      tester
+          .widget<Material>(
+            find.byKey(const ValueKey('terminal-special-keys-surface')),
+          )
+          .color,
+      isNot(Colors.transparent),
+    );
     final normalState = tester.state<TerminalViewState>(normalView);
 
     await settingsController.updateTerminalSecureKeyboard(true);
@@ -282,15 +479,26 @@ class _SeededSessionController extends SessionController {
   _SeededSessionController(
     VaultController vaultController,
     Ref ref,
-    SessionState initialState,
-  ) : super(SshService(), vaultController, ref) {
+    SessionState initialState, {
+    SshService? service,
+  }) : super(service ?? SshService(), vaultController, ref) {
     state = initialState;
   }
 }
 
+class _TrackingSshService extends SshService {
+  final cancelledIds = <String>[];
+
+  @override
+  void cancelConnection(String sessionId) => cancelledIds.add(sessionId);
+}
+
 class _SeededSettingsController extends SettingsController {
-  _SeededSettingsController(super.repository) {
-    state = const AppSettings();
+  _SeededSettingsController(
+    super.repository, [
+    AppSettings initialState = const AppSettings(),
+  ]) {
+    state = initialState;
   }
 }
 
