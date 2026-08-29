@@ -4,6 +4,7 @@ import 'package:netcatty_mobile/presentation/localization/localized_widgets.dart
 import '../../../domain/models/system_management.dart';
 import '../../../infrastructure/ssh/ssh_service.dart';
 import '../../../infrastructure/ssh/system_management_service.dart';
+import 'management_filter_chip.dart';
 
 enum _ServiceFilter { all, running, stopped, failed }
 
@@ -209,29 +210,16 @@ class _ServiceManagerPanelState extends State<ServiceManagerPanel> {
             ],
           ),
         ),
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
+        Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: SegmentedButton<_ServiceFilter>(
-            segments: const [
-              ButtonSegment(value: _ServiceFilter.all, label: LText('全部')),
-              ButtonSegment(
-                value: _ServiceFilter.running,
-                label: LText('运行中'),
-              ),
-              ButtonSegment(
-                value: _ServiceFilter.stopped,
-                label: LText('已停止'),
-              ),
-              ButtonSegment(
-                value: _ServiceFilter.failed,
-                label: LText('失败'),
-              ),
+          child: Wrap(
+            spacing: 6,
+            children: [
+              _filterChip('全部', _ServiceFilter.all),
+              _filterChip('运行中', _ServiceFilter.running),
+              _filterChip('已停止', _ServiceFilter.stopped),
+              _filterChip('失败', _ServiceFilter.failed),
             ],
-            selected: {_filter},
-            onSelectionChanged: (value) {
-              if (value.isNotEmpty) setState(() => _filter = value.first);
-            },
           ),
         ),
         const SizedBox(height: 6),
@@ -239,6 +227,13 @@ class _ServiceManagerPanelState extends State<ServiceManagerPanel> {
       ],
     );
   }
+
+  Widget _filterChip(String label, _ServiceFilter value) =>
+      ManagementFilterChip(
+        label: label,
+        selected: _filter == value,
+        onSelected: () => setState(() => _filter = value),
+      );
 
   Widget _buildList(List<RemoteService> services) {
     if (_loading && _services.isEmpty) {

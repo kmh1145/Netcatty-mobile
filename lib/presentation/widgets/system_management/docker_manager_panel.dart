@@ -6,6 +6,7 @@ import '../../../infrastructure/ssh/ssh_service.dart';
 import '../../../infrastructure/ssh/system_management_service.dart';
 import 'docker_compose_panel.dart';
 import 'docker_image_badge.dart';
+import 'management_filter_chip.dart';
 
 enum _ContainerFilter { all, running, stopped, paused }
 
@@ -408,10 +409,11 @@ class _DockerManagerPanelState extends State<DockerManagerPanel>
     );
   }
 
-  Widget _filterChip(String label, _ContainerFilter value) => ChoiceChip(
-        label: LText(label),
+  Widget _filterChip(String label, _ContainerFilter value) =>
+      ManagementFilterChip(
+        label: label,
         selected: _filter == value,
-        onSelected: (_) => setState(() => _filter = value),
+        onSelected: () => setState(() => _filter = value),
       );
 
   Widget _buildImages() {
