@@ -337,6 +337,61 @@ void main() {
     },
   );
 
+  for (final brightness in Brightness.values) {
+    testWidgets(
+      'custom background makes the xterm canvas transparent in ${brightness.name} mode',
+      (tester) async {
+        SharedPreferences.setMockInitialValues({});
+        final repository = await VaultRepository.open();
+        final settingsController = _SeededSettingsController(
+          repository,
+          const AppSettings(
+            customBackgroundEnabled: true,
+            customBackgroundPath: '/app/background.jpg',
+            customBackgroundScope: 'terminal',
+          ),
+        );
+        final session = ActiveTerminalSession(
+          id: 'transparent-${brightness.name}',
+          host: _host('transparent', '透明终端'),
+          terminal: Terminal(),
+          verifyHostKey: _acceptHostKey,
+          keyboardInteractive: null,
+        );
+
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              vaultRepositoryProvider.overrideWithValue(repository),
+              settingsControllerProvider.overrideWith(
+                (ref) => settingsController,
+              ),
+              sessionControllerProvider.overrideWith(
+                (ref) => _SeededSessionController(
+                  ref.read(vaultControllerProvider.notifier),
+                  ref,
+                  SessionState(sessions: [session]),
+                ),
+              ),
+            ],
+            child: MaterialApp(
+              theme: ThemeData(brightness: brightness),
+              home: const Scaffold(body: TerminalScreen()),
+            ),
+          ),
+        );
+        await tester.pump();
+
+        final terminalView = tester.widget<TerminalView>(
+          find.byType(TerminalView),
+        );
+        expect(terminalView.backgroundOpacity, 0);
+        expect(terminalView.theme.background, isNot(Colors.transparent));
+        expect(terminalView.theme.background.toARGB32() >>> 24, 255);
+      },
+    );
+  }
+
   testWidgets('secure keyboard change recreates and persists the IME mode',
       (tester) async {
     SharedPreferences.setMockInitialValues({});
@@ -382,6 +437,7 @@ void main() {
       tester.widget<TerminalView>(normalView).keyboardType,
       TextInputType.emailAddress,
     );
+    expect(tester.widget<TerminalView>(normalView).backgroundOpacity, 1);
     final normalState = tester.state<TerminalViewState>(normalView);
 
     await settingsController.updateTerminalSecureKeyboard(true);
@@ -420,8 +476,11 @@ class _TrackingSshService extends SshService {
 }
 
 class _SeededSettingsController extends SettingsController {
-  _SeededSettingsController(super.repository) {
-    state = const AppSettings();
+  _SeededSettingsController(
+    super.repository, [
+    AppSettings initialState = const AppSettings(),
+  ]) {
+    state = initialState;
   }
 }
 

@@ -255,13 +255,13 @@ class _TerminalPaneState extends State<_TerminalPane> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final background =
+    final paneBackground =
         widget.transparentBackground ? Colors.transparent : scheme.surface;
     final terminalTheme = TerminalTheme(
       cursor: scheme.primary,
       selection: scheme.primary.withValues(alpha: 0.35),
       foreground: scheme.onSurface,
-      background: background,
+      background: scheme.surface,
       black: const Color(0xff1d1f21),
       red: const Color(0xffcc6666),
       green: const Color(0xffb5bd68),
@@ -283,7 +283,7 @@ class _TerminalPaneState extends State<_TerminalPane> {
       searchHitForeground: scheme.onSurface,
     );
     return ColoredBox(
-      color: background,
+      color: paneBackground,
       child: AnimatedBuilder(
         animation: Listenable.merge([_controller, _scrollController]),
         builder: (context, _) {
@@ -305,6 +305,7 @@ class _TerminalPaneState extends State<_TerminalPane> {
                 controller: _controller,
                 scrollController: _scrollController,
                 theme: terminalTheme,
+                backgroundOpacity: widget.transparentBackground ? 0 : 1,
                 keyboardAppearance: Theme.of(context).brightness,
                 keyboardType: widget.secureKeyboard
                     ? TextInputType.visiblePassword
