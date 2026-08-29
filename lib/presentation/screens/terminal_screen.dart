@@ -229,6 +229,12 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
                                   .read(sessionControllerProvider.notifier)
                                   .dismissPending(selectedPending.id)
                               : null,
+                          onCancel: selectedPending.phase ==
+                                  PendingConnectionPhase.connecting
+                              ? () => ref
+                                  .read(sessionControllerProvider.notifier)
+                                  .cancelPendingConnection(selectedPending.id)
+                              : null,
                         )
                       : state.sessions.isEmpty
                           ? const EmptyState(
@@ -494,6 +500,12 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
                 final current = await repository.loadSettings();
                 await ref.read(settingsControllerProvider.notifier).update(
                       current.copyWith(aiModel: model),
+                    );
+              },
+              onReasoningEffortChanged: (effort) async {
+                final current = await repository.loadSettings();
+                await ref.read(settingsControllerProvider.notifier).update(
+                      current.copyWith(aiReasoningEffort: effort),
                     );
               },
               onCommand: (command, execute) async {

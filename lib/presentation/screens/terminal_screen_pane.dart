@@ -5,11 +5,13 @@ class _ConnectionStatusPane extends StatelessWidget {
     required this.pending,
     this.onReturn,
     this.onClose,
+    this.onCancel,
   });
 
   final PendingTerminalConnection pending;
   final VoidCallback? onReturn;
   final VoidCallback? onClose;
+  final VoidCallback? onCancel;
 
   @override
   Widget build(BuildContext context) {
@@ -77,7 +79,9 @@ class _ConnectionStatusPane extends StatelessWidget {
                             ),
                       ),
                     ],
-                    if (onReturn != null || onClose != null) ...[
+                    if (onReturn != null ||
+                        onClose != null ||
+                        onCancel != null) ...[
                       const SizedBox(height: 18),
                       Wrap(
                         alignment: WrapAlignment.center,
@@ -95,6 +99,13 @@ class _ConnectionStatusPane extends StatelessWidget {
                               onPressed: onClose,
                               icon: const Icon(Icons.close),
                               label: const LText('关闭标签页'),
+                            ),
+                          if (onCancel != null)
+                            FilledButton.icon(
+                              key: const ValueKey('cancel-pending-connection'),
+                              onPressed: onCancel,
+                              icon: const Icon(Icons.stop_circle_outlined),
+                              label: const LText('终止连接'),
                             ),
                         ],
                       ),

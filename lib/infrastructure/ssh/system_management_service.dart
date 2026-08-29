@@ -24,6 +24,15 @@ class DockerSudoPasswordRequired implements Exception {
   String toString() => message;
 }
 
+class ServiceSudoPasswordRequired implements Exception {
+  const ServiceSudoPasswordRequired(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
 const tmuxNotFoundMessage = '未找到 tmux 命令，请先安装 tmux 后再重试。';
 
 enum ProcessSignal { stop, cont, term, kill }
@@ -40,12 +49,17 @@ enum DockerContainerAction {
 
 enum _DockerPrivilege { direct, sudoNoPassword, sudoPassword }
 
+enum _ServicePrivilege { direct, sudoNoPassword, sudoPassword }
+
 enum _DockerComposeBackend { plugin, standalone }
 
 class SystemManagementService {
   final _dockerPrivileges = <String, _DockerPrivilege>{};
   final _sudoPasswords = <String, String>{};
   final _composeBackends = <String, _DockerComposeBackend>{};
+  final _serviceManagers = <String, ServiceManager>{};
+  final _servicePrivileges = <String, _ServicePrivilege>{};
+  final _serviceSudoPasswords = <String, String>{};
 
   Future<List<RemoteProcess>> listProcesses(
     ActiveTerminalSession session,
@@ -107,6 +121,173 @@ class SystemManagementService {
       throw const FormatException('调度优先级必须在 -20 到 19 之间');
     }
     await _executeSession(session, 'renice $priority -p $pid');
+  }
+
+  Future<ServiceManager> detectServiceManager(
+    ActiveTerminalSession session,
+  ) async {
+    final cached = _serviceManagers[session.id];
+    if (cached != null) return cached;
+    const command =
+        'if command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files --type=service --no-pager >/dev/null 2>&1; then printf systemd; elif command -v rc-service >/dev/null 2>&1 && command -v rc-status >/dev/null 2>&1; then printf openrc; else printf unsupported; fi';
+    final result = await _executeSession(session, command);
+    final manager = switch (result.stdout.trim().toLowerCase()) {
+      'systemd' => ServiceManager.systemd,
+      'openrc' => ServiceManager.openRc,
+      _ => throw UnsupportedError(
+          '未找到受支持的服务管理器，需要 systemd 或 OpenRC。',
+        ),
+    };
+    _serviceManagers[session.id] = manager;
+    return manager;
+  }
+
+  Future<List<RemoteService>> listServices(
+    ActiveTerminalSession session,
+  ) async {
+    final manager = await detectServiceManager(session);
+    final result = await _executeSession(
+      session,
+      manager == ServiceManager.systemd
+          ? _systemdServiceListCommand
+          : _openRcServiceListCommand,
+      timeout: const Duration(seconds: 30),
+    );
+    return manager == ServiceManager.systemd
+        ? parseSystemdServices(result.stdout)
+        : parseOpenRcServices(result.stdout);
+  }
+
+  List<RemoteService> parseSystemdServices(String raw) {
+    final sections = raw.split(_serviceListMarker);
+    final units = <String, RemoteService>{};
+    for (var line in const LineSplitter().convert(sections.first)) {
+      line = line.trim().replaceFirst(RegExp(r'^●\s*'), '');
+      if (line.isEmpty) continue;
+      final match =
+          RegExp(r'^(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s*(.*)$').firstMatch(line);
+      if (match == null || !match.group(1)!.endsWith('.service')) continue;
+      final active = match.group(3)!.toLowerCase();
+      final sub = match.group(4)!.toLowerCase();
+      units[match.group(1)!] = RemoteService(
+        name: match.group(1)!,
+        description: match.group(5)?.trim() ?? '',
+        state: _systemdState(active, sub),
+        enabled: false,
+        manager: ServiceManager.systemd,
+      );
+    }
+    if (sections.length > 1) {
+      for (final line in const LineSplitter().convert(sections[1])) {
+        final parts = line.trim().split(RegExp(r'\s+'));
+        if (parts.length < 2 || !parts.first.endsWith('.service')) continue;
+        final current = units[parts.first];
+        units[parts.first] = RemoteService(
+          name: parts.first,
+          description: current?.description ?? '',
+          state: current?.state ?? RemoteServiceState.stopped,
+          enabled: const {'enabled', 'enabled-runtime'}
+              .contains(parts[1].toLowerCase()),
+          manager: ServiceManager.systemd,
+        );
+      }
+    }
+    final result = units.values.toList(growable: false);
+    return [...result]..sort((a, b) => a.name.compareTo(b.name));
+  }
+
+  List<RemoteService> parseOpenRcServices(String raw) {
+    final sections = raw.split(_serviceListMarker);
+    final services = <String, RemoteService>{};
+    final statusPattern = RegExp(
+      r'^\s*([a-zA-Z0-9_.:@+\-]+)\s+\[\s*([^\]]+)\s*\]\s*$',
+    );
+    for (final line in const LineSplitter().convert(sections.first)) {
+      final match = statusPattern.firstMatch(line);
+      if (match == null) continue;
+      final status = match.group(2)!.trim().toLowerCase();
+      services[match.group(1)!] = RemoteService(
+        name: match.group(1)!,
+        description: '',
+        state: status.contains('started')
+            ? RemoteServiceState.running
+            : status.contains('crashed') || status.contains('failed')
+                ? RemoteServiceState.failed
+                : status.contains('stopped') || status.contains('inactive')
+                    ? RemoteServiceState.stopped
+                    : RemoteServiceState.unknown,
+        enabled: false,
+        manager: ServiceManager.openRc,
+      );
+    }
+    if (sections.length > 1) {
+      for (final line in const LineSplitter().convert(sections[1])) {
+        final separator = line.indexOf('|');
+        if (separator < 0) continue;
+        final name = line.substring(0, separator).trim();
+        final runlevels = line.substring(separator + 1).trim();
+        if (!_validServiceName.hasMatch(name)) continue;
+        final current = services[name];
+        services[name] = RemoteService(
+          name: name,
+          description: current?.description ?? '',
+          state: current?.state ?? RemoteServiceState.stopped,
+          enabled: runlevels.isNotEmpty,
+          manager: ServiceManager.openRc,
+        );
+      }
+    }
+    final result = services.values.toList(growable: false);
+    return [...result]..sort((a, b) => a.name.compareTo(b.name));
+  }
+
+  String serviceActionCommand(
+    RemoteService service,
+    RemoteServiceAction action,
+  ) {
+    _validateServiceName(service.name, service.manager);
+    return switch ((service.manager, action)) {
+      (ServiceManager.systemd, RemoteServiceAction.start) =>
+        'systemctl start ${service.name}',
+      (ServiceManager.systemd, RemoteServiceAction.stop) =>
+        'systemctl stop ${service.name}',
+      (ServiceManager.systemd, RemoteServiceAction.restart) =>
+        'systemctl restart ${service.name}',
+      (ServiceManager.systemd, RemoteServiceAction.enable) =>
+        'systemctl enable ${service.name}',
+      (ServiceManager.systemd, RemoteServiceAction.disable) =>
+        'systemctl disable ${service.name}',
+      (ServiceManager.openRc, RemoteServiceAction.start) =>
+        'rc-service ${service.name} start',
+      (ServiceManager.openRc, RemoteServiceAction.stop) =>
+        'rc-service ${service.name} stop',
+      (ServiceManager.openRc, RemoteServiceAction.restart) =>
+        'rc-service ${service.name} restart',
+      (ServiceManager.openRc, RemoteServiceAction.enable) =>
+        'rc-update add ${service.name} default',
+      (ServiceManager.openRc, RemoteServiceAction.disable) =>
+        'rc-update del ${service.name} default',
+    };
+  }
+
+  Future<void> serviceAction(
+    ActiveTerminalSession session,
+    RemoteService service,
+    RemoteServiceAction action,
+  ) async {
+    await _executeServiceCommand(
+      session,
+      serviceActionCommand(service, action),
+    );
+  }
+
+  void setServiceSudoPassword(
+    ActiveTerminalSession session,
+    String password,
+  ) {
+    if (password.isEmpty) return;
+    _serviceSudoPasswords[session.id] = password;
+    _servicePrivileges.remove(session.id);
   }
 
   Future<List<DockerContainerInfo>> listDockerContainers(
@@ -811,6 +992,66 @@ class SystemManagementService {
         _ => '',
       };
 
+  Future<_RemoteResult> _executeServiceCommand(
+    ActiveTerminalSession session,
+    String command,
+  ) async {
+    final cached = _servicePrivileges[session.id];
+    if (cached != null) {
+      try {
+        return await _executeServiceMode(session, command, cached);
+      } on RemoteCommandException catch (error) {
+        if (cached != _ServicePrivilege.sudoPassword) rethrow;
+        _servicePrivileges.remove(session.id);
+        _serviceSudoPasswords.remove(session.id);
+        throw ServiceSudoPasswordRequired(
+          'sudo 密码验证失败，请重新输入。\n${error.message}',
+        );
+      }
+    }
+    try {
+      final result = await _executeSession(session, command);
+      _servicePrivileges[session.id] = _ServicePrivilege.direct;
+      return result;
+    } on RemoteCommandException catch (error) {
+      if (!_isServicePermissionError(error.message)) rethrow;
+    }
+    try {
+      final result = await _executeSession(session, 'sudo -n $command');
+      _servicePrivileges[session.id] = _ServicePrivilege.sudoNoPassword;
+      return result;
+    } on RemoteCommandException catch (error) {
+      if (_serviceSudoPasswords[session.id] == null) {
+        throw ServiceSudoPasswordRequired(
+          '管理系统服务需要管理员权限，且 sudo 需要密码。\n${error.message}',
+        );
+      }
+    }
+    final result = await _executeServiceMode(
+      session,
+      command,
+      _ServicePrivilege.sudoPassword,
+    );
+    _servicePrivileges[session.id] = _ServicePrivilege.sudoPassword;
+    return result;
+  }
+
+  Future<_RemoteResult> _executeServiceMode(
+    ActiveTerminalSession session,
+    String command,
+    _ServicePrivilege mode,
+  ) =>
+      switch (mode) {
+        _ServicePrivilege.direct => _executeSession(session, command),
+        _ServicePrivilege.sudoNoPassword =>
+          _executeSession(session, 'sudo -n $command'),
+        _ServicePrivilege.sudoPassword => _executeSession(
+            session,
+            "sudo -S -p '' $command",
+            stdinText: '${_serviceSudoPasswords[session.id] ?? ''}\n',
+          ),
+      };
+
   Future<_RemoteResult> _executeSession(
     ActiveTerminalSession session,
     String command, {
@@ -860,6 +1101,31 @@ class SystemManagementService {
         (value.contains('docker.sock') ||
             value.contains('docker daemon') ||
             value.contains('connect'));
+  }
+
+  static bool _isServicePermissionError(String message) {
+    final value = message.toLowerCase();
+    return value.contains('permission denied') ||
+        value.contains('access denied') ||
+        value.contains('authentication is required') ||
+        value.contains('interactive authentication required') ||
+        value.contains('must be root') ||
+        value.contains('operation not permitted') ||
+        value.contains('superuser privileges');
+  }
+
+  static RemoteServiceState _systemdState(String active, String sub) {
+    if (active == 'failed' || sub == 'failed') {
+      return RemoteServiceState.failed;
+    }
+    if (active == 'active' ||
+        const {'running', 'listening', 'exited'}.contains(sub)) {
+      return RemoteServiceState.running;
+    }
+    if (active == 'inactive' || const {'dead', 'stopped'}.contains(sub)) {
+      return RemoteServiceState.stopped;
+    }
+    return RemoteServiceState.unknown;
   }
 
   static Map<String, String> _parseDockerLabels(String raw) {
@@ -984,6 +1250,13 @@ class SystemManagementService {
       throw const FormatException('容器或镜像 ID 无效');
     }
   }
+
+  static void _validateServiceName(String name, ServiceManager manager) {
+    if (!_validServiceName.hasMatch(name) ||
+        (manager == ServiceManager.systemd && !name.endsWith('.service'))) {
+      throw const FormatException('服务名称无效');
+    }
+  }
 }
 
 bool isTmuxCommandMissing(String message, {int? exitCode}) {
@@ -1012,3 +1285,10 @@ String shellQuote(String value) => "'${value.replaceAll("'", "'\\''")}'";
 
 const _processListCommand =
     'LC_ALL=C ps -eo pid=,ppid=,user=,stat=,pcpu=,pmem=,rss=,vsz=,etime=,comm=,args= 2>/dev/null || LC_ALL=C ps ww 2>/dev/null || LC_ALL=C ps 2>/dev/null';
+
+const _serviceListMarker = '__NETCATTY_SERVICE_METADATA__';
+final _validServiceName = RegExp(r'^[a-zA-Z0-9_.:@+\-]{1,160}$');
+const _systemdServiceListCommand =
+    "LC_ALL=C systemctl list-units --all --type=service --no-legend --no-pager --plain 2>/dev/null; printf '\\n$_serviceListMarker\\n'; LC_ALL=C systemctl list-unit-files --type=service --no-legend --no-pager 2>/dev/null";
+const _openRcServiceListCommand =
+    "LC_ALL=C rc-status -a 2>&1; printf '\\n$_serviceListMarker\\n'; LC_ALL=C rc-update show -v 2>&1";

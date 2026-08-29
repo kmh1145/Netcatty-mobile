@@ -127,6 +127,77 @@ PID   USER     TIME  COMMAND
     expect(sessions.last.attachedClients, 0);
   });
 
+  test('parses systemd services with state and startup policy', () {
+    const output = '''
+nginx.service loaded active running A high performance web server
+failed.service loaded failed failed Broken service
+__NETCATTY_SERVICE_METADATA__
+nginx.service enabled enabled
+failed.service disabled enabled
+timer-only.service static -
+''';
+
+    final services = service.parseSystemdServices(output);
+
+    expect(services, hasLength(3));
+    final nginx = services.firstWhere((value) => value.name == 'nginx.service');
+    expect(nginx.state, RemoteServiceState.running);
+    expect(nginx.enabled, isTrue);
+    expect(nginx.description, 'A high performance web server');
+    expect(
+      services.firstWhere((value) => value.name == 'failed.service').state,
+      RemoteServiceState.failed,
+    );
+  });
+
+  test('parses OpenRC services and enabled runlevels', () {
+    const output = '''
+ sshd                         [  started  ]
+ local                        [  stopped  ]
+ crashed                      [  crashed  ]
+__NETCATTY_SERVICE_METADATA__
+                 sshd | default
+                local |
+''';
+
+    final services = service.parseOpenRcServices(output);
+
+    expect(services, hasLength(3));
+    final sshd = services.firstWhere((value) => value.name == 'sshd');
+    expect(sshd.state, RemoteServiceState.running);
+    expect(sshd.enabled, isTrue);
+    expect(
+      services.firstWhere((value) => value.name == 'crashed').state,
+      RemoteServiceState.failed,
+    );
+  });
+
+  test('builds safe systemd and OpenRC service actions', () {
+    const systemd = RemoteService(
+      name: 'sshd.service',
+      description: '',
+      state: RemoteServiceState.running,
+      enabled: true,
+      manager: ServiceManager.systemd,
+    );
+    const openRc = RemoteService(
+      name: 'sshd',
+      description: '',
+      state: RemoteServiceState.running,
+      enabled: false,
+      manager: ServiceManager.openRc,
+    );
+
+    expect(
+      service.serviceActionCommand(systemd, RemoteServiceAction.restart),
+      'systemctl restart sshd.service',
+    );
+    expect(
+      service.serviceActionCommand(openRc, RemoteServiceAction.enable),
+      'rc-update add sshd default',
+    );
+  });
+
   test('recognizes missing tmux command errors', () {
     expect(
       isTmuxCommandMissing('/bin/sh: tmux: command not found', exitCode: 127),

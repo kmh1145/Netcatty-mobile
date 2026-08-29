@@ -1,5 +1,29 @@
 enum ProcessSortKey { cpu, memory, pid, command, user }
 
+enum ServiceManager { systemd, openRc }
+
+enum RemoteServiceState { running, stopped, failed, unknown }
+
+enum RemoteServiceAction { start, stop, restart, enable, disable }
+
+class RemoteService {
+  const RemoteService({
+    required this.name,
+    required this.description,
+    required this.state,
+    required this.enabled,
+    required this.manager,
+  });
+
+  final String name;
+  final String description;
+  final RemoteServiceState state;
+  final bool enabled;
+  final ServiceManager manager;
+
+  bool get isRunning => state == RemoteServiceState.running;
+}
+
 class RemoteProcess {
   const RemoteProcess({
     required this.pid,

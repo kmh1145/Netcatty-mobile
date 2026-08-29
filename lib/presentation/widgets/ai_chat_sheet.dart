@@ -20,6 +20,7 @@ class AiChatSheet extends StatefulWidget {
     required this.onCommand,
     required this.terminalContext,
     required this.onModelChanged,
+    required this.onReasoningEffortChanged,
   });
 
   final HostProfile host;
@@ -31,6 +32,7 @@ class AiChatSheet extends StatefulWidget {
   final Future<void> Function(String command, bool execute) onCommand;
   final String Function() terminalContext;
   final Future<void> Function(String model) onModelChanged;
+  final Future<void> Function(String effort) onReasoningEffortChanged;
 
   @override
   State<AiChatSheet> createState() => _AiChatSheetState();
@@ -39,6 +41,7 @@ class AiChatSheet extends StatefulWidget {
 class _AiChatSheetState extends State<AiChatSheet> {
   late final List<AiChatMessage> _messages;
   late String _selectedModel;
+  late String _selectedReasoningEffort;
   final _input = TextEditingController();
   final _scroll = ScrollController();
   var _sending = false;
@@ -54,6 +57,7 @@ class _AiChatSheetState extends State<AiChatSheet> {
             initialMessages.length - maxAiChatHistoryMessages,
           );
     _selectedModel = widget.settings.aiModel;
+    _selectedReasoningEffort = widget.settings.aiReasoningEffort;
   }
 
   String get _endpoint =>
@@ -99,7 +103,9 @@ class _AiChatSheetState extends State<AiChatSheet> {
       final reply = await widget.service.sendMessage(
         request: prompt,
         history: history,
-        settings: widget.settings,
+        settings: widget.settings.copyWith(
+          aiReasoningEffort: _selectedReasoningEffort,
+        ),
         apiKey: widget.apiKey,
         hostSummary: _hostSummary,
         terminalContext: widget.settings.aiIncludeTerminalContext
@@ -148,6 +154,24 @@ class _AiChatSheetState extends State<AiChatSheet> {
       if (!mounted) return;
       setState(() {
         _selectedModel = previous;
+        _error = '$error';
+      });
+    }
+  }
+
+  Future<void> _selectReasoningEffort(String effort) async {
+    if (_sending || effort == _selectedReasoningEffort) return;
+    final previous = _selectedReasoningEffort;
+    setState(() {
+      _selectedReasoningEffort = effort;
+      _error = null;
+    });
+    try {
+      await widget.onReasoningEffortChanged(effort);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _selectedReasoningEffort = previous;
         _error = '$error';
       });
     }
@@ -363,40 +387,6 @@ class _AiChatSheetState extends State<AiChatSheet> {
                 ],
               ),
             ),
-            PopupMenuButton<String>(
-              key: const ValueKey('ai-chat-model-selector'),
-              enabled: !_sending,
-              tooltip: _modelTooltip,
-              onSelected: (model) => unawaited(_selectModel(model)),
-              itemBuilder: (context) => [
-                for (final model in widget.settings.aiModels)
-                  PopupMenuItem(
-                    value: model,
-                    child: Row(
-                      children: [
-                        SizedBox(
-                          width: 28,
-                          child: model == _selectedModel
-                              ? Icon(
-                                  Icons.check,
-                                  size: 18,
-                                  color: Theme.of(context).colorScheme.primary,
-                                )
-                              : null,
-                        ),
-                        Expanded(
-                          child: Text(
-                            model,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-              ],
-              icon: const Icon(Icons.model_training_outlined),
-            ),
             IconButton(
               key: const ValueKey('ai-chat-new'),
               tooltip: localized('新对话'),
@@ -476,6 +466,14 @@ class _AiChatSheetState extends State<AiChatSheet> {
           children: [
             Row(
               children: [
+                Expanded(child: _buildModelSelector(context)),
+                const SizedBox(width: 8),
+                Expanded(child: _buildReasoningSelector(context)),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
                 Icon(
                   Icons.terminal,
                   size: 14,
@@ -533,6 +531,116 @@ class _AiChatSheetState extends State<AiChatSheet> {
           ],
         ),
       );
+
+  Widget _buildModelSelector(BuildContext context) => PopupMenuButton<String>(
+        key: const ValueKey('ai-chat-model-selector'),
+        enabled: !_sending,
+        tooltip: _modelTooltip,
+        onSelected: (model) => unawaited(_selectModel(model)),
+        itemBuilder: (context) => [
+          for (final model in widget.settings.aiModels)
+            PopupMenuItem(
+              value: model,
+              child: _popupItem(
+                context,
+                model,
+                selected: model == _selectedModel,
+              ),
+            ),
+        ],
+        child: _selectorFace(
+          context,
+          icon: Icons.model_training_outlined,
+          label: _selectedModel,
+        ),
+      );
+
+  Widget _buildReasoningSelector(BuildContext context) =>
+      PopupMenuButton<String>(
+        key: const ValueKey('ai-chat-reasoning-selector'),
+        enabled: !_sending,
+        tooltip: localized('调整思考强度'),
+        onSelected: (effort) => unawaited(_selectReasoningEffort(effort)),
+        itemBuilder: (context) => [
+          for (final effort in supportedAiReasoningEfforts)
+            PopupMenuItem(
+              value: effort,
+              child: _popupItem(
+                context,
+                _reasoningEffortLabel(effort),
+                selected: effort == _selectedReasoningEffort,
+              ),
+            ),
+        ],
+        child: _selectorFace(
+          context,
+          icon: Icons.psychology_outlined,
+          label: _reasoningEffortLabel(_selectedReasoningEffort),
+        ),
+      );
+
+  Widget _selectorFace(
+    BuildContext context, {
+    required IconData icon,
+    required String label,
+  }) =>
+      Container(
+        height: 40,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        decoration: BoxDecoration(
+          border: Border.all(color: Theme.of(context).dividerColor),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 18),
+            const SizedBox(width: 7),
+            Expanded(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const Icon(Icons.arrow_drop_down, size: 18),
+          ],
+        ),
+      );
+
+  Widget _popupItem(
+    BuildContext context,
+    String label, {
+    required bool selected,
+  }) =>
+      Row(
+        children: [
+          SizedBox(
+            width: 28,
+            child: selected
+                ? Icon(
+                    Icons.check,
+                    size: 18,
+                    color: Theme.of(context).colorScheme.primary,
+                  )
+                : null,
+          ),
+          Expanded(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      );
+
+  String _reasoningEffortLabel(String effort) => switch (effort) {
+        'minimal' => '思考：极低',
+        'low' => '思考：低',
+        'medium' => '思考：中',
+        'high' => '思考：高',
+        _ => '思考：模型默认',
+      };
 }
 
 class _MessageBubble extends StatelessWidget {

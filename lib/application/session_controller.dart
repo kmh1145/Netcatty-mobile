@@ -107,6 +107,7 @@ class SessionController extends StateNotifier<SessionState> {
   Timer? _backgroundMaintenanceTimer;
   DateTime? _nextBackgroundReconnect;
   int _backgroundReconnectAttempt = 0;
+  final _cancelledConnectionIds = <String>{};
 
   static const _backgroundMaintenanceInterval = Duration(seconds: 8);
   static const _backgroundReconnectDelays = <Duration>[
@@ -147,6 +148,10 @@ class SessionController extends StateNotifier<SessionState> {
         verifyHostKey: verifyHostKey,
         keyboardInteractive: keyboardInteractive,
       );
+      if (_cancelledConnectionIds.remove(sessionId)) {
+        await session.close();
+        return;
+      }
       final sessions = [...state.sessions, session];
       final wasSelected = state.activePendingId == sessionId;
       state = state.copyWith(
@@ -167,6 +172,18 @@ class SessionController extends StateNotifier<SessionState> {
         unawaited(_detectSystem(session, connectionHost));
       }
     } catch (error) {
+      if (_cancelledConnectionIds.remove(sessionId) ||
+          error is ConnectionCancelledException) {
+        state = state.copyWith(
+          pendingConnections: state.pendingConnections
+              .where((value) => value.id != sessionId)
+              .toList(growable: false),
+          activePendingId:
+              state.activePendingId == sessionId ? null : state.activePendingId,
+          error: null,
+        );
+        return;
+      }
       state = state.copyWith(
         pendingConnections: state.pendingConnections
             .map(
@@ -381,6 +398,24 @@ class SessionController extends StateNotifier<SessionState> {
     if (pending == null || pending.phase == PendingConnectionPhase.connecting) {
       return;
     }
+    state = state.copyWith(
+      pendingConnections: state.pendingConnections
+          .where((value) => value.id != id)
+          .toList(growable: false),
+      activePendingId:
+          state.activePendingId == id ? null : state.activePendingId,
+      error: null,
+    );
+  }
+
+  void cancelPendingConnection(String id) {
+    final exists = state.pendingConnections.any(
+      (value) =>
+          value.id == id && value.phase == PendingConnectionPhase.connecting,
+    );
+    if (!exists) return;
+    _cancelledConnectionIds.add(id);
+    service.cancelConnection(id);
     state = state.copyWith(
       pendingConnections: state.pendingConnections
           .where((value) => value.id != id)

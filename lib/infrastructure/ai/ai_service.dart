@@ -42,6 +42,48 @@ class AiService {
   final bool _ownsClient;
   final Duration requestTimeout;
 
+  Future<List<String>> fetchModels({
+    required String endpoint,
+    required String apiKey,
+  }) async {
+    final normalizedEndpoint = endpoint.trim().replaceFirst(RegExp(r'/$'), '');
+    if (normalizedEndpoint.isEmpty) {
+      throw const FormatException('请先填写 API 地址');
+    }
+    final uri = Uri.tryParse('$normalizedEndpoint/models');
+    if (uri == null || !uri.hasScheme || !uri.hasAuthority) {
+      throw const FormatException('API 地址无效');
+    }
+    final response = await _client.get(
+      uri,
+      headers: {
+        if (apiKey.trim().isNotEmpty)
+          'authorization': 'Bearer ${apiKey.trim()}',
+        'accept': 'application/json',
+      },
+    ).timeout(requestTimeout);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw StateError('模型拉取失败 (${response.statusCode})');
+    }
+    final decoded = jsonDecode(response.body);
+    final rawModels =
+        decoded is Map ? decoded['data'] ?? decoded['models'] : decoded;
+    if (rawModels is! List) {
+      throw const FormatException('模型接口返回格式不正确');
+    }
+    final models = <String>{};
+    for (final value in rawModels) {
+      final id = switch (value) {
+        Map() => value['id']?.toString().trim() ?? '',
+        _ => value.toString().trim(),
+      };
+      if (id.isNotEmpty) models.add(id);
+    }
+    if (models.isEmpty) throw const FormatException('模型接口没有返回可用模型');
+    final result = models.toList()..sort((a, b) => a.compareTo(b));
+    return List<String>.unmodifiable(result);
+  }
+
   Future<AiChatMessage> sendMessage({
     required String request,
     required List<AiChatMessage> history,
@@ -64,6 +106,8 @@ class AiService {
           },
           body: jsonEncode({
             'model': model ?? settings.aiModel,
+            if (settings.aiReasoningEffort != defaultAiReasoningEffort)
+              'reasoning_effort': settings.aiReasoningEffort,
             'temperature': 0.2,
             'response_format': {'type': 'json_object'},
             'messages': [

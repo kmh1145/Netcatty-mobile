@@ -29,6 +29,43 @@ void main() {
     expect(state.copyWith(activePendingId: null).pendingConnections, [pending]);
   });
 
+  test('cancelling a pending connection removes its tab and stops transport',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    final repository = await VaultRepository.open();
+    final host = _host('cancel', '等待连接');
+    final pending = PendingTerminalConnection(id: 'pending-cancel', host: host);
+    final service = _TrackingSshService();
+    final container = ProviderContainer(
+      overrides: [
+        vaultRepositoryProvider.overrideWithValue(repository),
+        sessionControllerProvider.overrideWith(
+          (ref) => _SeededSessionController(
+            ref.read(vaultControllerProvider.notifier),
+            ref,
+            SessionState(
+              pendingConnections: [pending],
+              activePendingId: pending.id,
+            ),
+            service: service,
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    container
+        .read(sessionControllerProvider.notifier)
+        .cancelPendingConnection(pending.id);
+
+    expect(service.cancelledIds, [pending.id]);
+    expect(
+      container.read(sessionControllerProvider).pendingConnections,
+      isEmpty,
+    );
+    expect(container.read(sessionControllerProvider).activePendingId, isNull);
+  });
+
   test('commands can target a captured session instead of the active tab',
       () async {
     SharedPreferences.setMockInitialValues({});
@@ -138,6 +175,21 @@ void main() {
       );
       expect(find.text('已有终端'), findsOneWidget);
       expect(find.text('正在连接'), findsWidgets);
+      expect(
+        find.byKey(const ValueKey('cancel-pending-connection')),
+        findsOneWidget,
+      );
+
+      await tester.tap(
+        find.byKey(const ValueKey('cancel-pending-connection')),
+      );
+      await tester.pump();
+
+      expect(
+        find.byKey(const ValueKey('terminal-connection-status-dialog')),
+        findsNothing,
+      );
+      expect(find.byType(TerminalView), findsOneWidget);
 
       await tester.tap(find.text('已有终端'));
       await tester.pump();
@@ -147,7 +199,7 @@ void main() {
         findsNothing,
       );
       expect(find.byType(TerminalView), findsOneWidget);
-      expect(find.text('正在连接'), findsOneWidget);
+      expect(find.text('正在连接'), findsNothing);
       expect(
         tester.widget<TerminalView>(find.byType(TerminalView)).deleteDetection,
         isTrue,
@@ -282,10 +334,18 @@ class _SeededSessionController extends SessionController {
   _SeededSessionController(
     VaultController vaultController,
     Ref ref,
-    SessionState initialState,
-  ) : super(SshService(), vaultController, ref) {
+    SessionState initialState, {
+    SshService? service,
+  }) : super(service ?? SshService(), vaultController, ref) {
     state = initialState;
   }
+}
+
+class _TrackingSshService extends SshService {
+  final cancelledIds = <String>[];
+
+  @override
+  void cancelConnection(String sessionId) => cancelledIds.add(sessionId);
 }
 
 class _SeededSettingsController extends SettingsController {

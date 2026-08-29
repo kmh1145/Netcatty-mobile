@@ -4,6 +4,14 @@ const minTerminalFontSize = 6.0;
 const maxTerminalFontSize = 24.0;
 const defaultAiModel = 'gpt-4.1-mini';
 const maxAiChatHistoryMessages = 30;
+const defaultAiReasoningEffort = 'default';
+const supportedAiReasoningEfforts = <String>[
+  defaultAiReasoningEffort,
+  'minimal',
+  'low',
+  'medium',
+  'high',
+];
 
 class TerminalCustomKey {
   const TerminalCustomKey({
@@ -41,6 +49,7 @@ class AppSettings {
     this.aiEndpoint = 'https://api.openai.com/v1',
     this.aiModel = defaultAiModel,
     this.aiModels = const [defaultAiModel],
+    this.aiReasoningEffort = defaultAiReasoningEffort,
     this.aiIncludeTerminalContext = false,
     this.autoSyncEnabled = false,
     this.terminalQuickKeys = defaultTerminalQuickKeys,
@@ -90,6 +99,9 @@ class AppSettings {
       aiModel:
           aiModels.contains(selectedAiModel) ? selectedAiModel : aiModels.first,
       aiModels: aiModels,
+      aiReasoningEffort: _aiReasoningEffort(
+        json['aiReasoningEffort']?.toString(),
+      ),
       aiIncludeTerminalContext: json['aiIncludeTerminalContext'] == true,
       autoSyncEnabled: json['autoSyncEnabled'] == true,
       terminalQuickKeys: order,
@@ -106,6 +118,7 @@ class AppSettings {
   final String aiEndpoint;
   final String aiModel;
   final List<String> aiModels;
+  final String aiReasoningEffort;
   final bool aiIncludeTerminalContext;
   final bool autoSyncEnabled;
   final List<String> terminalQuickKeys;
@@ -121,6 +134,7 @@ class AppSettings {
     String? aiEndpoint,
     String? aiModel,
     List<String>? aiModels,
+    String? aiReasoningEffort,
     bool? aiIncludeTerminalContext,
     bool? autoSyncEnabled,
     List<String>? terminalQuickKeys,
@@ -137,6 +151,7 @@ class AppSettings {
         aiEndpoint: aiEndpoint ?? this.aiEndpoint,
         aiModel: aiModel ?? this.aiModel,
         aiModels: aiModels ?? this.aiModels,
+        aiReasoningEffort: aiReasoningEffort ?? this.aiReasoningEffort,
         aiIncludeTerminalContext:
             aiIncludeTerminalContext ?? this.aiIncludeTerminalContext,
         autoSyncEnabled: autoSyncEnabled ?? this.autoSyncEnabled,
@@ -154,6 +169,7 @@ class AppSettings {
         'aiEndpoint': aiEndpoint,
         'aiModel': aiModel,
         'aiModels': aiModels,
+        'aiReasoningEffort': aiReasoningEffort,
         'aiIncludeTerminalContext': aiIncludeTerminalContext,
         'autoSyncEnabled': autoSyncEnabled,
         'terminalQuickKeys': terminalQuickKeys,
@@ -163,6 +179,11 @@ class AppSettings {
 
   static String _serverViewMode(String? value) =>
       const {'grid', 'list', 'tree'}.contains(value) ? value! : 'grid';
+
+  static String _aiReasoningEffort(String? value) =>
+      supportedAiReasoningEfforts.contains(value)
+          ? value!
+          : defaultAiReasoningEffort;
 
   static List<String> _normalizeAiModels(
     Object? value, {

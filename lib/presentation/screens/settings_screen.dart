@@ -14,6 +14,7 @@ import '../../application/settings_controller.dart';
 import '../../application/vault_controller.dart';
 import '../../domain/models/settings.dart';
 import '../../domain/models/vault.dart';
+import '../../infrastructure/ai/ai_service.dart';
 import '../../infrastructure/storage/vault_repository.dart';
 import '../../infrastructure/storage/vault_export_service.dart';
 import '../../infrastructure/http_client_provider.dart';
@@ -60,7 +61,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   var _savingTerminalSecureKeyboard = false;
   var aiModels = <String>[defaultAiModel];
   var selectedAiModel = defaultAiModel;
+  var aiReasoningEffort = defaultAiReasoningEffort;
   var aiIncludeTerminalContext = false;
+  var _fetchingAiModels = false;
   var autoSyncEnabled = false;
   var _savingAutoSync = false;
   var language = 'zh-CN';
@@ -129,6 +132,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     aiEndpoint.text = settings.aiEndpoint;
     aiModels = [...settings.aiModels];
     selectedAiModel = settings.aiModel;
+    aiReasoningEffort = settings.aiReasoningEffort;
     aiIncludeTerminalContext = settings.aiIncludeTerminalContext;
     autoSyncEnabled = settings.autoSyncEnabled;
     themeMode = settings.themeMode;
@@ -551,6 +555,31 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         decoration: LInputDecoration(labelText: 'API 地址'),
                       ),
                       const SizedBox(height: 10),
+                      TextField(
+                        controller: aiKey,
+                        obscureText: true,
+                        decoration: LInputDecoration(labelText: 'API Key'),
+                      ),
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          key: const ValueKey('ai-model-fetch'),
+                          onPressed: _fetchingAiModels ? null : _fetchAiModels,
+                          icon: _fetchingAiModels
+                              ? const SizedBox.square(
+                                  dimension: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.cloud_download_outlined),
+                          label: LText(
+                            _fetchingAiModels ? '正在拉取模型…' : '自动拉取模型',
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
                       DropdownButtonFormField<String>(
                         key: ValueKey(
                           'ai-model-$selectedAiModel-${aiModels.join('|')}',
@@ -572,6 +601,27 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         onChanged: (value) {
                           if (value != null) {
                             setState(() => selectedAiModel = value);
+                          }
+                        },
+                      ),
+                      const SizedBox(height: 10),
+                      DropdownButtonFormField<String>(
+                        key: ValueKey(
+                          'ai-reasoning-effort-$aiReasoningEffort',
+                        ),
+                        initialValue: aiReasoningEffort,
+                        isExpanded: true,
+                        decoration: LInputDecoration(labelText: '默认思考强度'),
+                        items: [
+                          for (final effort in supportedAiReasoningEfforts)
+                            DropdownMenuItem(
+                              value: effort,
+                              child: LText(_reasoningEffortLabel(effort)),
+                            ),
+                        ],
+                        onChanged: (value) {
+                          if (value != null) {
+                            setState(() => aiReasoningEffort = value);
                           }
                         },
                       ),
@@ -611,12 +661,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               ),
                           ],
                         ),
-                      ),
-                      const SizedBox(height: 10),
-                      TextField(
-                        controller: aiKey,
-                        obscureText: true,
-                        decoration: LInputDecoration(labelText: 'API Key'),
                       ),
                       SwitchListTile.adaptive(
                         contentPadding: EdgeInsets.zero,
@@ -1161,11 +1205,36 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             aiEndpoint: aiEndpoint.text.trim(),
             aiModel: selectedAiModel,
             aiModels: List<String>.unmodifiable(aiModels),
+            aiReasoningEffort: aiReasoningEffort,
             aiIncludeTerminalContext: aiIncludeTerminalContext,
           ),
         );
     await repository.saveAiApiKey(aiKey.text);
     _message('AI 设置已保存');
+  }
+
+  Future<void> _fetchAiModels() async {
+    if (_fetchingAiModels) return;
+    setState(() => _fetchingAiModels = true);
+    try {
+      final models =
+          await AiService(client: ref.read(httpClientProvider)).fetchModels(
+        endpoint: aiEndpoint.text,
+        apiKey: aiKey.text,
+      );
+      if (!mounted) return;
+      setState(() {
+        aiModels = [...models];
+        if (!aiModels.contains(selectedAiModel)) {
+          selectedAiModel = aiModels.first;
+        }
+      });
+      _message('已拉取 ${models.length} 个模型');
+    } catch (error) {
+      _message('$error');
+    } finally {
+      if (mounted) setState(() => _fetchingAiModels = false);
+    }
   }
 
   void _addAiModel() {
@@ -1185,6 +1254,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       if (selectedAiModel == model) selectedAiModel = aiModels.first;
     });
   }
+
+  String _reasoningEffortLabel(String effort) => switch (effort) {
+        'minimal' => '极低',
+        'low' => '低',
+        'medium' => '中',
+        'high' => '高',
+        _ => '模型默认',
+      };
 
   Future<void> _saveAppearance() async {
     final current = ref.read(settingsControllerProvider);
