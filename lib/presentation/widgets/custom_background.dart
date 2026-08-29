@@ -20,6 +20,13 @@ bool hasCustomBackground(AppSettings settings) =>
     settings.customBackgroundEnabled &&
     settings.customBackgroundPath.trim().isNotEmpty;
 
+bool hasGlobalCustomBackground(AppSettings settings) =>
+    hasCustomBackground(settings) && settings.customBackgroundScope == 'global';
+
+bool customBackgroundAppliesToTab(AppSettings settings, int tabIndex) =>
+    hasCustomBackground(settings) &&
+    (settings.customBackgroundScope == 'global' || tabIndex == 1);
+
 class CustomBackgroundImage extends StatelessWidget {
   const CustomBackgroundImage({super.key, required this.settings});
 

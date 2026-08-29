@@ -23,6 +23,7 @@ const supportedCustomBackgroundAlignments = <String>{
   'bottomCenter',
   'bottomRight',
 };
+const supportedCustomBackgroundScopes = <String>{'global', 'terminal'};
 
 class TerminalCustomKey {
   const TerminalCustomKey({
@@ -60,6 +61,7 @@ class AppSettings {
     this.customBackgroundPath = '',
     this.customBackgroundOpacity = 0.35,
     this.customBackgroundAlignment = 'center',
+    this.customBackgroundScope = 'global',
     this.language = 'zh-CN',
     this.aiEndpoint = 'https://api.openai.com/v1',
     this.aiModel = defaultAiModel,
@@ -118,6 +120,9 @@ class AppSettings {
       customBackgroundAlignment: _customBackgroundAlignment(
         json['customBackgroundAlignment']?.toString(),
       ),
+      customBackgroundScope: _customBackgroundScope(
+        json['customBackgroundScope']?.toString(),
+      ),
       language: json['language']?.toString() ?? 'zh-CN',
       aiEndpoint: json['aiEndpoint']?.toString() ?? 'https://api.openai.com/v1',
       aiModel:
@@ -142,6 +147,7 @@ class AppSettings {
   final String customBackgroundPath;
   final double customBackgroundOpacity;
   final String customBackgroundAlignment;
+  final String customBackgroundScope;
   final String language;
   final String aiEndpoint;
   final String aiModel;
@@ -162,6 +168,7 @@ class AppSettings {
     String? customBackgroundPath,
     double? customBackgroundOpacity,
     String? customBackgroundAlignment,
+    String? customBackgroundScope,
     String? language,
     String? aiEndpoint,
     String? aiModel,
@@ -186,6 +193,8 @@ class AppSettings {
             customBackgroundOpacity ?? this.customBackgroundOpacity,
         customBackgroundAlignment:
             customBackgroundAlignment ?? this.customBackgroundAlignment,
+        customBackgroundScope:
+            customBackgroundScope ?? this.customBackgroundScope,
         language: language ?? this.language,
         aiEndpoint: aiEndpoint ?? this.aiEndpoint,
         aiModel: aiModel ?? this.aiModel,
@@ -208,6 +217,7 @@ class AppSettings {
         'customBackgroundPath': customBackgroundPath,
         'customBackgroundOpacity': customBackgroundOpacity,
         'customBackgroundAlignment': customBackgroundAlignment,
+        'customBackgroundScope': customBackgroundScope,
         'language': language,
         'aiEndpoint': aiEndpoint,
         'aiModel': aiModel,
@@ -225,6 +235,9 @@ class AppSettings {
 
   static String _customBackgroundAlignment(String? value) =>
       supportedCustomBackgroundAlignments.contains(value) ? value! : 'center';
+
+  static String _customBackgroundScope(String? value) =>
+      supportedCustomBackgroundScopes.contains(value) ? value! : 'global';
 
   static String _aiReasoningEffort(String? value) =>
       supportedAiReasoningEfforts.contains(value)

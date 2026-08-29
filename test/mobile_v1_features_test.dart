@@ -33,6 +33,7 @@ void main() {
       'customBackgroundPath': '/app/background.jpg',
       'customBackgroundOpacity': 0.65,
       'customBackgroundAlignment': 'bottomRight',
+      'customBackgroundScope': 'terminal',
       'language': 'en',
     });
     expect(settings.uiThemeId, 'catppuccin');
@@ -43,6 +44,7 @@ void main() {
     expect(settings.customBackgroundPath, '/app/background.jpg');
     expect(settings.customBackgroundOpacity, 0.65);
     expect(settings.customBackgroundAlignment, 'bottomRight');
+    expect(settings.customBackgroundScope, 'terminal');
     expect(settings.language, 'en');
     expect(AppSettings.fromJson({'serverViewMode': 'invalid'}).serverViewMode,
         'grid');
@@ -50,6 +52,7 @@ void main() {
     expect(settings.toJson()['terminalSecureKeyboard'], isTrue);
     expect(settings.toJson()['autoSyncEnabled'], isTrue);
     expect(settings.toJson()['customBackgroundPath'], '/app/background.jpg');
+    expect(settings.toJson()['customBackgroundScope'], 'terminal');
     expect(const AppSettings().autoSyncEnabled, isFalse);
     expect(
       AppSettings.fromJson({
@@ -66,6 +69,18 @@ void main() {
     );
     expect(resolveCustomBackgroundAlignment('topLeft'), Alignment.topLeft);
     expect(resolveCustomBackgroundAlignment('invalid'), Alignment.center);
+    expect(customBackgroundAppliesToTab(settings, 0), isFalse);
+    expect(customBackgroundAppliesToTab(settings, 1), isTrue);
+    expect(hasGlobalCustomBackground(settings), isFalse);
+    final global = settings.copyWith(customBackgroundScope: 'global');
+    expect(customBackgroundAppliesToTab(global, 4), isTrue);
+    expect(hasGlobalCustomBackground(global), isTrue);
+    expect(
+      AppSettings.fromJson({
+        'customBackgroundScope': 'invalid',
+      }).customBackgroundScope,
+      'global',
+    );
   });
 
   test('desktop and detected OS names normalize to bundled icon ids', () {

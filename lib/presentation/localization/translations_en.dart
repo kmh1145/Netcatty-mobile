@@ -12,6 +12,11 @@ const englishTranslations = <String, String>{
   '系统': 'System',
   '界面主题': 'Interface theme',
   '自定义背景': 'Custom background',
+  '全局背景': 'Global background',
+  '仅终端': 'Terminal only',
+  '背景应用到所有页面、顶部栏和底部导航栏':
+      'Apply the background to every page, app bar, and bottom navigation bar',
+  '背景仅应用到终端页面': 'Apply the background only to the terminal page',
   '选择图片后可调整显示效果': 'Choose an image, then adjust how it is displayed',
   '背景图片已保存到 App 本地目录':
       'The background image is stored in the app local directory',

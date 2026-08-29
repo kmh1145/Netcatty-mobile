@@ -32,7 +32,8 @@ class HomeShell extends ConsumerWidget {
     final terminalPictureInPicture =
         ref.watch(terminalPictureInPictureProvider);
     final settings = ref.watch(settingsControllerProvider);
-    final customBackground = hasCustomBackground(settings);
+    final customBackground = customBackgroundAppliesToTab(settings, index);
+    final globalBackground = hasGlobalCustomBackground(settings);
     final hideNavigation = shouldHideHomeNavigation(
       index,
       terminalFullscreen || terminalPictureInPicture,
@@ -50,6 +51,7 @@ class HomeShell extends ConsumerWidget {
         }
       },
       child: Scaffold(
+        extendBody: globalBackground,
         body: Stack(
           fit: StackFit.expand,
           children: [
@@ -69,40 +71,67 @@ class HomeShell extends ConsumerWidget {
         ),
         bottomNavigationBar: hideNavigation
             ? null
-            : NavigationBar(
-                key: const ValueKey('home-navigation-bar'),
-                selectedIndex: index,
-                onDestinationSelected: (value) =>
-                    ref.read(homeTabProvider.notifier).state = value,
-                destinations: [
-                  NavigationDestination(
-                    icon: const Icon(Icons.dns_outlined),
-                    selectedIcon: const Icon(Icons.dns),
-                    label: localized('保险库'),
-                  ),
-                  NavigationDestination(
-                    icon: const Icon(Icons.terminal_outlined),
-                    selectedIcon: const Icon(Icons.terminal),
-                    label: localized('终端'),
-                  ),
-                  NavigationDestination(
-                    icon: const Icon(Icons.folder_outlined),
-                    selectedIcon: const Icon(Icons.folder),
-                    label: localized('文件'),
-                  ),
-                  NavigationDestination(
-                    icon: const Icon(Icons.code_outlined),
-                    selectedIcon: const Icon(Icons.code),
-                    label: localized('片段'),
-                  ),
-                  NavigationDestination(
-                    icon: const Icon(Icons.settings_outlined),
-                    selectedIcon: const Icon(Icons.settings),
-                    label: localized('设置'),
-                  ),
-                ],
+            : _navigationBar(
+                context,
+                ref,
+                index,
+                transparent: globalBackground,
               ),
       ),
+    );
+  }
+
+  Widget _navigationBar(
+    BuildContext context,
+    WidgetRef ref,
+    int selectedIndex, {
+    required bool transparent,
+  }) {
+    final navigation = NavigationBar(
+      key: const ValueKey('home-navigation-bar'),
+      selectedIndex: selectedIndex,
+      onDestinationSelected: (value) =>
+          ref.read(homeTabProvider.notifier).state = value,
+      destinations: [
+        NavigationDestination(
+          icon: const Icon(Icons.dns_outlined),
+          selectedIcon: const Icon(Icons.dns),
+          label: localized('保险库'),
+        ),
+        NavigationDestination(
+          icon: const Icon(Icons.terminal_outlined),
+          selectedIcon: const Icon(Icons.terminal),
+          label: localized('终端'),
+        ),
+        NavigationDestination(
+          icon: const Icon(Icons.folder_outlined),
+          selectedIcon: const Icon(Icons.folder),
+          label: localized('文件'),
+        ),
+        NavigationDestination(
+          icon: const Icon(Icons.code_outlined),
+          selectedIcon: const Icon(Icons.code),
+          label: localized('片段'),
+        ),
+        NavigationDestination(
+          icon: const Icon(Icons.settings_outlined),
+          selectedIcon: const Icon(Icons.settings),
+          label: localized('设置'),
+        ),
+      ],
+    );
+    if (!transparent) return navigation;
+    final theme = Theme.of(context);
+    return Theme(
+      data: theme.copyWith(
+        navigationBarTheme: theme.navigationBarTheme.copyWith(
+          backgroundColor: Colors.transparent,
+          surfaceTintColor: Colors.transparent,
+          shadowColor: Colors.transparent,
+          elevation: 0,
+        ),
+      ),
+      child: navigation,
     );
   }
 }

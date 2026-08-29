@@ -65,6 +65,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   var customBackgroundPath = '';
   var customBackgroundOpacity = 0.35;
   var customBackgroundAlignment = 'center';
+  var customBackgroundScope = 'global';
   var _persistedBackgroundPath = '';
   var _savingTerminalSecureKeyboard = false;
   var aiModels = <String>[defaultAiModel];
@@ -155,6 +156,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     customBackgroundPath = settings.customBackgroundPath;
     customBackgroundOpacity = settings.customBackgroundOpacity;
     customBackgroundAlignment = settings.customBackgroundAlignment;
+    customBackgroundScope = settings.customBackgroundScope;
     _persistedBackgroundPath = settings.customBackgroundPath;
     language = settings.language;
     aiKey.text = await repository.readAiApiKey() ?? '';
@@ -264,6 +266,37 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         },
                       ),
                       if (customBackgroundEnabled) ...[
+                        SegmentedButton<String>(
+                          key: const ValueKey('custom-background-scope'),
+                          expandedInsets: EdgeInsets.zero,
+                          segments: const [
+                            ButtonSegment(
+                              value: 'global',
+                              icon: Icon(Icons.layers_outlined),
+                              label: LText('全局背景'),
+                            ),
+                            ButtonSegment(
+                              value: 'terminal',
+                              icon: Icon(Icons.terminal_outlined),
+                              label: LText('仅终端'),
+                            ),
+                          ],
+                          selected: {customBackgroundScope},
+                          onSelectionChanged: (value) => setState(
+                            () => customBackgroundScope = value.first,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: LText(
+                            customBackgroundScope == 'global'
+                                ? '背景应用到所有页面、顶部栏和底部导航栏'
+                                : '背景仅应用到终端页面',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
                         _backgroundPreview(),
                         const SizedBox(height: 8),
                         Row(
@@ -1483,6 +1516,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             customBackgroundPath: customBackgroundPath,
             customBackgroundOpacity: customBackgroundOpacity,
             customBackgroundAlignment: customBackgroundAlignment,
+            customBackgroundScope: customBackgroundScope,
             language: language,
           ),
         );
