@@ -10,13 +10,17 @@ import 'package:share_plus/share_plus.dart';
 
 import '../../application/session_controller.dart';
 import '../../application/home_navigation.dart';
+import '../../application/settings_controller.dart';
 import '../../infrastructure/ssh/android_document_tree_service.dart';
 import '../../infrastructure/ssh/sftp_service.dart';
+import '../widgets/custom_background.dart';
 
 part 'sftp_screen_pane.dart';
 
 class SftpScreen extends ConsumerStatefulWidget {
-  const SftpScreen({super.key});
+  const SftpScreen({super.key, this.localService});
+
+  final Future<MountableFileTransferService>? localService;
 
   @override
   ConsumerState<SftpScreen> createState() => _SftpScreenState();
@@ -32,17 +36,21 @@ class _SftpScreenState extends ConsumerState<SftpScreen> {
   SftpNavigationRequest? _scheduledNavigation;
   _TransferProgressSnapshot? _transfer;
   TransferCancellationToken? _transferCancellation;
+  var _dualPane = true;
 
   @override
   void initState() {
     super.initState();
-    _localService = Platform.isAndroid
-        ? AndroidDocumentTreeTransferService.create()
-        : LocalFileTransferService.create();
+    _localService = widget.localService ??
+        (Platform.isAndroid
+            ? AndroidDocumentTreeTransferService.create()
+            : LocalFileTransferService.create());
   }
 
   @override
   Widget build(BuildContext context) {
+    final transparentHeader =
+        hasGlobalCustomBackground(ref.watch(settingsControllerProvider));
     final sessions = ref
         .watch(sessionControllerProvider)
         .sessions
@@ -83,7 +91,10 @@ class _SftpScreenState extends ConsumerState<SftpScreen> {
           child: Column(
             children: [
               Material(
-                color: Theme.of(context).colorScheme.surface,
+                key: const ValueKey('sftp-title-bar'),
+                color: transparentHeader
+                    ? Colors.transparent
+                    : Theme.of(context).colorScheme.surface,
                 child: Column(
                   children: [
                     Padding(
@@ -91,21 +102,42 @@ class _SftpScreenState extends ConsumerState<SftpScreen> {
                       child: Row(
                         children: [
                           Icon(
-                            Icons.compare_arrows,
+                            Icons.folder_copy_outlined,
                             color: Theme.of(context).colorScheme.primary,
                           ),
                           const SizedBox(width: 8),
                           const Expanded(
                             child: LText(
-                              '双栏文件传输',
+                              'SFTP文件管理',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                               style: TextStyle(fontWeight: FontWeight.w600),
                             ),
                           ),
                           if (sessions.isEmpty)
-                            const LText(
-                              '连接 SSH 后可选择服务器',
-                              style: TextStyle(fontSize: 11),
+                            const Flexible(
+                              child: LText(
+                                '连接 SSH 后可选择服务器',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(fontSize: 11),
+                              ),
                             ),
+                          IconButton(
+                            key: const ValueKey('sftp-pane-mode-toggle'),
+                            tooltip: localized(
+                              _dualPane ? '切换为单栏模式' : '切换为双栏模式',
+                            ),
+                            onPressed: _transfer == null
+                                ? () => setState(() => _dualPane = !_dualPane)
+                                : null,
+                            visualDensity: VisualDensity.compact,
+                            icon: Icon(
+                              _dualPane
+                                  ? Icons.view_column_outlined
+                                  : Icons.view_stream_outlined,
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -122,34 +154,44 @@ class _SftpScreenState extends ConsumerState<SftpScreen> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     Expanded(
-                      child: _SftpPane(
-                        key: _leftKey,
-                        label: '左侧',
-                        service: left,
-                        sources: sources,
-                        onSourceChanged: (id) => _changeSource(true, id),
-                        onPhoneMountChanged: _phoneMountChanged,
-                        onCopyToOther: (entry) =>
-                            _copy(entry, _leftKey, _rightKey, '右侧'),
+                      child: KeyedSubtree(
+                        key: const ValueKey('sftp-left-pane'),
+                        child: _SftpPane(
+                          key: _leftKey,
+                          label: _dualPane ? '左侧' : '当前',
+                          service: left,
+                          sources: sources,
+                          onSourceChanged: (id) => _changeSource(true, id),
+                          onPhoneMountChanged: _phoneMountChanged,
+                          onCopyToOther: _dualPane
+                              ? (entry) =>
+                                  _copy(entry, _leftKey, _rightKey, '右侧')
+                              : null,
+                        ),
                       ),
                     ),
-                    VerticalDivider(
-                      width: 1,
-                      thickness: 1,
-                      color: Theme.of(context).colorScheme.outlineVariant,
-                    ),
-                    Expanded(
-                      child: _SftpPane(
-                        key: _rightKey,
-                        label: '右侧',
-                        service: right,
-                        sources: sources,
-                        onSourceChanged: (id) => _changeSource(false, id),
-                        onPhoneMountChanged: _phoneMountChanged,
-                        onCopyToOther: (entry) =>
-                            _copy(entry, _rightKey, _leftKey, '左侧'),
+                    if (_dualPane) ...[
+                      VerticalDivider(
+                        width: 1,
+                        thickness: 1,
+                        color: Theme.of(context).colorScheme.outlineVariant,
                       ),
-                    ),
+                      Expanded(
+                        child: KeyedSubtree(
+                          key: const ValueKey('sftp-right-pane'),
+                          child: _SftpPane(
+                            key: _rightKey,
+                            label: '右侧',
+                            service: right,
+                            sources: sources,
+                            onSourceChanged: (id) => _changeSource(false, id),
+                            onPhoneMountChanged: _phoneMountChanged,
+                            onCopyToOther: (entry) =>
+                                _copy(entry, _rightKey, _leftKey, '左侧'),
+                          ),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),

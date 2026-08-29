@@ -3,12 +3,16 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:netcatty_mobile/application/settings_controller.dart';
 import 'package:netcatty_mobile/domain/models/settings.dart';
+import 'package:netcatty_mobile/infrastructure/storage/vault_repository.dart';
 import 'package:netcatty_mobile/infrastructure/ssh/sftp_service.dart';
 import 'package:netcatty_mobile/infrastructure/ssh/ssh_service.dart';
 import 'package:netcatty_mobile/infrastructure/ssh/terminal_picture_in_picture_service.dart';
 import 'package:netcatty_mobile/presentation/home_shell.dart';
+import 'package:netcatty_mobile/presentation/screens/sftp_screen.dart';
 import 'package:netcatty_mobile/presentation/widgets/terminal_special_keys.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xterm2/xterm.dart';
 
 void main() {
@@ -131,6 +135,57 @@ void main() {
 
     expect(identical(normalized, chunk), isTrue);
   });
+
+  testWidgets(
+    'SFTP uses a transparent title bar and switches between two and one pane',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final repository = await VaultRepository.open();
+      final settingsController = _SeededSettingsController(
+        repository,
+        const AppSettings(
+          customBackgroundEnabled: true,
+          customBackgroundPath: '/app/background.jpg',
+          customBackgroundScope: 'global',
+        ),
+      );
+      final localService = _MemoryMountableTransferService('local');
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            vaultRepositoryProvider.overrideWithValue(repository),
+            settingsControllerProvider.overrideWith(
+              (ref) => settingsController,
+            ),
+          ],
+          child: MaterialApp(
+            home: Scaffold(
+              body: SftpScreen(localService: Future.value(localService)),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('SFTP文件管理'), findsOneWidget);
+      expect(find.byKey(const ValueKey('sftp-left-pane')), findsOneWidget);
+      expect(find.byKey(const ValueKey('sftp-right-pane')), findsOneWidget);
+      expect(
+        tester
+            .widget<Material>(find.byKey(const ValueKey('sftp-title-bar')))
+            .color,
+        Colors.transparent,
+      );
+
+      await tester.tap(find.byKey(const ValueKey('sftp-pane-mode-toggle')));
+      await tester.pump();
+
+      expect(find.byKey(const ValueKey('sftp-left-pane')), findsOneWidget);
+      expect(find.byKey(const ValueKey('sftp-right-pane')), findsNothing);
+      expect(find.text('当前'), findsOneWidget);
+    },
+  );
 
   testWidgets('quick key region keeps exactly six adaptive columns',
       (tester) async {
@@ -365,5 +420,31 @@ class _MemoryTransferService extends FileTransferService {
   Future<void> delete(RemoteEntry entry) async {
     files.remove(entry.path);
     directories.remove(entry.path);
+  }
+}
+
+class _MemoryMountableTransferService extends _MemoryTransferService
+    implements MountableFileTransferService {
+  _MemoryMountableTransferService(super.name);
+
+  @override
+  bool get isLocal => true;
+
+  @override
+  bool get isMounted => true;
+
+  @override
+  String? get mountedDirectoryName => name;
+
+  @override
+  bool get usesAppDocuments => true;
+
+  @override
+  Future<bool> mount() async => true;
+}
+
+class _SeededSettingsController extends SettingsController {
+  _SeededSettingsController(super.repository, AppSettings initialState) {
+    state = initialState;
   }
 }

@@ -8,7 +8,7 @@ class _SftpPane extends StatefulWidget {
     required this.sources,
     required this.onSourceChanged,
     required this.onPhoneMountChanged,
-    required this.onCopyToOther,
+    this.onCopyToOther,
   });
 
   final String label;
@@ -16,7 +16,7 @@ class _SftpPane extends StatefulWidget {
   final List<FileTransferService> sources;
   final ValueChanged<String> onSourceChanged;
   final VoidCallback onPhoneMountChanged;
-  final ValueChanged<RemoteEntry> onCopyToOther;
+  final ValueChanged<RemoteEntry>? onCopyToOther;
 
   @override
   State<_SftpPane> createState() => _SftpPaneState();
@@ -273,13 +273,14 @@ class _SftpPaneState extends State<_SftpPane> {
           padding: EdgeInsets.zero,
           onSelected: (value) => _entryAction(value, entry),
           itemBuilder: (_) => [
-            const PopupMenuItem(
-              value: 'copy',
-              child: ListTile(
-                leading: Icon(Icons.compare_arrows),
-                title: LText('传输到另一栏'),
+            if (widget.onCopyToOther != null)
+              const PopupMenuItem(
+                value: 'copy',
+                child: ListTile(
+                  leading: Icon(Icons.compare_arrows),
+                  title: LText('传输到另一栏'),
+                ),
               ),
-            ),
             if (!entry.isDirectory)
               const PopupMenuItem(
                 value: 'share',
@@ -515,7 +516,7 @@ class _SftpPaneState extends State<_SftpPane> {
 
   Future<void> _entryAction(String action, RemoteEntry entry) async {
     if (action == 'copy') {
-      widget.onCopyToOther(entry);
+      widget.onCopyToOther?.call(entry);
       return;
     }
     if (action == 'share') return _share(entry);
