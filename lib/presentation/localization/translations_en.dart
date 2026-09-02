@@ -88,6 +88,7 @@ const englishTranslations = <String, String>{
   'Netcatty 同步主密码': 'Netcatty sync master password',
   '拉取并合并': 'Pull & merge',
   '上传': 'Upload',
+  '立即同步': 'Sync now',
   '本地版本': 'Local version',
   '云端版本': 'Cloud version',
   '待同步': 'Pending',
@@ -107,6 +108,16 @@ const englishTranslations = <String, String>{
   '云端版本与上次同步记录不一致，请先拉取并合并':
       'The cloud version differs from the last sync record. Pull and merge first',
   '本地与云端版本一致': 'Local and cloud versions match',
+  '本地与云端尚无共同版本，请立即同步': 'Local and cloud have no shared version yet. Sync now',
+  '云端已有版本，建议立即同步': 'A cloud version exists. Sync now',
+  '本地数据等待同步': 'Local data is waiting to sync',
+  '本地和云端均有更新，请立即同步': 'Both local and cloud have changes. Sync now',
+  '本地有待同步的更改': 'Local changes are waiting to sync',
+  '云端有新版本，建议立即同步': 'A newer cloud version is available. Sync now',
+  '云端版本与上次同步记录不一致，请立即同步':
+      'The cloud version differs from the last sync record. Sync now',
+  '云端保险库使用了当前移动版尚不支持的新版同步格式，已停止写入以保护数据':
+      'The cloud vault uses a newer sync format that this mobile version does not support. Writing was stopped to protect your data',
   '使用 OpenAI 兼容接口生成命令，执行前始终确认':
       'Generate commands through an OpenAI-compatible API and always confirm before execution',
   '使用 OpenAI 兼容接口连续对话，命令执行前始终确认':

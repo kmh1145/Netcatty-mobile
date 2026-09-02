@@ -671,25 +671,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             _busy || _savingAutoSync ? null : _setAutoSync,
                       ),
                       const SizedBox(height: 14),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed:
-                                  _busy ? null : () => _sync(push: false),
-                              icon: const Icon(Icons.cloud_download_outlined),
-                              label: const LText('拉取并合并'),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: FilledButton.icon(
-                              onPressed: _busy ? null : () => _sync(push: true),
-                              icon: const Icon(Icons.cloud_upload_outlined),
-                              label: const LText('上传'),
-                            ),
-                          ),
-                        ],
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          key: const ValueKey('cloud-sync-now'),
+                          onPressed: _busy ? null : _sync,
+                          icon: const Icon(Icons.sync_outlined),
+                          label: const LText('立即同步'),
+                        ),
                       ),
                       if (_busy)
                         const Padding(
@@ -1043,20 +1032,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final base = versions.baseVersion;
     if (base == null) {
       if (versions.cloudVersion > 0 && versions.hasLocalChanges) {
-        return '本地与云端尚无共同版本，请先拉取并合并';
+        return '本地与云端尚无共同版本，请立即同步';
       }
-      if (versions.cloudVersion > 0) return '云端已有版本，建议拉取并合并';
-      if (versions.hasLocalChanges) return '本地数据尚未上传';
+      if (versions.cloudVersion > 0) return '云端已有版本，建议立即同步';
+      if (versions.hasLocalChanges) return '本地数据等待同步';
       return '尚未建立同步版本';
     }
     final cloudChanged = versions.cloudVersion != base;
     if (cloudChanged && versions.hasLocalChanges) {
-      return '本地和云端均有更新，请拉取并合并';
+      return '本地和云端均有更新，请立即同步';
     }
-    if (versions.hasLocalChanges) return '本地有待上传的更改';
-    if (versions.cloudVersion > base) return '云端有新版本，建议拉取并合并';
+    if (versions.hasLocalChanges) return '本地有待同步的更改';
+    if (versions.cloudVersion > base) return '云端有新版本，建议立即同步';
     if (versions.cloudVersion < base) {
-      return '云端版本与上次同步记录不一致，请先拉取并合并';
+      return '云端版本与上次同步记录不一致，请立即同步';
     }
     return '本地与云端版本一致';
   }
@@ -1316,7 +1305,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _message('已退出 GitHub');
   }
 
-  Future<void> _sync({required bool push}) async {
+  Future<void> _sync() async {
     setState(() => _busy = true);
     try {
       await _saveSync();
@@ -1325,27 +1314,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         client: ref.read(httpClientProvider),
       );
       final vault = ref.read(vaultControllerProvider).data ?? VaultData.empty();
-      String message;
-      if (push) {
-        final result = await service.push(vault);
-        await ref
-            .read(vaultControllerProvider.notifier)
-            .replace(result.vault, remote: true);
-        _syncVersions = result.versions;
-        message = result.message;
-      } else {
-        final result = await service.pullAndMerge(vault);
-        await ref
-            .read(vaultControllerProvider.notifier)
-            .replace(result.vault, remote: true);
-        _syncVersions = result.versions;
-        message = result.message;
-      }
+      final result = await service.synchronize(vault);
+      await ref
+          .read(vaultControllerProvider.notifier)
+          .replace(result.vault, remote: true);
+      _syncVersions = result.versions;
       final updatedConnection =
           await ref.read(vaultRepositoryProvider).loadSyncConnection();
       resourceId.text = updatedConnection?.resourceId ?? resourceId.text;
       if (mounted) setState(() {});
-      _message(message);
+      _message(result.message);
     } catch (error) {
       _message('$error');
     } finally {

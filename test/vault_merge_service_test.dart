@@ -1,161 +1,138 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:netcatty_mobile/domain/models/host.dart';
 import 'package:netcatty_mobile/domain/models/vault.dart';
-import 'package:netcatty_mobile/domain/models/vault_sync_state.dart';
 import 'package:netcatty_mobile/infrastructure/sync/vault_merge_service.dart';
 
 void main() {
-  HostProfile host(String id, String label) => HostProfile({
+  HostProfile host(String id, String label, {int? lastConnectedAt}) =>
+      HostProfile({
         'id': id,
         'label': label,
         'hostname': '$id.example.com',
         'username': 'root',
         'port': 22,
+        if (lastConnectedAt != null) 'lastConnectedAt': lastConnectedAt,
       });
 
-  test('newer entity revision wins regardless of merge direction', () {
-    final oldVault = stampLocalVaultChanges(
-      VaultData.empty(),
-      VaultData.empty().copyWith(hosts: [host('one', 'Old')]),
-      timestamp: 100,
-    );
-    final newVault = stampLocalVaultChanges(
-      oldVault,
-      oldVault.copyWith(hosts: [host('one', 'New')]),
-      timestamp: 200,
-    );
+  SshKeyProfile key(String id, String label) => SshKeyProfile({
+        'id': id,
+        'label': label,
+        'privateKey': 'secret-$id',
+      });
 
-    expect(
-      mergeVaults(local: oldVault, remote: newVault).hosts.single.label,
-      'New',
-    );
-    expect(
-      mergeVaults(local: newVault, remote: oldVault).hosts.single.label,
-      'New',
-    );
-  });
-
-  test('tombstone prevents a deleted host from being resurrected', () {
-    final original = stampLocalVaultChanges(
-      VaultData.empty(),
-      VaultData.empty().copyWith(hosts: [host('gone', 'Delete me')]),
-      timestamp: 100,
-    );
-    final deleted = stampLocalVaultChanges(
-      original,
-      original.copyWith(hosts: []),
-      timestamp: 300,
-    );
-
-    final merged = mergeVaults(local: deleted, remote: original);
-
-    expect(merged.hosts, isEmpty);
-    expect(
-      VaultSyncState.fromVault(merged).deletedAt(
-        VaultSyncState.hosts,
-        'gone',
-      ),
-      300,
-    );
-  });
-
-  test('desktop deletion inferred from a missing entity with preserved clocks',
+  test('remote host and key deletion wins when local is unchanged from base',
       () {
-    final original = stampLocalVaultChanges(
-      VaultData.empty(),
-      VaultData.empty().copyWith(
-        hosts: [host('desktop-deleted-host', 'Delete host on desktop')],
-        keys: [
-          SshKeyProfile({
-            'id': 'desktop-deleted-key',
-            'label': 'Delete key on desktop',
-            'privateKey': 'secret',
-          }),
-        ],
-        customGroups: ['Desktop deleted group'],
-      ),
-      timestamp: 100,
+    final base = VaultData.empty().copyWith(
+      hosts: [host('removed-host', 'Server')],
+      keys: [key('removed-key', 'Key')],
     );
-    final desktopSnapshot = original.copyWith(
-      hosts: [],
-      keys: [],
-      customGroups: [],
-    );
+    final remote = base.copyWith(hosts: [], keys: []);
 
-    final merged = mergeVaults(
-      local: original,
-      remote: desktopSnapshot,
-      remoteFallbackTimestamp: 300,
-    );
-    final state = VaultSyncState.fromVault(merged);
+    final merged = mergeVaults(base: base, local: base, remote: remote);
 
     expect(merged.hosts, isEmpty);
     expect(merged.keys, isEmpty);
-    expect(merged.customGroups, isEmpty);
-    expect(
-      state.deletedAt(VaultSyncState.hosts, 'desktop-deleted-host'),
-      300,
-    );
-    expect(
-      state.deletedAt(VaultSyncState.keys, 'desktop-deleted-key'),
-      300,
-    );
-    expect(
-      state.deletedAt(VaultSyncState.groups, 'Desktop deleted group'),
-      300,
-    );
   });
 
-  test('a newer mobile edit still wins over an older desktop deletion', () {
-    final original = stampLocalVaultChanges(
-      VaultData.empty(),
-      VaultData.empty().copyWith(hosts: [host('conflict', 'Original')]),
-      timestamp: 100,
-    );
-    final desktopSnapshot = original.copyWith(hosts: []);
-    final mobileEdited = stampLocalVaultChanges(
-      original,
-      original.copyWith(hosts: [host('conflict', 'Edited on mobile')]),
-      timestamp: 400,
+  test('local deletion wins when remote is unchanged from base', () {
+    final base = VaultData.empty().copyWith(
+      hosts: [host('removed-host', 'Server')],
     );
 
     final merged = mergeVaults(
-      local: mobileEdited,
-      remote: desktopSnapshot,
-      remoteFallbackTimestamp: 300,
+      base: base,
+      local: base.copyWith(hosts: []),
+      remote: base,
     );
 
-    expect(merged.hosts.single.label, 'Edited on mobile');
+    expect(merged.hosts, isEmpty);
+  });
+
+  test('delete versus edit conflict keeps the edited record', () {
+    final base = VaultData.empty().copyWith(
+      hosts: [host('conflict', 'Original')],
+    );
+
+    final merged = mergeVaults(
+      base: base,
+      local: base.copyWith(hosts: [host('conflict', 'Edited')]),
+      remote: base.copyWith(hosts: []),
+    );
+
+    expect(merged.hosts.single.label, 'Edited');
+  });
+
+  test('independent first-sync additions are unioned', () {
+    final local = VaultData.empty().copyWith(hosts: [host('local', 'Local')]);
+    final remote =
+        VaultData.empty().copyWith(hosts: [host('remote', 'Remote')]);
+
+    final merged = mergeVaults(local: local, remote: remote);
+
+    expect(merged.hosts.map((value) => value.id), ['local', 'remote']);
+  });
+
+  test('remote tombstones suppress stale records without a local base', () {
+    final local = VaultData.empty().copyWith(
+      hosts: [host('deleted-host', 'Stale')],
+      keys: [key('deleted-key', 'Stale')],
+    );
+    final remote = VaultData.fromJson({
+      'hosts': const [],
+      'keys': const [],
+      'snippets': const [],
+      'customGroups': const [],
+      'syncMeta': {
+        'schemaVersion': 1,
+        'deletions': [
+          {
+            'entityType': 'hosts',
+            'id': 'deleted-host',
+            'deletedAt': 100,
+          },
+          {
+            'entityType': 'keys',
+            'id': 'deleted-key',
+            'deletedAt': 100,
+          },
+        ],
+      },
+    });
+
+    final merged = mergeVaults(local: local, remote: remote);
+
+    expect(merged.hosts, isEmpty);
+    expect(merged.keys, isEmpty);
     expect(
-      VaultSyncState.fromVault(merged).deletedAt(
-        VaultSyncState.hosts,
-        'conflict',
-      ),
-      0,
+      ((merged.extras['syncMeta'] as Map)['deletions'] as List),
+      hasLength(2),
     );
   });
 
-  test('independent additions from two devices are preserved', () {
-    final left = stampLocalVaultChanges(
-      VaultData.empty(),
-      VaultData.empty().copyWith(hosts: [host('left', 'Left')]),
-      timestamp: 100,
+  test('reliability metadata records and carries desktop-compatible deletions',
+      () {
+    final base = VaultData.empty().copyWith(
+      hosts: [host('deleted-host', 'Server')],
+      keys: [key('deleted-key', 'Key')],
     );
-    final right = stampLocalVaultChanges(
-      VaultData.empty(),
-      VaultData.empty().copyWith(hosts: [host('right', 'Right')]),
-      timestamp: 120,
+    final enriched = withSyncReliabilityMeta(
+      base.copyWith(hosts: [], keys: []),
+      base,
+      deviceId: 'mobile-device',
+      timestamp: 500,
     );
+    final meta = enriched.extras['syncMeta'] as Map;
+    final deletions = (meta['deletions'] as List).cast<Map>();
 
-    final merged = mergeVaults(local: left, remote: right);
-
-    expect(
-      merged.hosts.map((value) => value.id),
-      containsAll(['left', 'right']),
-    );
+    expect(meta['schemaVersion'], 1);
+    expect(meta['deviceId'], 'mobile-device');
+    expect(deletions.map((entry) => entry['entityType']),
+        containsAll(['hosts', 'keys']));
+    expect(deletions.every((entry) => entry['deletedAt'] == 500), isTrue);
   });
 
-  test('cloud desktop settings replace a stale mobile cached snapshot', () {
+  test('first merge adopts cloud setting conflicts but keeps one-sided fields',
+      () {
     final local = VaultData.fromJson({
       'hosts': const [],
       'keys': const [],
@@ -163,11 +140,11 @@ void main() {
       'customGroups': const [],
       'settings': {
         'theme': 'light',
+        'mobileOnly': true,
         'ai': {
           'providers': [
-            {'id': 'stale-provider', 'name': 'Old API Agent'},
+            {'id': 'stale-provider'},
           ],
-          'defaultAgentId': 'codex',
         },
       },
     });
@@ -178,145 +155,103 @@ void main() {
       'customGroups': const [],
       'settings': {
         'theme': 'dark',
+        'desktopOnly': true,
         'ai': {
           'providers': [
-            {'id': 'desktop-api', 'name': 'Desktop API Agent'},
+            {'id': 'desktop-provider'},
           ],
-          'activeProviderId': 'desktop-api',
-          'defaultAgentId': 'catty',
         },
       },
     });
 
-    final merged = mergeVaults(local: local, remote: remote);
+    final settings =
+        mergeVaults(local: local, remote: remote).extras['settings'] as Map;
 
-    expect(merged.extras['settings'], remote.extras['settings']);
-    final ai = (merged.extras['settings'] as Map)['ai'] as Map;
-    expect((ai['providers'] as List).single['id'], 'desktop-api');
-    expect(ai['defaultAgentId'], 'catty');
+    expect(settings['theme'], 'dark');
+    expect(settings['mobileOnly'], isTrue);
+    expect(settings['desktopOnly'], isTrue);
+    expect(
+      ((settings['ai'] as Map)['providers'] as List)
+          .map((provider) => (provider as Map)['id']),
+      containsAll(['stale-provider', 'desktop-provider']),
+    );
   });
 
-  test('removed desktop settings are not resurrected from mobile cache', () {
-    final local = VaultData.fromJson({
-      'hosts': const [],
-      'keys': const [],
-      'snippets': const [],
-      'customGroups': const [],
-      'settings': {
-        'ai': {
-          'providers': [
-            {'id': 'deleted-provider'},
-          ],
-        },
-      },
-      'pluginSidecars': {
-        'version': 1,
-        'entries': [
-          {'pluginId': 'stale-plugin'},
-        ],
-      },
-    });
-    final remote = VaultData.empty();
-
-    final merged = mergeVaults(local: local, remote: remote);
-
-    expect(merged.extras.containsKey('settings'), isFalse);
-    expect(merged.extras.containsKey('pluginSidecars'), isFalse);
-  });
-
-  test('desktop-only payload fields always follow the downloaded snapshot', () {
-    final local = VaultData.fromJson({
+  test('optional collection omission inherits the base instead of deleting it',
+      () {
+    final base = VaultData.fromJson({
       'hosts': const [],
       'keys': const [],
       'snippets': const [],
       'customGroups': const [],
       'notes': [
-        {'id': 'old-note'},
+        {'id': 'note-1', 'text': 'Keep me'},
       ],
-      'portForwardingRules': [
-        {'id': 'old-forward'},
+      'proxyProfiles': [
+        {
+          'id': 'proxy-1',
+          'label': 'Keep proxy',
+          'config': {'type': 'socks5', 'host': 'proxy.example.com'},
+        },
       ],
-      'groupConfigs': [
-        {'id': 'old-group'},
-      ],
-      'syncMeta': {'writer': 'old-mobile-cache'},
     });
     final remote = VaultData.fromJson({
       'hosts': const [],
       'keys': const [],
       'snippets': const [],
       'customGroups': const [],
-      'notes': [
-        {'id': 'new-note'},
-      ],
-      'portForwardingRules': [
-        {'id': 'new-forward'},
-      ],
-      'groupConfigs': [
-        {'id': 'new-group'},
-      ],
-      'syncMeta': {'writer': 'desktop'},
     });
 
-    final merged = mergeVaults(local: local, remote: remote);
+    final merged = mergeVaults(base: base, local: base, remote: remote);
 
-    expect((merged.extras['notes'] as List).single['id'], 'new-note');
-    expect(
-      (merged.extras['portForwardingRules'] as List).single['id'],
-      'new-forward',
-    );
-    expect(
-      (merged.extras['groupConfigs'] as List).single['id'],
-      'new-group',
-    );
-    expect((merged.extras['syncMeta'] as Map)['writer'], 'desktop');
+    expect((merged.extras['notes'] as List).single['id'], 'note-1');
+    expect(merged.proxyProfiles.single.id, 'proxy-1');
   });
 
-  test('mobile host-key trust and private sync metadata stay intact', () {
+  test('sync comparison ignores timestamps, reliability meta and telemetry',
+      () {
+    final left = VaultData.fromJson({
+      'hosts': [host('one', 'Server', lastConnectedAt: 100).toJson()],
+      'keys': const [],
+      'snippets': const [],
+      'customGroups': const [],
+      'syncedAt': 100,
+      'syncMeta': {'generatedAt': 100},
+    });
+    final right = VaultData.fromJson({
+      'hosts': [host('one', 'Server', lastConnectedAt: 999).toJson()],
+      'keys': const [],
+      'snippets': const [],
+      'customGroups': const [],
+      'syncedAt': 999,
+      'syncMeta': {'generatedAt': 999},
+    });
+
+    expect(cloudSyncPayloadsEqual(left, right), isTrue);
+  });
+
+  test('cloud sanitization removes private metadata and keeps trust local', () {
     final local = VaultData.fromJson({
-      'hosts': const [],
+      'hosts': [host('one', 'Server', lastConnectedAt: 100).toJson()],
       'keys': const [],
       'snippets': const [],
       'customGroups': const [],
       'knownHosts': [
-        {
-          'hostname': 'server.example.com',
-          'port': 22,
-          'fingerprint': 'mobile-new',
-        },
+        {'hostname': 'one.example.com', 'fingerprint': 'local'},
       ],
-      '_netcattyMobileFuture': {'enabled': true},
+      '_netcattyMobileSync': {'legacy': true},
     });
-    final remote = VaultData.fromJson({
-      'hosts': const [],
-      'keys': const [],
-      'snippets': const [],
-      'customGroups': const [],
-      'knownHosts': [
-        {
-          'hostname': 'server.example.com',
-          'port': 22,
-          'fingerprint': 'remote-old',
-        },
-        {
-          'hostname': 'other.example.com',
-          'port': 2222,
-          'fingerprint': 'remote-other',
-        },
-      ],
-    });
+    final sanitized = sanitizeVaultForSync(local).toJson();
+    final applied = retainLocalDeviceData(
+      VaultData.empty().copyWith(hosts: [host('one', 'Server')]),
+      local,
+    ).toJson();
 
-    final merged = mergeVaults(local: local, remote: remote);
-    final knownHosts = (merged.extras['knownHosts'] as List).cast<Map>();
-
-    expect(knownHosts, hasLength(2));
-    expect(
-      knownHosts.singleWhere(
-        (entry) => entry['hostname'] == 'server.example.com',
-      )['fingerprint'],
-      'mobile-new',
-    );
-    expect(merged.extras['_netcattyMobileFuture'], {'enabled': true});
-    expect(merged.extras[VaultSyncState.storageKey], isA<Map>());
+    expect(sanitized.containsKey('_netcattyMobileSync'), isFalse);
+    expect(sanitized.containsKey('knownHosts'), isFalse);
+    expect((sanitized['hosts'] as List).single.containsKey('lastConnectedAt'),
+        isFalse);
+    expect(applied['knownHosts'], local.toJson()['knownHosts']);
+    expect((applied['hosts'] as List).single['lastConnectedAt'], 100);
   });
 }

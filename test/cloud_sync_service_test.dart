@@ -7,7 +7,6 @@ import 'package:http/testing.dart';
 import 'package:netcatty_mobile/domain/models/host.dart';
 import 'package:netcatty_mobile/domain/models/settings.dart';
 import 'package:netcatty_mobile/domain/models/vault.dart';
-import 'package:netcatty_mobile/domain/models/vault_sync_state.dart';
 import 'package:netcatty_mobile/infrastructure/storage/vault_repository.dart';
 import 'package:netcatty_mobile/infrastructure/sync/cloud_sync_service.dart';
 import 'package:netcatty_mobile/infrastructure/sync/netcatty_crypto.dart';
@@ -129,6 +128,7 @@ void main() {
     final checkpoint = await repository.loadSyncVersionCheckpoint();
     expect(checkpoint?.target, 'github:gist-1');
     expect(checkpoint?.version, 5);
+    expect(checkpoint?.encryptedBase, isNotNull);
   });
 
   test('version inspection marks a local edit as the next pending version',
@@ -189,10 +189,63 @@ void main() {
 
     final versions = await service.inspectVersions(edited);
 
-    expect(versions.baseVersion, 8);
-    expect(versions.localVersion, 9);
-    expect(versions.cloudVersion, 8);
+    expect(versions.baseVersion, 7);
+    expect(versions.localVersion, 8);
+    expect(versions.cloudVersion, 7);
     expect(versions.hasLocalChanges, isTrue);
+  });
+
+  test('unsupported convergent cloud format fails closed without writing',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    final repository = await VaultRepository.open();
+    await repository.saveSyncConnection(const SyncConnection(
+      type: SyncProviderType.githubGist,
+      endpoint: '',
+      secret: 'token',
+      resourceId: 'gist-v2',
+    ));
+    await repository.saveMasterPassword('sync-password');
+    final encrypted = await NetcattyCrypto.encrypt(
+      vault: VaultData.empty(),
+      password: 'sync-password',
+      deviceId: 'desktop-device',
+      deviceName: 'Desktop',
+      appVersion: '1.4.1',
+    );
+    final v2 = SyncedVaultFile(
+      meta: {...encrypted.meta, 'syncSchemaVersion': 2},
+      payload: encrypted.payload,
+    );
+    var writes = 0;
+    final client = MockClient((request) async {
+      if (request.method != 'GET') writes++;
+      return http.Response(
+        jsonEncode({
+          'files': {
+            'netcatty-vault.json': {
+              'content': jsonEncode(v2.toJson()),
+              'truncated': false,
+            },
+          },
+        }),
+        200,
+        headers: {'etag': '"v2"'},
+      );
+    });
+
+    await expectLater(
+      CloudSyncService(repository, client: client)
+          .synchronize(VaultData.empty()),
+      throwsA(
+        isA<StateError>().having(
+          (error) => error.message,
+          'message',
+          contains('停止写入'),
+        ),
+      ),
+    );
+    expect(writes, 0);
   });
 
   test('desktop host and key deletions are not uploaded back from mobile',
@@ -206,26 +259,38 @@ void main() {
       resourceId: 'gist-desktop-deletion',
     ));
     await repository.saveMasterPassword('sync-password');
-    final local = stampLocalVaultChanges(
-      VaultData.empty(),
-      VaultData.empty().copyWith(
-        hosts: [
-          HostProfile.create(
-            id: 'deleted-host',
-            label: 'Deleted on desktop',
-            hostname: 'deleted.example.com',
-            username: 'root',
-          ),
-        ],
-        keys: [
-          SshKeyProfile({
-            'id': 'deleted-key',
-            'label': 'Deleted key',
-            'privateKey': 'secret',
-          }),
-        ],
+    final local = VaultData.empty().copyWith(
+      hosts: [
+        HostProfile.create(
+          id: 'deleted-host',
+          label: 'Deleted on desktop',
+          hostname: 'deleted.example.com',
+          username: 'root',
+        ),
+      ],
+      keys: [
+        SshKeyProfile({
+          'id': 'deleted-key',
+          'label': 'Deleted key',
+          'privateKey': 'secret',
+        }),
+      ],
+    );
+    final baseFile = await NetcattyCrypto.encrypt(
+      vault: local,
+      password: 'sync-password',
+      deviceId: 'mobile-device',
+      deviceName: 'Mobile',
+      appVersion: '1.4.0',
+      previousVersion: 3,
+    );
+    await repository.saveSyncVersionCheckpoint(
+      SyncVersionCheckpoint(
+        target: 'github:gist-desktop-deletion',
+        version: 4,
+        vaultFingerprint: 'existing-base',
+        encryptedBase: baseFile.toJson(),
       ),
-      timestamp: 100,
     );
     final desktopSnapshot = local.copyWith(hosts: [], keys: []);
     final remoteFile = await NetcattyCrypto.encrypt(
@@ -282,14 +347,12 @@ void main() {
     expect(result.vault.keys, isEmpty);
     expect(uploadedVault?.hosts, isEmpty);
     expect(uploadedVault?.keys, isEmpty);
-    final uploadedState = VaultSyncState.fromVault(uploadedVault!);
+    final deletions =
+        ((uploadedVault!.extras['syncMeta'] as Map)['deletions'] as List)
+            .cast<Map>();
     expect(
-      uploadedState.deletedAt(VaultSyncState.hosts, 'deleted-host'),
-      greaterThan(100),
-    );
-    expect(
-      uploadedState.deletedAt(VaultSyncState.keys, 'deleted-key'),
-      greaterThan(100),
+      deletions.map((entry) => '${entry['entityType']}:${entry['id']}'),
+      containsAll(['hosts:deleted-host', 'keys:deleted-key']),
     );
   });
 

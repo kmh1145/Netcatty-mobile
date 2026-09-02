@@ -4,7 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../domain/models/host.dart';
 import '../domain/models/vault.dart';
-import '../domain/models/vault_sync_state.dart';
 import '../infrastructure/storage/vault_repository.dart';
 
 class VaultState {
@@ -58,11 +57,8 @@ class VaultController extends StateNotifier<VaultState> {
   }
 
   Future<void> replace(VaultData vault, {bool remote = false}) async {
-    final next = remote
-        ? vault
-        : stampLocalVaultChanges(state.data ?? VaultData.empty(), vault);
-    await repository.saveVault(next, remote: remote);
-    state = VaultState(data: next);
+    await repository.saveVault(vault, remote: remote);
+    state = VaultState(data: vault);
   }
 
   Future<void> upsertHost(HostProfile host) async {
@@ -165,13 +161,9 @@ class VaultController extends StateNotifier<VaultState> {
 
   Future<void> _replaceMetadata(VaultData vault) async {
     final previous = state;
-    final next = stampLocalVaultChanges(
-      previous.data ?? repository.loadVaultPreview() ?? VaultData.empty(),
-      vault,
-    );
-    state = VaultState(data: next, loading: previous.loading);
+    state = VaultState(data: vault, loading: previous.loading);
     try {
-      await repository.saveVaultMetadata(next);
+      await repository.saveVaultMetadata(vault);
     } on Object catch (error) {
       state = VaultState(
         data: previous.data,
@@ -182,7 +174,18 @@ class VaultController extends StateNotifier<VaultState> {
     }
   }
 
-  Future<void> markConnected(HostProfile host) => upsertHost(
-        host.copyWith(lastConnectedAt: DateTime.now().millisecondsSinceEpoch),
-      );
+  Future<void> markConnected(HostProfile host) async {
+    final vault = await ready();
+    final connected = host.copyWith(
+      lastConnectedAt: DateTime.now().millisecondsSinceEpoch,
+    );
+    final hosts = vault.hosts
+        .map((value) => value.id == connected.id ? connected : value)
+        .toList(growable: false);
+    final next = vault.copyWith(hosts: hosts);
+    // Connection recency is device-local telemetry in desktop Netcatty. Do
+    // not schedule a cloud write just because a terminal was opened.
+    await repository.saveVault(next, remote: true);
+    state = VaultState(data: next);
+  }
 }

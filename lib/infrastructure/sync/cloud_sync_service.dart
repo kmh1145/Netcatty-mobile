@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:cryptography/cryptography.dart';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
 
@@ -82,12 +81,17 @@ class CloudSyncService {
   }
 
   Future<CloudSyncResult> pullAndMerge(VaultData local) async {
-    return _synchronize(local, createdMessage: '已创建加密云端保险库');
+    return synchronize(local);
   }
 
   Future<CloudSyncResult> push(VaultData vault) async {
-    return _synchronize(vault, createdMessage: '加密上传完成');
+    return synchronize(vault);
   }
+
+  /// Performs the same download, three-way merge and round-trip used by the
+  /// desktop client. Both automatic and manual sync call this single path.
+  Future<CloudSyncResult> synchronize(VaultData local) async =>
+      _synchronize(local);
 
   Future<CloudSyncVersions> inspectVersions(VaultData local) async {
     final setup = await _setup();
@@ -102,26 +106,32 @@ class CloudSyncService {
   Future<void> testS3Connection(SyncConnection connection) =>
       _withTimeout(S3SyncClient(client: _client).testConnection(connection));
 
-  Future<CloudSyncResult> _synchronize(
-    VaultData local, {
-    required String createdMessage,
-  }) async {
+  Future<CloudSyncResult> _synchronize(VaultData local) async {
     final setup = await _setup();
     for (var attempt = 0; attempt < 3; attempt++) {
       final remote = await _download(setup.connection);
       if (remote == null) {
         try {
-          final uploaded =
-              await _uploadNew(setup.connection, local, setup.password);
-          await repository.saveVault(local, remote: true);
+          final deviceId =
+              _injectedDeviceId ?? await repository.readOrCreateDeviceId();
+          final outgoing = withSyncReliabilityMeta(
+            sanitizeVaultForSync(local),
+            null,
+            deviceId: deviceId,
+          );
+          final encrypted = await _encrypt(outgoing, setup.password);
+          final uploaded = await _upload(setup.connection, encrypted);
+          final applied = retainLocalDeviceData(outgoing, local);
+          await repository.saveVault(applied, remote: true);
           await _saveCheckpoint(
-            local,
+            outgoing,
             uploaded.connection,
             uploaded.version,
+            encrypted,
           );
           return CloudSyncResult(
-            vault: local,
-            message: createdMessage,
+            vault: applied,
+            message: '已创建加密云端保险库',
             versions: CloudSyncVersions(
               localVersion: uploaded.version,
               cloudVersion: uploaded.version,
@@ -134,34 +144,55 @@ class CloudSyncService {
           continue;
         }
       }
+      _assertSupportedSyncSchema(remote.file);
       final downloaded = await NetcattyCrypto.decrypt(
         remote.file,
         setup.password,
       );
+      final base = await _loadSyncBase(
+        setup.connection,
+        setup.password,
+      );
       final merged = mergeVaults(
+        base: base,
         local: local,
         remote: downloaded,
-        remoteFallbackTimestamp:
-            (remote.file.meta['updatedAt'] as num?)?.toInt() ?? 0,
       );
       try {
         var finalVersion = _fileVersion(remote.file);
-        if (jsonEncode(merged.toJson()) != jsonEncode(downloaded.toJson())) {
+        final deviceId =
+            _injectedDeviceId ?? await repository.readOrCreateDeviceId();
+        final outgoing = withSyncReliabilityMeta(
+          merged,
+          base,
+          deviceId: deviceId,
+        );
+        var baseFile = remote.file;
+        if (!cloudSyncPayloadsEqual(outgoing, downloaded) ||
+            hasUnpublishedSyncDeletions(outgoing, downloaded)) {
+          final encrypted = await _encrypt(
+            outgoing,
+            setup.password,
+            previousVersion: finalVersion,
+          );
           final uploaded = await _upload(
             setup.connection,
-            await _encrypt(
-              merged,
-              setup.password,
-              previousVersion: finalVersion,
-            ),
+            encrypted,
             expectedRevision: remote.revision,
           );
           finalVersion = uploaded.version;
+          baseFile = encrypted;
         }
-        await repository.saveVault(merged, remote: true);
-        await _saveCheckpoint(merged, setup.connection, finalVersion);
+        final applied = retainLocalDeviceData(outgoing, local);
+        await repository.saveVault(applied, remote: true);
+        await _saveCheckpoint(
+          outgoing,
+          setup.connection,
+          finalVersion,
+          baseFile,
+        );
         return CloudSyncResult(
-          vault: merged,
+          vault: applied,
           message: '同步完成',
           versions: CloudSyncVersions(
             localVersion: finalVersion,
@@ -201,13 +232,6 @@ class CloudSyncService {
     }
     return (connection: connection, password: password);
   }
-
-  Future<_UploadResult> _uploadNew(
-    SyncConnection connection,
-    VaultData vault,
-    String password,
-  ) async =>
-      _upload(connection, await _encrypt(vault, password));
 
   Future<SyncedVaultFile> _encrypt(
     VaultData vault,
@@ -316,6 +340,20 @@ class CloudSyncService {
     }
     late http.Response response;
     if (connection.type == SyncProviderType.webdav) {
+      if (expectedRevision != null) {
+        final current = await _request(
+          _client.get(
+            _webdavUri(connection),
+            headers: _webdavHeaders(connection),
+          ),
+        );
+        if (current.statusCode == 404 ||
+            current.statusCode < 200 ||
+            current.statusCode >= 300 ||
+            current.headers['etag'] != expectedRevision) {
+          throw const CloudSyncConflictException();
+        }
+      }
       await _replaceWebdavFile(connection, body);
       response = http.Response('', 204);
     } else {
@@ -596,9 +634,10 @@ class CloudSyncService {
   }) async {
     final checkpoint = await repository.loadSyncVersionCheckpoint();
     final target = _syncTarget(connection);
-    final fingerprint = await _vaultFingerprint(local);
+    final fingerprint = await cloudSyncPayloadFingerprint(local);
     if (checkpoint == null || checkpoint.target != target) {
-      final emptyFingerprint = await _vaultFingerprint(VaultData.empty());
+      final emptyFingerprint =
+          await cloudSyncPayloadFingerprint(VaultData.empty());
       final hasLocalChanges = fingerprint != emptyFingerprint;
       return CloudSyncVersions(
         localVersion: hasLocalChanges ? 1 : 0,
@@ -620,14 +659,46 @@ class CloudSyncService {
     VaultData vault,
     SyncConnection connection,
     int version,
+    SyncedVaultFile encryptedBase,
   ) async {
     await repository.saveSyncVersionCheckpoint(
       SyncVersionCheckpoint(
         target: _syncTarget(connection),
         version: version,
-        vaultFingerprint: await _vaultFingerprint(vault),
+        vaultFingerprint: await cloudSyncPayloadFingerprint(vault),
+        encryptedBase: encryptedBase.toJson(),
       ),
     );
+  }
+
+  Future<VaultData?> _loadSyncBase(
+    SyncConnection connection,
+    String password,
+  ) async {
+    final checkpoint = await repository.loadSyncVersionCheckpoint();
+    if (checkpoint == null ||
+        checkpoint.target != _syncTarget(connection) ||
+        checkpoint.encryptedBase == null) {
+      return null;
+    }
+    try {
+      final file = SyncedVaultFile.fromJson(checkpoint.encryptedBase!);
+      _assertSupportedSyncSchema(file);
+      return sanitizeVaultForSync(await NetcattyCrypto.decrypt(file, password));
+    } on Object {
+      // Match desktop behavior: a missing/corrupt local base degrades to a
+      // tombstone-aware first merge instead of blocking access to the vault.
+      return null;
+    }
+  }
+
+  void _assertSupportedSyncSchema(SyncedVaultFile file) {
+    final schema = (file.meta['syncSchemaVersion'] as num?)?.toInt();
+    if (schema != null && schema >= 2) {
+      throw StateError(
+        '云端保险库使用了当前移动版尚不支持的新版同步格式，已停止写入以保护数据',
+      );
+    }
   }
 
   String _syncTarget(SyncConnection connection) {
@@ -644,23 +715,6 @@ class CloudSyncService {
   int _fileVersion(SyncedVaultFile file) {
     final version = (file.meta['version'] as num?)?.toInt() ?? 0;
     return version < 0 ? 0 : version;
-  }
-
-  Future<String> _vaultFingerprint(VaultData vault) async {
-    final canonical = _canonicalize(vault.toJson(legacySyncSnapshot: true));
-    final digest = await Sha256().hash(utf8.encode(jsonEncode(canonical)));
-    return base64UrlEncode(digest.bytes);
-  }
-
-  Object? _canonicalize(Object? value) {
-    if (value is Map) {
-      final keys = value.keys.map((key) => key.toString()).toList()..sort();
-      return {
-        for (final key in keys) key: _canonicalize(value[key]),
-      };
-    }
-    if (value is List) return value.map(_canonicalize).toList();
-    return value;
   }
 
   String _githubError(String label, http.Response response) {

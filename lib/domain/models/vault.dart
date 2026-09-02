@@ -8,7 +8,16 @@ class VaultData {
     required this.customGroups,
     this.proxyProfiles = const [],
     Map<String, dynamic>? extras,
-  }) : extras = extras ?? <String, dynamic>{};
+    Set<String>? presentFields,
+  })  : extras = extras ?? <String, dynamic>{},
+        _presentFields = presentFields ??
+            const <String>{
+              'hosts',
+              'keys',
+              'snippets',
+              'customGroups',
+              'proxyProfiles',
+            };
 
   factory VaultData.empty() =>
       VaultData(hosts: [], keys: [], snippets: [], customGroups: []);
@@ -41,6 +50,7 @@ class VaultData {
           .map((value) => ProxyProfile(Map<String, dynamic>.from(value)))
           .toList(),
       extras: extras,
+      presentFields: json.keys.toSet(),
     );
   }
 
@@ -50,6 +60,7 @@ class VaultData {
   final List<String> customGroups;
   final List<ProxyProfile> proxyProfiles;
   final Map<String, dynamic> extras;
+  final Set<String> _presentFields;
 
   VaultData copyWith({
     List<HostProfile>? hosts,
@@ -66,17 +77,24 @@ class VaultData {
         customGroups: customGroups ?? this.customGroups,
         proxyProfiles: proxyProfiles ?? this.proxyProfiles,
         extras: extras ?? this.extras,
+        presentFields: {
+          ..._presentFields,
+          if (proxyProfiles != null) 'proxyProfiles',
+        },
       );
 
   Map<String, dynamic> toJson({bool legacySyncSnapshot = false}) {
     final result = Map<String, dynamic>.from(extras);
     if (legacySyncSnapshot) result.remove('convergentSync');
-    return result
+    result
       ..['hosts'] = hosts.map((value) => value.toJson()).toList()
       ..['keys'] = keys.map((value) => value.toJson()).toList()
       ..['snippets'] = snippets.map((value) => value.toJson()).toList()
-      ..['customGroups'] = customGroups
-      ..['proxyProfiles'] =
+      ..['customGroups'] = customGroups;
+    if (_presentFields.contains('proxyProfiles') || proxyProfiles.isNotEmpty) {
+      result['proxyProfiles'] =
           proxyProfiles.map((value) => value.toJson()).toList();
+    }
+    return result;
   }
 }
