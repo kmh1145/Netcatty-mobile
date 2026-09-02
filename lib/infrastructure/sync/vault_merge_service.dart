@@ -201,7 +201,23 @@ List<T> _mergeEntities<T>({
         fallback: remoteFallbackTimestamp,
       ),
     );
-    final deletion = mergedTombstones[kind]?[id] ?? 0;
+    var deletion = mergedTombstones[kind]?[id] ?? 0;
+    // Desktop Netcatty preserves the mobile revision sidecar but does not
+    // create mobile tombstones. A revision without its previously materialized
+    // entity therefore means the entity was deleted on desktop. Record that
+    // deletion before merging so the cached mobile copy is not uploaded again.
+    final remotePreviouslyKnewEntity = remoteItem == null &&
+        localItem != null &&
+        (remoteState.revisions[kind]?.containsKey(id) ?? false);
+    if (remotePreviouslyKnewEntity) {
+      final inferredDeletion = remoteFallbackTimestamp > 0
+          ? remoteFallbackTimestamp
+          : remoteRevision;
+      if (inferredDeletion > deletion) {
+        deletion = inferredDeletion;
+        mergedTombstones[kind]?[id] = inferredDeletion;
+      }
+    }
     final winningRevision =
         localRevision > remoteRevision ? localRevision : remoteRevision;
     if (deletion >= winningRevision && deletion > 0) {
@@ -244,7 +260,20 @@ List<String> _mergeGroups(
     );
     final winningRevision =
         localRevision > remoteRevision ? localRevision : remoteRevision;
-    final deletion = tombstones[VaultSyncState.groups]?[group] ?? 0;
+    var deletion = tombstones[VaultSyncState.groups]?[group] ?? 0;
+    final remotePreviouslyKnewGroup = localSet.contains(group) &&
+        !remoteSet.contains(group) &&
+        (remoteState.revisions[VaultSyncState.groups]?.containsKey(group) ??
+            false);
+    if (remotePreviouslyKnewGroup) {
+      final inferredDeletion = remoteFallbackTimestamp > 0
+          ? remoteFallbackTimestamp
+          : remoteRevision;
+      if (inferredDeletion > deletion) {
+        deletion = inferredDeletion;
+        tombstones[VaultSyncState.groups]?[group] = inferredDeletion;
+      }
+    }
     if (deletion >= winningRevision && deletion > 0) {
       revisions[VaultSyncState.groups]?.remove(group);
       continue;

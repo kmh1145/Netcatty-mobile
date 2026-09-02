@@ -281,6 +281,25 @@ const englishTranslations = <String, String>{
   '文件操作': 'File actions',
   '传输到另一栏': 'Transfer to the other pane',
   '下载 / 分享': 'Download / share',
+  '复制文件路径': 'Copy file path',
+  '文件路径已复制': 'File path copied',
+  '修改文件权限': 'Change file permissions',
+  '当前文件来源不支持修改权限':
+      'The current file source does not support permission changes',
+  'Unix 权限必须在 0000 到 7777 之间': 'Unix permissions must be between 0000 and 7777',
+  '在终端中打开当前目录': 'Open current folder in terminal',
+  'Unix 权限': 'Unix permissions',
+  '例如 644 或 0755': 'For example, 644 or 0755',
+  '依次表示所有者、用户组和其他用户的读写执行权限':
+      'Read, write, and execute permissions for owner, group, and others',
+  '请输入 3 或 4 位八进制权限（0-7）': 'Enter a 3- or 4-digit octal permission (0-7)',
+  '应用': 'Apply',
+  r'修改 ${entry.name} 的权限': r'Change permissions for ${entry.name}',
+  r'权限已修改为 ${formatUnixPermissions(mode)}':
+      r'Permissions changed to ${formatUnixPermissions(mode)}',
+  '无法打开终端：对应的 SSH 会话已断开':
+      'Unable to open terminal: the SSH session is disconnected',
+  r'无法在终端中打开目录：$error': r'Unable to open the folder in terminal: $error',
   '重命名': 'Rename',
   '新名称': 'New name',
   '取消传输': 'Cancel transfer',

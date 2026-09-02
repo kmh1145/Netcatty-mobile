@@ -7,6 +7,7 @@ import 'package:http/testing.dart';
 import 'package:netcatty_mobile/domain/models/host.dart';
 import 'package:netcatty_mobile/domain/models/settings.dart';
 import 'package:netcatty_mobile/domain/models/vault.dart';
+import 'package:netcatty_mobile/domain/models/vault_sync_state.dart';
 import 'package:netcatty_mobile/infrastructure/storage/vault_repository.dart';
 import 'package:netcatty_mobile/infrastructure/sync/cloud_sync_service.dart';
 import 'package:netcatty_mobile/infrastructure/sync/netcatty_crypto.dart';
@@ -192,6 +193,104 @@ void main() {
     expect(versions.localVersion, 9);
     expect(versions.cloudVersion, 8);
     expect(versions.hasLocalChanges, isTrue);
+  });
+
+  test('desktop host and key deletions are not uploaded back from mobile',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    final repository = await VaultRepository.open();
+    await repository.saveSyncConnection(const SyncConnection(
+      type: SyncProviderType.githubGist,
+      endpoint: '',
+      secret: 'token',
+      resourceId: 'gist-desktop-deletion',
+    ));
+    await repository.saveMasterPassword('sync-password');
+    final local = stampLocalVaultChanges(
+      VaultData.empty(),
+      VaultData.empty().copyWith(
+        hosts: [
+          HostProfile.create(
+            id: 'deleted-host',
+            label: 'Deleted on desktop',
+            hostname: 'deleted.example.com',
+            username: 'root',
+          ),
+        ],
+        keys: [
+          SshKeyProfile({
+            'id': 'deleted-key',
+            'label': 'Deleted key',
+            'privateKey': 'secret',
+          }),
+        ],
+      ),
+      timestamp: 100,
+    );
+    final desktopSnapshot = local.copyWith(hosts: [], keys: []);
+    final remoteFile = await NetcattyCrypto.encrypt(
+      vault: desktopSnapshot,
+      password: 'sync-password',
+      deviceId: 'desktop-device',
+      deviceName: 'Desktop',
+      appVersion: '1.4.0',
+      previousVersion: 4,
+    );
+    final gistResponse = jsonEncode({
+      'files': {
+        'netcatty-vault.json': {
+          'content': jsonEncode(remoteFile.toJson()),
+          'truncated': false,
+        },
+      },
+    });
+    VaultData? uploadedVault;
+    final client = MockClient((request) async {
+      if (request.method == 'GET') {
+        return http.Response(
+          gistResponse,
+          200,
+          headers: {'etag': '"desktop-deletion"'},
+        );
+      }
+      if (request.method == 'PATCH') {
+        final body = jsonDecode(request.body) as Map<String, dynamic>;
+        final files = body['files'] as Map<String, dynamic>;
+        final encrypted = SyncedVaultFile.fromJson(
+          jsonDecode(
+            (files['netcatty-vault.json'] as Map<String, dynamic>)['content']
+                as String,
+          ) as Map<String, dynamic>,
+        );
+        uploadedVault = await NetcattyCrypto.decrypt(
+          encrypted,
+          'sync-password',
+        );
+        return http.Response('{}', 200);
+      }
+      fail('Unexpected ${request.method} request to ${request.url}');
+    });
+
+    final result = await CloudSyncService(
+      repository,
+      client: client,
+      deviceId: 'mobile-device',
+      appVersion: '1.4.0',
+    ).pullAndMerge(local);
+
+    expect(result.vault.hosts, isEmpty);
+    expect(result.vault.keys, isEmpty);
+    expect(uploadedVault?.hosts, isEmpty);
+    expect(uploadedVault?.keys, isEmpty);
+    final uploadedState = VaultSyncState.fromVault(uploadedVault!);
+    expect(
+      uploadedState.deletedAt(VaultSyncState.hosts, 'deleted-host'),
+      greaterThan(100),
+    );
+    expect(
+      uploadedState.deletedAt(VaultSyncState.keys, 'deleted-key'),
+      greaterThan(100),
+    );
   });
 
   test('WebDAV upload uses the desktop temp PUT and MOVE replacement flow',

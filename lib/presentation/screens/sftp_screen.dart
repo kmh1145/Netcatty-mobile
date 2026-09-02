@@ -1,8 +1,8 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:netcatty_mobile/presentation/localization/localized_widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
@@ -163,6 +163,9 @@ class _SftpScreenState extends ConsumerState<SftpScreen> {
                           sources: sources,
                           onSourceChanged: (id) => _changeSource(true, id),
                           onPhoneMountChanged: _phoneMountChanged,
+                          onOpenInTerminal: left.isLocal
+                              ? null
+                              : (path) => _openInTerminal(left, path),
                           onCopyToOther: _dualPane
                               ? (entry) =>
                                   _copy(entry, _leftKey, _rightKey, '右侧')
@@ -186,6 +189,9 @@ class _SftpScreenState extends ConsumerState<SftpScreen> {
                             sources: sources,
                             onSourceChanged: (id) => _changeSource(false, id),
                             onPhoneMountChanged: _phoneMountChanged,
+                            onOpenInTerminal: right.isLocal
+                                ? null
+                                : (path) => _openInTerminal(right, path),
                             onCopyToOther: (entry) =>
                                 _copy(entry, _rightKey, _leftKey, '左侧'),
                           ),
@@ -255,6 +261,30 @@ class _SftpScreenState extends ConsumerState<SftpScreen> {
     setState(() {});
     _leftKey.currentState?.resetAfterPhoneMount();
     _rightKey.currentState?.resetAfterPhoneMount();
+  }
+
+  void _openInTerminal(FileTransferService service, String path) {
+    if (service is! SftpService) return;
+    final controller = ref.read(sessionControllerProvider.notifier);
+    final sessions = ref.read(sessionControllerProvider).sessions;
+    final index = sessions.indexWhere(
+      (session) => session.id == service.session.id,
+    );
+    if (index < 0 || !service.session.connected) {
+      _message('无法打开终端：对应的 SSH 会话已断开');
+      return;
+    }
+    try {
+      controller.activate(index);
+      controller.sendToSession(
+        service.session.id,
+        'cd ${quoteSftpTerminalPath(path)}',
+        enter: true,
+      );
+      ref.read(homeTabProvider.notifier).state = 1;
+    } catch (error) {
+      _message('无法在终端中打开目录：$error');
+    }
   }
 
   Future<void> _copy(

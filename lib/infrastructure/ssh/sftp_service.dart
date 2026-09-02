@@ -15,6 +15,7 @@ class RemoteEntry {
     required this.isDirectory,
     required this.size,
     this.modifiedAt,
+    this.unixMode,
   });
 
   final String name;
@@ -22,7 +23,20 @@ class RemoteEntry {
   final bool isDirectory;
   final int size;
   final DateTime? modifiedAt;
+  final int? unixMode;
 }
+
+int? parseUnixPermissions(String value) {
+  final normalized = value.trim();
+  if (!RegExp(r'^[0-7]{3,4}$').hasMatch(normalized)) return null;
+  return int.parse(normalized, radix: 8);
+}
+
+String? formatUnixPermissions(int? mode) =>
+    mode == null ? null : (mode & 0xfff).toRadixString(8).padLeft(3, '0');
+
+String quoteSftpTerminalPath(String path) =>
+    "'${path.replaceAll("'", "'\\''")}'";
 
 typedef TransferProgressCallback = void Function(int transferredBytes);
 
@@ -49,6 +63,7 @@ abstract class FileTransferService {
   String get displayName;
   String get rootPath;
   bool get isLocal;
+  bool get supportsUnixPermissions => false;
 
   String displayPath(String path);
   String joinPath(String path, String name);
@@ -71,6 +86,8 @@ abstract class FileTransferService {
   Future<void> ensureDirectory(String path);
   Future<void> rename(String from, String to);
   Future<void> delete(RemoteEntry entry);
+  Future<void> setPermissions(String path, int mode) =>
+      Future<void>.error(UnsupportedError('当前文件来源不支持修改权限'));
 
   Future<Uint8List> readBytes(String path) async {
     final builder = BytesBuilder(copy: false);
@@ -111,6 +128,8 @@ class SftpService extends FileTransferService {
   String get rootPath => '/';
   @override
   bool get isLocal => false;
+  @override
+  bool get supportsUnixPermissions => true;
 
   Future<SftpClient> get _sftp async {
     final ssh = session.sshClient;
@@ -147,6 +166,7 @@ class SftpService extends FileTransferService {
         path: fullPath,
         isDirectory: item.attr.mode?.type == SftpFileType.directory,
         size: item.attr.size ?? 0,
+        unixMode: item.attr.mode?.value,
         modifiedAt: modified == null
             ? null
             : DateTime.fromMillisecondsSinceEpoch(modified * 1000),
@@ -236,6 +256,17 @@ class SftpService extends FileTransferService {
   @override
   Future<void> rename(String from, String to) async =>
       (await _sftp).rename(from, to);
+
+  @override
+  Future<void> setPermissions(String path, int mode) async {
+    if (mode < 0 || mode > 0xfff) {
+      throw StateError('Unix 权限必须在 0000 到 7777 之间');
+    }
+    await (await _sftp).setStat(
+      path,
+      SftpFileAttrs(mode: SftpFileMode.value(mode)),
+    );
+  }
 
   /// Retained for callers that copy within this SSH session.
   Future<int> copyEntry(RemoteEntry entry, String targetDirectory) =>
