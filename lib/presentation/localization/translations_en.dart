@@ -118,6 +118,10 @@ const englishTranslations = <String, String>{
       'The cloud version differs from the last sync record. Sync now',
   '云端保险库使用了当前移动版尚不支持的新版同步格式，已停止写入以保护数据':
       'The cloud vault uses a newer sync format that this mobile version does not support. Writing was stopped to protect your data',
+  '云端保险库的同步格式标记无效，已停止写入以保护数据':
+      'The cloud vault has an invalid sync format marker. Writing was stopped to protect your data',
+  '云端保险库的同步格式无效，已停止写入以保护数据':
+      'The cloud vault has an invalid sync format. Writing was stopped to protect your data',
   '使用 OpenAI 兼容接口生成命令，执行前始终确认':
       'Generate commands through an OpenAI-compatible API and always confirm before execution',
   '使用 OpenAI 兼容接口连续对话，命令执行前始终确认':

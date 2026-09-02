@@ -52,11 +52,16 @@ class NetcattyCrypto {
       password: password,
       nonce: salt,
     );
-    // A mobile write is a legacy materialized snapshot. Desktop Netcatty will
-    // migrate it into its v2 CRDT replica on the next convergent sync.
-    final cleartext = utf8.encode(
-      jsonEncode(vault.toJson(legacySyncSnapshot: true)),
-    );
+    final convergent = vault.extras['convergentSync'];
+    final isConvergentV2 = convergent is Map &&
+        convergent['schemaVersion'] == 2 &&
+        convergent['encoding'] == 'materialized-winner-v1';
+    // Legacy writes remain v1. When the remote already uses desktop's
+    // convergent format, the caller supplies an updated envelope and we must
+    // preserve it together with the advertised plaintext schema version.
+    final cleartext = utf8.encode(jsonEncode(vault.toJson(
+      legacySyncSnapshot: !isConvergentV2,
+    )));
     final box = await _aes.encrypt(cleartext, secretKey: key, nonce: iv);
     final ciphertextAndTag = Uint8List.fromList([
       ...box.cipherText,
@@ -74,6 +79,7 @@ class NetcattyCrypto {
         'algorithm': 'AES-256-GCM',
         'kdf': 'PBKDF2',
         'kdfIterations': iterations,
+        if (isConvergentV2) 'syncSchemaVersion': 2,
       },
       payload: base64Encode(ciphertextAndTag),
     );

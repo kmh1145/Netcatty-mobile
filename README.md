@@ -133,7 +133,7 @@ Netcatty 的 Android / iOS 移动端实现：一个面向服务器管理、SSH �
 - 可选自动同步：本地修改防抖同步、启动/回到前台刷新及周期云端检查
 - 手动操作只保留“立即同步”，与自动同步共用桌面端同款三方合并流程
 - 本地加密保存上次成功同步基线，严格识别新增、修改和删除；删除墓碑会继续传递给尚无基线的设备
-- 兼容桌面端 `netcatty-vault.json` 加密格式
+- 兼容桌面端 `netcatty-vault.json` 加密格式及 v2 收敛同步数据，WebDAV、GitHub Gist、S3 均保持删除记录与未知字段
 - PBKDF2-HMAC-SHA256 600,000 次派生，AES-256-GCM 认证加密
 - 本地普通偏好设置不保存密码、私钥、同步密码、Token 或 API Key
 - Android 禁用明文网络和系统备份；iOS 凭据使用设备 Keychain

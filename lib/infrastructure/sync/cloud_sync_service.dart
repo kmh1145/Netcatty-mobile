@@ -7,6 +7,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import '../../domain/models/settings.dart';
 import '../../domain/models/vault.dart';
 import '../storage/vault_repository.dart';
+import 'convergent_sync_adapter.dart';
 import 'netcatty_crypto.dart';
 import 's3_sync_client.dart';
 import 'vault_merge_service.dart';
@@ -149,6 +150,8 @@ class CloudSyncService {
         remote.file,
         setup.password,
       );
+      final remoteSchema = _syncSchema(remote.file);
+      if (remoteSchema == 2) _validateConvergentPayload(downloaded);
       final base = await _loadSyncBase(
         setup.connection,
         setup.password,
@@ -170,8 +173,11 @@ class CloudSyncService {
         var baseFile = remote.file;
         if (!cloudSyncPayloadsEqual(outgoing, downloaded) ||
             hasUnpublishedSyncDeletions(outgoing, downloaded)) {
+          final wireVault = remoteSchema == 2
+              ? _updateConvergentPayload(downloaded, outgoing, deviceId)
+              : outgoing;
           final encrypted = await _encrypt(
-            outgoing,
+            wireVault,
             setup.password,
             previousVersion: finalVersion,
           );
@@ -684,7 +690,9 @@ class CloudSyncService {
     try {
       final file = SyncedVaultFile.fromJson(checkpoint.encryptedBase!);
       _assertSupportedSyncSchema(file);
-      return sanitizeVaultForSync(await NetcattyCrypto.decrypt(file, password));
+      final decrypted = await NetcattyCrypto.decrypt(file, password);
+      if (_syncSchema(file) == 2) _validateConvergentPayload(decrypted);
+      return sanitizeVaultForSync(decrypted);
     } on Object {
       // Match desktop behavior: a missing/corrupt local base degrades to a
       // tombstone-aware first merge instead of blocking access to the vault.
@@ -693,10 +701,46 @@ class CloudSyncService {
   }
 
   void _assertSupportedSyncSchema(SyncedVaultFile file) {
-    final schema = (file.meta['syncSchemaVersion'] as num?)?.toInt();
-    if (schema != null && schema >= 2) {
+    final raw = file.meta['syncSchemaVersion'];
+    if (raw == null) return;
+    if (raw is! num || raw.toInt() != raw || raw.toInt() < 1) {
+      throw StateError('云端保险库的同步格式标记无效，已停止写入以保护数据');
+    }
+    final schema = raw.toInt();
+    if (schema > 2) {
       throw StateError(
         '云端保险库使用了当前移动版尚不支持的新版同步格式，已停止写入以保护数据',
+      );
+    }
+  }
+
+  int? _syncSchema(SyncedVaultFile file) =>
+      (file.meta['syncSchemaVersion'] as num?)?.toInt();
+
+  void _validateConvergentPayload(VaultData vault) {
+    try {
+      validateConvergentSyncPayload(vault);
+    } on FormatException {
+      throw StateError(
+        '云端保险库的同步格式无效，已停止写入以保护数据',
+      );
+    }
+  }
+
+  VaultData _updateConvergentPayload(
+    VaultData remote,
+    VaultData desired,
+    String deviceId,
+  ) {
+    try {
+      return updateConvergentSyncPayload(
+        remote: remote,
+        desired: desired,
+        deviceId: deviceId,
+      );
+    } on FormatException {
+      throw StateError(
+        '云端保险库的同步格式无效，已停止写入以保护数据',
       );
     }
   }

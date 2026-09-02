@@ -9,6 +9,7 @@ import 'package:netcatty_mobile/domain/models/settings.dart';
 import 'package:netcatty_mobile/domain/models/vault.dart';
 import 'package:netcatty_mobile/infrastructure/storage/vault_repository.dart';
 import 'package:netcatty_mobile/infrastructure/sync/cloud_sync_service.dart';
+import 'package:netcatty_mobile/infrastructure/sync/convergent_sync_adapter.dart';
 import 'package:netcatty_mobile/infrastructure/sync/netcatty_crypto.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -195,8 +196,7 @@ void main() {
     expect(versions.hasLocalChanges, isTrue);
   });
 
-  test('unsupported convergent cloud format fails closed without writing',
-      () async {
+  test('future convergent cloud format fails closed without writing', () async {
     SharedPreferences.setMockInitialValues({});
     final repository = await VaultRepository.open();
     await repository.saveSyncConnection(const SyncConnection(
@@ -214,7 +214,7 @@ void main() {
       appVersion: '1.4.1',
     );
     final v2 = SyncedVaultFile(
-      meta: {...encrypted.meta, 'syncSchemaVersion': 2},
+      meta: {...encrypted.meta, 'syncSchemaVersion': 3},
       payload: encrypted.payload,
     );
     var writes = 0;
@@ -356,6 +356,79 @@ void main() {
     );
   });
 
+  test('Gist sync reads and preserves desktop convergent v2 vaults', () async {
+    SharedPreferences.setMockInitialValues({});
+    final repository = await VaultRepository.open();
+    await repository.saveSyncConnection(const SyncConnection(
+      type: SyncProviderType.githubGist,
+      endpoint: '',
+      secret: 'token',
+      resourceId: 'gist-desktop-v2',
+    ));
+    await repository.saveMasterPassword('sync-password');
+    final remoteFile = await NetcattyCrypto.encrypt(
+      vault: _desktopV2Vault(),
+      password: 'sync-password',
+      deviceId: 'desktop-device',
+      deviceName: 'Desktop',
+      appVersion: '1.4.1',
+      previousVersion: 4,
+    );
+    final gistResponse = jsonEncode({
+      'files': {
+        'netcatty-vault.json': {
+          'content': jsonEncode(remoteFile.toJson()),
+          'truncated': false,
+        },
+      },
+    });
+    SyncedVaultFile? uploaded;
+    var getCount = 0;
+    final client = MockClient((request) async {
+      if (request.method == 'GET') {
+        getCount++;
+        return http.Response(
+          gistResponse,
+          200,
+          headers: {'etag': '"desktop-v2"'},
+        );
+      }
+      if (request.method == 'PATCH') {
+        final body = jsonDecode(request.body) as Map<String, dynamic>;
+        final files = body['files'] as Map<String, dynamic>;
+        uploaded = SyncedVaultFile.fromJson(
+          jsonDecode(
+            (files['netcatty-vault.json'] as Map<String, dynamic>)['content']
+                as String,
+          ) as Map<String, dynamic>,
+        );
+        return http.Response('{}', 200);
+      }
+      fail('Unexpected ${request.method} request to ${request.url}');
+    });
+    final local = VaultData.fromJson({
+      ..._desktopV2Vault().toJson(legacySyncSnapshot: true),
+      'customGroups': ['Mobile'],
+    });
+
+    final result = await CloudSyncService(
+      repository,
+      client: client,
+      deviceId: 'mobile-device',
+      appVersion: '1.4.1',
+    ).synchronize(local);
+
+    expect(getCount, 2, reason: 'download plus revision preflight');
+    expect(result.vault.customGroups, contains('Mobile'));
+    expect(uploaded?.meta['syncSchemaVersion'], 2);
+    final roundTrip = await NetcattyCrypto.decrypt(
+      uploaded!,
+      'sync-password',
+    );
+    expect(roundTrip.customGroups, contains('Mobile'));
+    validateConvergentSyncPayload(roundTrip);
+  });
+
   test('WebDAV upload uses the desktop temp PUT and MOVE replacement flow',
       () async {
     SharedPreferences.setMockInitialValues({});
@@ -434,6 +507,75 @@ void main() {
       jsonDecode(utf8.decode(canonical)) as Map<String, dynamic>,
     );
     expect(uploaded.meta['version'], 5);
+  });
+
+  test('WebDAV sync reads and preserves desktop convergent v2 vaults',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    final repository = await VaultRepository.open();
+    await repository.saveSyncConnection(const SyncConnection(
+      type: SyncProviderType.webdav,
+      endpoint: 'https://dav.example.com/netcatty/',
+      username: 'user',
+      secret: 'password',
+    ));
+    await repository.saveMasterPassword('sync-password');
+    final remoteFile = await NetcattyCrypto.encrypt(
+      vault: _desktopV2Vault(),
+      password: 'sync-password',
+      deviceId: 'desktop-device',
+      deviceName: 'Desktop',
+      appVersion: '1.4.1',
+      previousVersion: 4,
+    );
+    var canonical = <int>[...utf8.encode(jsonEncode(remoteFile.toJson()))];
+    List<int>? temporary;
+    SyncedVaultFile? uploaded;
+    final client = MockClient((request) async {
+      if (request.method == 'GET' && request.url.path.endsWith('.tmp')) {
+        return http.Response('', 404);
+      }
+      if (request.method == 'GET' &&
+          request.url.path.endsWith('netcatty-vault.json')) {
+        return http.Response.bytes(
+          canonical,
+          200,
+          headers: {'etag': '"desktop-v2"'},
+        );
+      }
+      if (request.method == 'PUT' && request.url.path.endsWith('.tmp')) {
+        temporary = List<int>.from(request.bodyBytes);
+        uploaded = SyncedVaultFile.fromJson(
+          jsonDecode(utf8.decode(temporary!)) as Map<String, dynamic>,
+        );
+        return http.Response('', 201);
+      }
+      if (request.method == 'MOVE') {
+        canonical = temporary!;
+        return http.Response('', 201);
+      }
+      fail('Unexpected ${request.method} request to ${request.url}');
+    });
+    final local = VaultData.fromJson({
+      ..._desktopV2Vault().toJson(legacySyncSnapshot: true),
+      'customGroups': ['Mobile'],
+    });
+
+    final result = await CloudSyncService(
+      repository,
+      client: client,
+      deviceId: 'mobile-device',
+      appVersion: '1.4.1',
+    ).synchronize(local);
+
+    expect(result.vault.customGroups, contains('Mobile'));
+    expect(uploaded?.meta['syncSchemaVersion'], 2);
+    final roundTrip = await NetcattyCrypto.decrypt(
+      uploaded!,
+      'sync-password',
+    );
+    expect(roundTrip.customGroups, contains('Mobile'));
+    validateConvergentSyncPayload(roundTrip);
   });
 
   test('WebDAV fallback pads a shorter vault for non-truncating servers',
@@ -567,6 +709,66 @@ void main() {
     expect(serialized, isNot(contains('temporary-session-token')));
   });
 
+  test('S3 sync reads and preserves desktop convergent v2 vaults', () async {
+    SharedPreferences.setMockInitialValues({});
+    final repository = await VaultRepository.open();
+    const connection = SyncConnection(
+      type: SyncProviderType.s3,
+      endpoint: 'https://minio.example.com',
+      region: 'us-east-1',
+      bucket: 'netcatty',
+      accessKeyId: 'access',
+      secret: 'secret',
+    );
+    await repository.saveSyncConnection(connection);
+    await repository.saveMasterPassword('sync-password');
+    final remoteFile = await NetcattyCrypto.encrypt(
+      vault: _desktopV2Vault(),
+      password: 'sync-password',
+      deviceId: 'desktop-device',
+      deviceName: 'Desktop',
+      appVersion: '1.4.1',
+      previousVersion: 4,
+    );
+    SyncedVaultFile? uploaded;
+    final client = MockClient((request) async {
+      if (request.method == 'GET') {
+        return http.Response(
+          jsonEncode(remoteFile.toJson()),
+          200,
+          headers: {'etag': '"desktop-v2"'},
+        );
+      }
+      if (request.method == 'PUT') {
+        uploaded = SyncedVaultFile.fromJson(
+          jsonDecode(request.body) as Map<String, dynamic>,
+        );
+        return http.Response('', 200, headers: {'etag': '"mobile-v2"'});
+      }
+      fail('Unexpected ${request.method} request to ${request.url}');
+    });
+    final local = VaultData.fromJson({
+      ..._desktopV2Vault().toJson(legacySyncSnapshot: true),
+      'customGroups': ['Mobile'],
+    });
+
+    final result = await CloudSyncService(
+      repository,
+      client: client,
+      deviceId: 'mobile-device',
+      appVersion: '1.4.1',
+    ).synchronize(local);
+
+    expect(result.vault.customGroups, contains('Mobile'));
+    expect(uploaded?.meta['syncSchemaVersion'], 2);
+    final roundTrip = await NetcattyCrypto.decrypt(
+      uploaded!,
+      'sync-password',
+    );
+    expect(roundTrip.customGroups, contains('Mobile'));
+    validateConvergentSyncPayload(roundTrip);
+  });
+
   test('S3 virtual-host mode signs a bucket host connection test', () async {
     SharedPreferences.setMockInitialValues({});
     final repository = await VaultRepository.open();
@@ -591,3 +793,74 @@ void main() {
         .testS3Connection(connection);
   });
 }
+
+VaultData _desktopV2Vault() => VaultData.fromJson({
+      'hosts': [
+        {'id': 'host-1', 'label': 'Desktop'},
+      ],
+      'keys': <dynamic>[],
+      'snippets': <dynamic>[],
+      'customGroups': <dynamic>[],
+      'proxyProfiles': <dynamic>[],
+      'syncedAt': 100,
+      'convergentSync': {
+        'schemaVersion': 2,
+        'encoding': 'materialized-winner-v1',
+        'state': {
+          'vector': {'desktop-device': 3},
+          'dotOrigins': {
+            'desktop-device': {
+              '1': '["entity-presence","hosts","host-1"]',
+              '2': '["entity-position","hosts","host-1"]',
+              '3': '["entity-field","hosts","host-1","label"]',
+            },
+          },
+          'hlc': {'wallTime': 100, 'logical': 2},
+          'collections': {
+            'hosts': {
+              'entities': {
+                'host-1': {
+                  'presence': {
+                    'candidates': [
+                      {
+                        'dot': {'deviceId': 'desktop-device', 'counter': 1},
+                        'context': <dynamic>[],
+                        'hlc': {'wallTime': 100, 'logical': 0},
+                        'value': true,
+                      },
+                    ],
+                  },
+                  'position': {
+                    'candidates': [
+                      {
+                        'dot': {'deviceId': 'desktop-device', 'counter': 2},
+                        'context': <dynamic>[],
+                        'hlc': {'wallTime': 100, 'logical': 1},
+                        'value': 0,
+                      },
+                    ],
+                  },
+                  'fields': {
+                    'label': {
+                      'candidates': [
+                        {
+                          'dot': {
+                            'deviceId': 'desktop-device',
+                            'counter': 3,
+                          },
+                          'context': <dynamic>[],
+                          'hlc': {'wallTime': 100, 'logical': 2},
+                          'materialized': true,
+                        },
+                      ],
+                    },
+                  },
+                },
+              },
+            },
+          },
+          'settings': <String, dynamic>{},
+          'stringCollections': <String, dynamic>{},
+        },
+      },
+    });
