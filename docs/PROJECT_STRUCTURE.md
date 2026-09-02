@@ -41,7 +41,6 @@ Netcatty-mobile/
 | `models/host.dart` | `HostProfile`、`SshKeyProfile`、`CommandSnippet`、`ProxyProfile` | 保留原始 Map 的未知字段；认证字段与安全存储键保持一致 |
 | `models/vault.dart` | `VaultData` | 桌面/移动兼容的顶层保险库；新增字段需要兼容旧数据 |
 | `models/settings.dart` | `AppSettings`、`SyncConnection`、`TerminalCustomKey` | 默认快捷键、AI 多模型列表与隐私开关迁移要有版本化测试 |
-| `models/vault_sync_state.dart` | 记录级修订时钟、删除墓碑与本地变更标记 | 元数据位于加密 Payload 内，不得移动到明文 Envelope |
 | `models/server_stats.dart` | `ServerSystemInfo`、`ServerStats` | 容忍远程采集缺字段 |
 | `models/system_management.dart` | 进程、Docker、Compose、tmux 模型和枚举 | 与远程输出解析及 UI 操作保持一一对应 |
 
@@ -87,8 +86,8 @@ Netcatty-mobile/
 | `storage/background_image_service.dart` | 自定义背景复制、便携路径引用、旧 App 容器绝对路径迁移和清理 |
 | `storage/vault_export_service.dart` | 保险库 JSON 选择路径、保存和取消处理 |
 | `sync/netcatty_crypto.dart` | 桌面兼容 PBKDF2 + AES-GCM 加密格式 |
-| `sync/cloud_sync_service.dart` | WebDAV/Gist/S3 下载、解密、合并、加密上传与 Gist 发现 |
-| `sync/vault_merge_service.dart` | 按记录修订与墓碑合并多设备 Vault，解决删除复活和全量覆盖 |
+| `sync/cloud_sync_service.dart` | WebDAV/Gist/S3 统一立即/自动同步、加密共同 base、条件写入与 Gist 发现 |
+| `sync/vault_merge_service.dart` | 与桌面端一致的 base/local/remote 三方合并、删除墓碑、同步投影与本地遥测保留 |
 | `sync/github_auth_service.dart` | GitHub OAuth Device Flow、轮询、网络重试和用户信息读取 |
 | `http_client_provider.dart` | 共享 HTTP Client、统一请求超时和连接复用 |
 | `update_check_service.dart` | GitHub Latest Release 查询、版本比较和安全下载链接 |

@@ -424,6 +424,7 @@ class SyncVersionCheckpoint {
     required this.target,
     required this.version,
     required this.vaultFingerprint,
+    this.encryptedBase,
   });
 
   factory SyncVersionCheckpoint.fromJson(Map<String, dynamic> json) =>
@@ -431,15 +432,20 @@ class SyncVersionCheckpoint {
         target: json['target']?.toString() ?? '',
         version: (json['version'] as num?)?.toInt() ?? 0,
         vaultFingerprint: json['vaultFingerprint']?.toString() ?? '',
+        encryptedBase: json['encryptedBase'] is Map
+            ? Map<String, dynamic>.from(json['encryptedBase'] as Map)
+            : null,
       );
 
   final String target;
   final int version;
   final String vaultFingerprint;
+  final Map<String, dynamic>? encryptedBase;
 
   Map<String, dynamic> toJson() => {
         'target': target,
         'version': version,
         'vaultFingerprint': vaultFingerprint,
+        if (encryptedBase != null) 'encryptedBase': encryptedBase,
       };
 }

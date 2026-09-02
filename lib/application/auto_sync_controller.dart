@@ -55,7 +55,7 @@ final autoSyncControllerProvider =
   return AutoSyncController(
     localChanges: repository.localChanges,
     loadVault: vaultController.ready,
-    synchronize: service.pullAndMerge,
+    synchronize: service.synchronize,
     applyVault: (vault) => vaultController.replace(vault, remote: true),
   );
 });
@@ -63,7 +63,7 @@ final autoSyncControllerProvider =
 /// Mirrors desktop Netcatty's automatic sync schedule: a three-second
 /// debounce after local edits, a startup/foreground refresh, and a periodic
 /// remote check while the app is alive. Every operation still goes through
-/// [CloudSyncService.pullAndMerge], preserving its version and conflict guards.
+/// [CloudSyncService.synchronize], preserving its version and conflict guards.
 class AutoSyncController extends StateNotifier<AutoSyncState> {
   AutoSyncController({
     required Stream<VaultData> localChanges,
@@ -155,6 +155,7 @@ class AutoSyncController extends StateNotifier<AutoSyncState> {
       _pendingLocalVault = null;
       final result = await _synchronize(local);
       var merged = result.vault;
+      var rebaseBase = local;
 
       // A user edit can finish while the network request is in flight. Merge
       // every such local snapshot back before publishing the downloaded state,
@@ -162,14 +163,24 @@ class AutoSyncController extends StateNotifier<AutoSyncState> {
       while (_pendingLocalVault != null) {
         final pending = _pendingLocalVault!;
         _pendingLocalVault = null;
-        merged = mergeVaults(local: pending, remote: merged);
+        merged = mergeVaults(
+          base: rebaseBase,
+          local: pending,
+          remote: merged,
+        );
+        rebaseBase = pending;
         _queued = true;
       }
       await _applyVault(merged);
       while (_pendingLocalVault != null) {
         final pending = _pendingLocalVault!;
         _pendingLocalVault = null;
-        merged = mergeVaults(local: pending, remote: merged);
+        merged = mergeVaults(
+          base: rebaseBase,
+          local: pending,
+          remote: merged,
+        );
+        rebaseBase = pending;
         await _applyVault(merged);
         _queued = true;
       }
