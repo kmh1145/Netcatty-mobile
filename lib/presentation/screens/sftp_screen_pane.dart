@@ -9,6 +9,7 @@ class _SftpPane extends StatefulWidget {
     required this.onSourceChanged,
     required this.onPhoneMountChanged,
     this.onCopyToOther,
+    this.onOpenInTerminal,
   });
 
   final String label;
@@ -17,6 +18,7 @@ class _SftpPane extends StatefulWidget {
   final ValueChanged<String> onSourceChanged;
   final VoidCallback onPhoneMountChanged;
   final ValueChanged<RemoteEntry>? onCopyToOther;
+  final ValueChanged<String>? onOpenInTerminal;
 
   @override
   State<_SftpPane> createState() => _SftpPaneState();
@@ -164,6 +166,16 @@ class _SftpPaneState extends State<_SftpPane> {
                         _loading || !localReady ? null : refresh,
                       ),
                     ),
+                    if (widget.onOpenInTerminal != null)
+                      Expanded(
+                        child: _toolbar(
+                          Icons.terminal_outlined,
+                          '在终端中打开当前目录',
+                          _loading
+                              ? null
+                              : () => widget.onOpenInTerminal!(path),
+                        ),
+                      ),
                     if (mountable != null && !mountable.usesAppDocuments)
                       Expanded(
                         child: _toolbar(
@@ -287,6 +299,21 @@ class _SftpPaneState extends State<_SftpPane> {
                 child: ListTile(
                   leading: Icon(Icons.ios_share_outlined),
                   title: LText('下载 / 分享'),
+                ),
+              ),
+            const PopupMenuItem(
+              value: 'copy-path',
+              child: ListTile(
+                leading: Icon(Icons.content_copy_outlined),
+                title: LText('复制文件路径'),
+              ),
+            ),
+            if (service.supportsUnixPermissions)
+              const PopupMenuItem(
+                value: 'permissions',
+                child: ListTile(
+                  leading: Icon(Icons.admin_panel_settings_outlined),
+                  title: LText('修改文件权限'),
                 ),
               ),
             const PopupMenuItem(
@@ -520,8 +547,18 @@ class _SftpPaneState extends State<_SftpPane> {
       return;
     }
     if (action == 'share') return _share(entry);
+    if (action == 'copy-path') {
+      await Clipboard.setData(ClipboardData(text: entry.path));
+      _message('文件路径已复制');
+      return;
+    }
     try {
-      if (action == 'rename') {
+      if (action == 'permissions') {
+        final mode = await _askPermissions(entry);
+        if (mode == null) return;
+        await service.setPermissions(entry.path, mode);
+        _message('权限已修改为 ${formatUnixPermissions(mode)}');
+      } else if (action == 'rename') {
         final name = await _ask('重命名', '新名称', entry.name);
         if (name != null && name.isNotEmpty && name != entry.name) {
           await service.rename(entry.path, service.joinPath(path, name));
@@ -573,6 +610,54 @@ class _SftpPaneState extends State<_SftpPane> {
           FilledButton(
             onPressed: () => Navigator.pop(context, controller.text.trim()),
             child: const LText('确定'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<int?> _askPermissions(RemoteEntry entry) {
+    final formKey = GlobalKey<FormState>();
+    final controller = TextEditingController(
+      text: formatUnixPermissions(entry.unixMode) ??
+          (entry.isDirectory ? '755' : '644'),
+    );
+    return showDialog<int>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: LText('修改 ${entry.name} 的权限'),
+        content: Form(
+          key: formKey,
+          child: TextFormField(
+            key: const ValueKey('sftp-permissions-input'),
+            controller: controller,
+            autofocus: true,
+            keyboardType: TextInputType.number,
+            maxLength: 4,
+            decoration: LInputDecoration(
+              labelText: 'Unix 权限',
+              hintText: '例如 644 或 0755',
+              helperText: '依次表示所有者、用户组和其他用户的读写执行权限',
+            ),
+            validator: (value) => parseUnixPermissions(value ?? '') == null
+                ? localized('请输入 3 或 4 位八进制权限（0-7）')
+                : null,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const LText('取消'),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (formKey.currentState?.validate() != true) return;
+              Navigator.pop(
+                context,
+                parseUnixPermissions(controller.text),
+              );
+            },
+            child: const LText('应用'),
           ),
         ],
       ),

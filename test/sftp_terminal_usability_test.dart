@@ -136,6 +136,25 @@ void main() {
     expect(identical(normalized, chunk), isTrue);
   });
 
+  test('SFTP Unix permissions parse, format, and reject invalid values', () {
+    expect(parseUnixPermissions('644'), 0x1a4);
+    expect(parseUnixPermissions('0755'), 0x1ed);
+    expect(parseUnixPermissions(' 700 '), 0x1c0);
+    expect(parseUnixPermissions('888'), isNull);
+    expect(parseUnixPermissions('64'), isNull);
+    expect(parseUnixPermissions('07555'), isNull);
+    expect(formatUnixPermissions(0x81a4), '644');
+    expect(formatUnixPermissions(0x1ed), '755');
+  });
+
+  test('SFTP terminal directory path is safely quoted for POSIX shells', () {
+    expect(quoteSftpTerminalPath('/srv/My Files'), "'/srv/My Files'");
+    expect(
+      quoteSftpTerminalPath("/srv/user's files"),
+      "'/srv/user'\\''s files'",
+    );
+  });
+
   testWidgets(
     'SFTP uses a transparent title bar and switches between two and one pane',
     (tester) async {

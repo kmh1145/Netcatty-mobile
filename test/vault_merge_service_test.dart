@@ -59,6 +59,82 @@ void main() {
     );
   });
 
+  test('desktop deletion inferred from a missing entity with preserved clocks',
+      () {
+    final original = stampLocalVaultChanges(
+      VaultData.empty(),
+      VaultData.empty().copyWith(
+        hosts: [host('desktop-deleted-host', 'Delete host on desktop')],
+        keys: [
+          SshKeyProfile({
+            'id': 'desktop-deleted-key',
+            'label': 'Delete key on desktop',
+            'privateKey': 'secret',
+          }),
+        ],
+        customGroups: ['Desktop deleted group'],
+      ),
+      timestamp: 100,
+    );
+    final desktopSnapshot = original.copyWith(
+      hosts: [],
+      keys: [],
+      customGroups: [],
+    );
+
+    final merged = mergeVaults(
+      local: original,
+      remote: desktopSnapshot,
+      remoteFallbackTimestamp: 300,
+    );
+    final state = VaultSyncState.fromVault(merged);
+
+    expect(merged.hosts, isEmpty);
+    expect(merged.keys, isEmpty);
+    expect(merged.customGroups, isEmpty);
+    expect(
+      state.deletedAt(VaultSyncState.hosts, 'desktop-deleted-host'),
+      300,
+    );
+    expect(
+      state.deletedAt(VaultSyncState.keys, 'desktop-deleted-key'),
+      300,
+    );
+    expect(
+      state.deletedAt(VaultSyncState.groups, 'Desktop deleted group'),
+      300,
+    );
+  });
+
+  test('a newer mobile edit still wins over an older desktop deletion', () {
+    final original = stampLocalVaultChanges(
+      VaultData.empty(),
+      VaultData.empty().copyWith(hosts: [host('conflict', 'Original')]),
+      timestamp: 100,
+    );
+    final desktopSnapshot = original.copyWith(hosts: []);
+    final mobileEdited = stampLocalVaultChanges(
+      original,
+      original.copyWith(hosts: [host('conflict', 'Edited on mobile')]),
+      timestamp: 400,
+    );
+
+    final merged = mergeVaults(
+      local: mobileEdited,
+      remote: desktopSnapshot,
+      remoteFallbackTimestamp: 300,
+    );
+
+    expect(merged.hosts.single.label, 'Edited on mobile');
+    expect(
+      VaultSyncState.fromVault(merged).deletedAt(
+        VaultSyncState.hosts,
+        'conflict',
+      ),
+      0,
+    );
+  });
+
   test('independent additions from two devices are preserved', () {
     final left = stampLocalVaultChanges(
       VaultData.empty(),
