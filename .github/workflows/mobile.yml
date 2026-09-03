@@ -68,10 +68,6 @@ jobs:
             "dist/netcatty-mobile-v${VERSION}-android-armeabi-v7a.apk"
           cp build/app/outputs/flutter-apk/app-x86_64-release.apk \
             "dist/netcatty-mobile-v${VERSION}-android-x86_64.apk"
-          cd dist
-          for PACKAGE in *.apk; do
-            sha256sum "$PACKAGE" > "$PACKAGE.sha256"
-          done
       - name: Upload Android package
         uses: actions/upload-artifact@v4
         with:
@@ -111,8 +107,6 @@ jobs:
           cp -R build/ios/iphoneos/Runner.app build/ios/iphoneos/Payload/
           cd build/ios/iphoneos
           ditto -c -k --sequesterRsrc --keepParent Payload "../../../dist/$PACKAGE"
-          cd ../../../dist
-          shasum -a 256 "$PACKAGE" > "$PACKAGE.sha256"
       - name: Upload re-signable IPA
         uses: actions/upload-artifact@v4
         with:
