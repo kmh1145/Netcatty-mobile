@@ -1172,9 +1172,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       final hour = local.hour.toString().padLeft(2, '0');
       final minute = local.minute.toString().padLeft(2, '0');
       if (NetcattyLocalizations.isEnglish) {
-        return 'Last synced at $hour:$minute · syncs about 3 seconds after changes';
+        return 'Last synced at $hour:$minute · syncs about 10 seconds after changes';
       }
-      return '最近同步 $hour:$minute · 数据变更后约 3 秒自动同步';
+      return '最近同步 $hour:$minute · 数据变更后约 10 秒自动同步';
     }
     return '数据变更后自动同步，并在启动、返回前台及每 5 分钟检查云端';
   }

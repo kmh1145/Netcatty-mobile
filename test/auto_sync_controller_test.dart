@@ -14,6 +14,11 @@ void main() {
     hasLocalChanges: false,
   );
 
+  test('local changes use a ten second default debounce', () {
+    expect(autoSyncChangeDebounce, const Duration(seconds: 10));
+    expect(autoSyncRemoteInterval, const Duration(minutes: 5));
+  });
+
   test('auto-sync is opt-in and coalesces rapid local changes', () async {
     final changes = StreamController<VaultData>.broadcast();
     var syncCount = 0;
@@ -119,6 +124,79 @@ void main() {
 
     expect(applied.first.snippets.single.label, 'during-sync');
     expect(syncCount, 2);
+    controller.dispose();
+    await changes.close();
+  });
+
+  test('host trust accepted during sync remains device-local', () async {
+    final changes = StreamController<VaultData>.broadcast();
+    final firstSync = Completer<CloudSyncResult>();
+    final baseHost = HostProfile({
+      'id': 'host-1',
+      'label': 'Server',
+      'hostname': 'server.example.com',
+      'port': 22,
+      'username': 'root',
+    });
+    var current = VaultData.empty().copyWith(hosts: [baseHost]);
+    var syncCount = 0;
+    final applied = <VaultData>[];
+    final controller = AutoSyncController(
+      localChanges: changes.stream,
+      loadVault: () async => current,
+      synchronize: (vault) {
+        syncCount += 1;
+        if (syncCount == 1) return firstSync.future;
+        return Future.value(CloudSyncResult(
+          vault: vault,
+          message: 'ok',
+          versions: versions,
+        ));
+      },
+      applyVault: (vault) async {
+        current = vault;
+        applied.add(vault);
+      },
+      changeDebounce: const Duration(milliseconds: 10),
+      remoteInterval: const Duration(hours: 1),
+      retryDelays: const [],
+    );
+
+    controller.setEnabled(true);
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+    final acceptedAt = DateTime.now().millisecondsSinceEpoch;
+    final trusted = VaultData.fromJson({
+      ...current.toJson(),
+      'hosts': [
+        {
+          ...baseHost.toJson(),
+          'lastConnectedAt': acceptedAt,
+        },
+      ],
+      'knownHosts': [
+        {
+          'hostname': 'server.example.com',
+          'port': 22,
+          'keyType': 'ssh-ed25519',
+          'fingerprint': 'SHA256:test',
+          'acceptedAt': acceptedAt,
+        },
+      ],
+    });
+    current = trusted;
+    changes.add(trusted);
+    await Future<void>.delayed(Duration.zero);
+    firstSync.complete(CloudSyncResult(
+      vault: VaultData.empty().copyWith(hosts: [baseHost]),
+      message: 'ok',
+      versions: versions,
+    ));
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+
+    expect(applied, isNotEmpty);
+    expect(applied.first.extras['knownHosts'], trusted.extras['knownHosts']);
+    expect(applied.first.hosts.single.lastConnectedAt, acceptedAt);
+    expect(current.extras['knownHosts'], trusted.extras['knownHosts']);
     controller.dispose();
     await changes.close();
   });
