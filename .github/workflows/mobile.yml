@@ -42,28 +42,40 @@ jobs:
             exit 1
           fi
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/netcatty-release.jks
-      - name: Build Android release APK
+      - name: Build Android release APKs
         env:
           ANDROID_KEYSTORE_PATH: ${{ github.workspace }}/android/app/netcatty-release.jks
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: netcatty
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: >-
-          flutter build apk --release
-          --build-number=${{ github.run_number }}
-          --dart-define=GITHUB_OAUTH_CLIENT_ID=Ov23lidR2u8OIkHW19nk
+        run: |
+          flutter build apk --release \
+            --build-number=${{ github.run_number }} \
+            --dart-define=GITHUB_OAUTH_CLIENT_ID=Ov23lidR2u8OIkHW19nk
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-release.apk \
+            "dist/netcatty-mobile-v${{ steps.app_version.outputs.version }}-android.apk"
+          flutter build apk --release --split-per-abi \
+            --build-number=${{ github.run_number }} \
+            --dart-define=GITHUB_OAUTH_CLIENT_ID=Ov23lidR2u8OIkHW19nk
       - name: Prepare Android package
         shell: bash
         run: |
-          mkdir -p dist
-          PACKAGE="netcatty-mobile-v${{ steps.app_version.outputs.version }}-android.apk"
-          cp build/app/outputs/flutter-apk/app-release.apk "dist/$PACKAGE"
+          VERSION="${{ steps.app_version.outputs.version }}"
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk \
+            "dist/netcatty-mobile-v${VERSION}-android-arm64-v8a.apk"
+          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk \
+            "dist/netcatty-mobile-v${VERSION}-android-armeabi-v7a.apk"
+          cp build/app/outputs/flutter-apk/app-x86_64-release.apk \
+            "dist/netcatty-mobile-v${VERSION}-android-x86_64.apk"
           cd dist
-          sha256sum "$PACKAGE" > "$PACKAGE.sha256"
+          for PACKAGE in *.apk; do
+            sha256sum "$PACKAGE" > "$PACKAGE.sha256"
+          done
       - name: Upload Android package
         uses: actions/upload-artifact@v4
         with:
-          name: netcatty-mobile-v${{ steps.app_version.outputs.version }}-android-${{ github.run_number }}
+          name: netcatty-mobile-v${{ steps.app_version.outputs.version }}-android-apks-${{ github.run_number }}
           path: dist/*
           if-no-files-found: error
           retention-days: 30
