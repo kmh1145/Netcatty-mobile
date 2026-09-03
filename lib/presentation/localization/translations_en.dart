@@ -52,8 +52,8 @@ const englishTranslations = <String, String>{
       'Off; enable to sync after changes, at startup, and when returning to the app',
   '上次自动同步失败，将自动重试：\${syncState.lastError}':
       'Last auto-sync failed and will retry: \${syncState.lastError}',
-  '最近同步 \$hour:\$minute · 数据变更后约 3 秒自动同步':
-      'Last synced at \$hour:\$minute · syncs about 3 seconds after changes',
+  '最近同步 \$hour:\$minute · 数据变更后约 10 秒自动同步':
+      'Last synced at \$hour:\$minute · syncs about 10 seconds after changes',
   '用户名': 'Username',
   '密码 / 应用密码': 'Password / app password',
   '对象前缀（可选）': 'Object prefix (optional)',

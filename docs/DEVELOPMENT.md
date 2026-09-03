@@ -159,8 +159,8 @@ Windows 无法完成原生 iOS 编译；涉及 Swift、Info.plist 或 iOS Plugin
 2. 格式检查
 3. `flutter analyze`
 4. `flutter test`
-5. 使用持久 Android 签名构建 Release APK
-6. 生成 SHA-256 并上传 Artifact
+5. 使用持久 Android 签名构建通用 APK，以及 `arm64-v8a`、`armeabi-v7a`、`x86_64` 三个分架构 APK
+6. 上传仅包含 APK 的 Artifact
 
 需要的 Secrets：
 
@@ -172,9 +172,9 @@ Windows 无法完成原生 iOS 编译；涉及 Swift、Info.plist 或 iOS Plugin
 
 1. 无签名构建 Release iOS App
 2. 打包 `netcatty-mobile-vX.Y.Z-ios-unsigned.ipa`
-3. 生成 SHA-256 并上传 Artifact
+3. 上传仅包含 IPA 的 Artifact
 
-Android 安装包命名为 `netcatty-mobile-vX.Y.Z-android.apk`。Artifact 默认保留 30 天，Artifact 名称还会追加 Actions Run Number 以便区分同版本的不同构建。CI 的 Android `versionCode` 使用 Actions Run Number，以保证同一签名下可覆盖升级；正式 Release 的用户可见版本和安装包文件名均由 `pubspec.yaml` 的 Build Name 决定。
+Android 通用安装包命名为 `netcatty-mobile-vX.Y.Z-android.apk`，分架构包分别追加 `-arm64-v8a`、`-armeabi-v7a`、`-x86_64`。现代实体设备优先提供 `arm64-v8a`，无法确认架构时使用通用包。Artifact 默认保留 30 天，Artifact 名称还会追加 Actions Run Number 以便区分同版本的不同构建。CI 的 Android `versionCode` 使用 Actions Run Number，以保证同一签名下可覆盖升级；正式 Release 的用户可见版本和安装包文件名均由 `pubspec.yaml` 的 Build Name 决定。
 
 ## 版本号
 
@@ -198,12 +198,13 @@ version: MAJOR.MINOR.PATCH+BUILD
 4. 执行格式检查、`flutter analyze`、完整 `flutter test` 和本地 Android 构建。
 5. 推送 `main`，等待 Mobile CI 的 test 与 ios Job 全部成功。
 6. 下载同一次 CI Run 的 Android/iOS Artifacts，确认包含：
-   - `netcatty-mobile-vX.Y.Z-android.apk`
-   - `netcatty-mobile-vX.Y.Z-android.apk.sha256`
+   - `netcatty-mobile-vX.Y.Z-android.apk`（通用包）
+   - `netcatty-mobile-vX.Y.Z-android-arm64-v8a.apk`
+   - `netcatty-mobile-vX.Y.Z-android-armeabi-v7a.apk`
+   - `netcatty-mobile-vX.Y.Z-android-x86_64.apk`
    - `netcatty-mobile-vX.Y.Z-ios-unsigned.ipa`
-   - `netcatty-mobile-vX.Y.Z-ios-unsigned.ipa.sha256`
-7. 创建带注释的 `vX.Y.Z` Tag，并以同名 GitHub Release 发布四个文件。
-8. 检查 `/releases/latest`、README 徽章、安装包下载和校验文件。
+7. 创建带注释的 `vX.Y.Z` Tag，并以同名 GitHub Release 发布全部安装包。不要额外上传 `.sha256` 文件；GitHub 会在 Release 资产信息中显示每个文件的 SHA-256 Digest。
+8. 检查 `/releases/latest`、README 徽章、安装包下载和 GitHub 显示的 Digest。
 
 示例命令中的 Run ID 和版本必须替换为当前值：
 

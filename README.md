@@ -157,9 +157,9 @@ Netcatty 的 Android / iOS 移动端实现：一个面向服务器管理、SSH �
 
 前往仓库的 [Releases](https://github.com/kmh1145/Netcatty-mobile/releases/latest) 页面：
 
-- Android：下载 `netcatty-mobile-vX.Y.Z-android.apk`。同一发布签名生成的后续版本可直接覆盖安装。
+- Android：现代手机优先下载体积更小的 `netcatty-mobile-vX.Y.Z-android-arm64-v8a.apk`；旧款 32 位设备使用 `armeabi-v7a`，模拟器等 x86 设备使用 `x86_64`。无法确定架构时下载 `netcatty-mobile-vX.Y.Z-android.apk` 通用包。同一发布签名生成的后续版本可直接覆盖安装。
 - iOS：下载 `netcatty-mobile-vX.Y.Z-ios-unsigned.ipa`，使用 AltStore、SideStore、Sideloadly 等工具以自己的 Apple ID 重签后安装。免费 Apple ID 通常需要每 7 天重新签名。
-- 完整性校验：使用同名 `.sha256` 文件核对安装包。
+- 完整性校验：GitHub Release 的安装包资产会直接显示 SHA-256 Digest，可与下载文件的散列值核对。
 
 Beta 版本会在 Release 页面标记为 Pre-release，不会出现在应用内的正式版更新检查中；需要测试的用户可直接打开 Releases 页面手动下载。
 

@@ -9,7 +9,7 @@ import '../infrastructure/sync/cloud_sync_service.dart';
 import '../infrastructure/sync/vault_merge_service.dart';
 import 'vault_controller.dart';
 
-const autoSyncChangeDebounce = Duration(seconds: 3);
+const autoSyncChangeDebounce = Duration(seconds: 10);
 const autoSyncRemoteInterval = Duration(minutes: 5);
 
 class AutoSyncState {
@@ -171,6 +171,7 @@ class AutoSyncController extends StateNotifier<AutoSyncState> {
         rebaseBase = pending;
         _queued = true;
       }
+      merged = await _retainLatestDeviceLocalData(merged, rebaseBase);
       await _applyVault(merged);
       while (_pendingLocalVault != null) {
         final pending = _pendingLocalVault!;
@@ -181,6 +182,7 @@ class AutoSyncController extends StateNotifier<AutoSyncState> {
           remote: merged,
         );
         rebaseBase = pending;
+        merged = await _retainLatestDeviceLocalData(merged, rebaseBase);
         await _applyVault(merged);
         _queued = true;
       }
@@ -201,6 +203,20 @@ class AutoSyncController extends StateNotifier<AutoSyncState> {
         _scheduleSync(changeDebounce);
       }
     }
+  }
+
+  Future<VaultData> _retainLatestDeviceLocalData(
+    VaultData incoming,
+    VaultData fallback,
+  ) async {
+    // `mergeVaults` deliberately operates only on cloud-synchronized fields.
+    // Reattach trust records and connection telemetry from both the newest
+    // queued edit and the live vault before replacing local state. This closes
+    // the race where accepting a host key while a sync request is in flight
+    // caused `knownHosts` (and `lastConnectedAt`) to disappear afterwards.
+    final rebased = retainLocalDeviceData(incoming, fallback);
+    final latest = await _loadVault();
+    return retainLocalDeviceData(rebased, latest);
   }
 
   void _scheduleRetry() {
