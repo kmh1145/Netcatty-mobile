@@ -1,4 +1,7 @@
 const englishTranslations = <String, String>{
+  '按住或拖动曲线查看采样时间与网速': 'Touch or drag to inspect sample time and speed',
+  '累计流量来自服务器网络接口计数，接口重置后可能归零':
+      'Totals are server network-interface counters and may reset with the interfaces',
   '正在压缩…': 'Compressing…',
   'SFTP 代码高亮': 'SFTP syntax highlighting',
   '编辑文件时显示语法颜色': 'Show syntax colors when editing files',
@@ -494,6 +497,7 @@ const englishTranslations = <String, String>{
 /// ultimately rendered by a localized text widget.
 const englishReplacements = <(String, String)>[
   ('目标目录已有同名文件：', 'A file with this name already exists: '),
+  ('累计：', 'Total: '),
   ('批量操作未完成：', 'Batch operation incomplete: '),
   ('压缩失败：', 'Compression failed: '),
   ('可用：', 'Available: '),

@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 import 'package:netcatty_mobile/presentation/localization/localized_widgets.dart';
 
@@ -7,6 +5,7 @@ import '../../domain/models/server_stats.dart';
 import '../../infrastructure/ssh/server_monitor_service.dart';
 import '../../infrastructure/ssh/ssh_service.dart';
 import 'host_system_icon.dart';
+import 'server_network_chart.dart';
 
 class ServerMonitorSheet extends StatefulWidget {
   const ServerMonitorSheet({super.key, required this.session});
@@ -176,38 +175,42 @@ class _ServerMonitorSheetState extends State<ServerMonitorSheet> {
                     ],
                   ),
                   const SizedBox(height: 10),
-                  if (expanded.contains('cpu'))
-                    _detailCard('CPU', [
-                      LText(value.cpuModel.isEmpty ? '暂无详细数据' : value.cpuModel),
-                      LText(
-                          '${value.cpuArchitecture} · ${value.system.cores} cores · ${value.cpuMHz} MHz'),
-                      for (final core in value.corePercents.entries)
-                        _usage('CPU ${core.key}', core.value,
-                            '${core.value.toStringAsFixed(1)}%'),
-                    ]),
-                  if (expanded.contains('memory'))
-                    _detailCard('内存与 Swap', [
-                      _usage('内存', value.memoryPercent,
-                          '${_bytes(value.memoryUsedBytes)} / ${_bytes(value.memoryTotalBytes)}'),
-                      LText('可用：${_bytes(value.memoryAvailableBytes)}'),
-                      LText('空闲：${_bytes(value.memoryFreeBytes)}'),
-                      LText('缓存：${_bytes(value.memoryCacheBytes)}'),
-                      _usage(
-                          'Swap',
-                          value.swapTotalBytes <= 0
-                              ? 0
-                              : value.swapUsedBytes /
-                                  value.swapTotalBytes *
-                                  100,
-                          '${_bytes(value.swapUsedBytes)} / ${_bytes(value.swapTotalBytes)}'),
-                    ]),
-                  if (expanded.contains('disk'))
-                    _detailCard('分区与磁盘', [
-                      if (value.disks.isEmpty) const LText('暂无详细数据'),
-                      for (final disk in value.disks)
-                        _usage('${disk.device} → ${disk.mount}', disk.percent,
-                            '${_bytes(disk.usedBytes)} / ${_bytes(disk.totalBytes)}'),
-                    ]),
+                  _animatedDetail(
+                      'cpu',
+                      _detailCard('CPU', [
+                        LText(
+                            value.cpuModel.isEmpty ? '暂无详细数据' : value.cpuModel),
+                        LText(
+                            '${value.cpuArchitecture} · ${value.system.cores} cores · ${value.cpuMHz} MHz'),
+                        for (final core in value.corePercents.entries)
+                          _usage('CPU ${core.key}', core.value,
+                              '${core.value.toStringAsFixed(1)}%'),
+                      ])),
+                  _animatedDetail(
+                      'memory',
+                      _detailCard('内存与 Swap', [
+                        _usage('内存', value.memoryPercent,
+                            '${_bytes(value.memoryUsedBytes)} / ${_bytes(value.memoryTotalBytes)}'),
+                        LText('可用：${_bytes(value.memoryAvailableBytes)}'),
+                        LText('空闲：${_bytes(value.memoryFreeBytes)}'),
+                        LText('缓存：${_bytes(value.memoryCacheBytes)}'),
+                        _usage(
+                            'Swap',
+                            value.swapTotalBytes <= 0
+                                ? 0
+                                : value.swapUsedBytes /
+                                    value.swapTotalBytes *
+                                    100,
+                            '${_bytes(value.swapUsedBytes)} / ${_bytes(value.swapTotalBytes)}'),
+                      ])),
+                  _animatedDetail(
+                      'disk',
+                      _detailCard('分区与磁盘', [
+                        if (value.disks.isEmpty) const LText('暂无详细数据'),
+                        for (final disk in value.disks)
+                          _usage('${disk.device} → ${disk.mount}', disk.percent,
+                              '${_bytes(disk.usedBytes)} / ${_bytes(disk.totalBytes)}'),
+                      ])),
                   Card(
                     child: Padding(
                       padding: const EdgeInsets.all(14),
@@ -227,6 +230,7 @@ class _ServerMonitorSheetState extends State<ServerMonitorSheet> {
                                   label: '接收',
                                   value:
                                       '${_bytes(value.networkRxBytesPerSecond.round())}/s',
+                                  total: value.networkRxBytesTotal,
                                 ),
                               ),
                               Expanded(
@@ -235,23 +239,20 @@ class _ServerMonitorSheetState extends State<ServerMonitorSheet> {
                                   label: '发送',
                                   value:
                                       '${_bytes(value.networkTxBytesPerSecond.round())}/s',
+                                  total: value.networkTxBytesTotal,
                                 ),
                               ),
                             ],
                           ),
                           const SizedBox(height: 12),
+                          const LText('累计流量来自服务器网络接口计数，接口重置后可能归零',
+                              style: TextStyle(fontSize: 11)),
+                          const SizedBox(height: 8),
                           LText(
                               '当前 TCP 连接数：${value.connectionCount?.toString() ?? '—'}'),
                           const SizedBox(height: 8),
                           LText('最近 3 分钟 · 接收 / 发送'),
-                          SizedBox(
-                              height: 110,
-                              width: double.infinity,
-                              child: CustomPaint(
-                                  painter: _NetworkChart(
-                                      List.of(monitor.history),
-                                      Theme.of(context).colorScheme.primary,
-                                      Theme.of(context).colorScheme.tertiary))),
+                          ServerNetworkChart(samples: List.of(monitor.history)),
                           Row(children: [
                             Icon(Icons.remove,
                                 color: Theme.of(context).colorScheme.primary),
@@ -289,6 +290,26 @@ class _ServerMonitorSheetState extends State<ServerMonitorSheet> {
       ),
     );
   }
+
+  Widget _animatedDetail(String id, Widget child) =>
+      TweenAnimationBuilder<double>(
+        key: ValueKey('monitor-$id-details'),
+        tween: Tween(begin: 0, end: expanded.contains(id) ? 1 : 0),
+        duration: MediaQuery.disableAnimationsOf(context)
+            ? Duration.zero
+            : const Duration(milliseconds: 240),
+        curve: Curves.easeInOutCubic,
+        builder: (context, factor, _) => ClipRect(
+            child: Align(
+                alignment: Alignment.topCenter,
+                heightFactor: factor,
+                child: IgnorePointer(
+                    ignoring: !expanded.contains(id),
+                    child: Opacity(
+                        opacity: factor,
+                        child:
+                            factor == 0 ? const SizedBox.shrink() : child)))),
+      );
 }
 
 class _GaugeCard extends StatelessWidget {
@@ -364,78 +385,39 @@ Widget _usage(String label, double percent, String detail) => Padding(
       LinearProgressIndicator(value: percent.clamp(0, 100) / 100)
     ]));
 
-class _NetworkChart extends CustomPainter {
-  _NetworkChart(this.samples, this.rxColor, this.txColor);
-  final List<ServerStats> samples;
-  final Color rxColor;
-  final Color txColor;
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (samples.isEmpty) return;
-    final maximum = samples.fold<double>(
-        1,
-        (v, s) => math.max(
-            v, math.max(s.networkRxBytesPerSecond, s.networkTxBytesPerSecond)));
-    final label = TextPainter(
-        text: TextSpan(
-            text: '${_bytes(maximum.round())}/s',
-            style: TextStyle(color: rxColor, fontSize: 10)),
-        textDirection: TextDirection.ltr)
-      ..layout();
-    label.paint(canvas, Offset.zero);
-    label.dispose();
-    for (final rx in [true, false]) {
-      final path = Path();
-      final end = samples.last.sampledAt;
-      for (var i = 0; i < samples.length; i++) {
-        final sample = samples[i];
-        final x = end != null && sample.sampledAt != null
-            ? size.width *
-                (1 - end.difference(sample.sampledAt!).inMilliseconds / 180000)
-                    .clamp(0, 1)
-            : size.width * i / math.max(1, samples.length - 1);
-        final rate = rx
-            ? sample.networkRxBytesPerSecond
-            : sample.networkTxBytesPerSecond;
-        final y = size.height - 4 - rate / maximum * (size.height - 22);
-        if (i == 0) {
-          path.moveTo(x, y);
-        } else {
-          path.lineTo(x, y);
-        }
-      }
-      canvas.drawPath(
-          path,
-          Paint()
-            ..color = (rx ? rxColor : txColor)
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 2);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _NetworkChart old) => true;
-}
-
 class _Metric extends StatelessWidget {
-  const _Metric({required this.icon, required this.label, required this.value});
+  const _Metric(
+      {required this.icon,
+      required this.label,
+      required this.value,
+      this.total});
 
   final IconData icon;
   final String label;
   final String value;
+  final int? total;
 
   @override
   Widget build(BuildContext context) => Row(
         children: [
           CircleAvatar(radius: 18, child: Icon(icon, size: 18)),
           const SizedBox(width: 9),
-          Column(
+          Expanded(
+              child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               LText(label, style: Theme.of(context).textTheme.bodySmall),
-              LText(value, style: const TextStyle(fontWeight: FontWeight.w600)),
+              FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(value,
+                      style: const TextStyle(fontWeight: FontWeight.w600))),
+              FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: LText(
+                      '累计：${total == null ? '—' : formatTrafficBytes(total!)}',
+                      style: Theme.of(context).textTheme.bodySmall)),
             ],
-          ),
+          )),
         ],
       );
 }

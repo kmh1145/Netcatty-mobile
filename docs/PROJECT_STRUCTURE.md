@@ -124,7 +124,8 @@ Netcatty-mobile/
 | `widgets/host_system_icon.dart` | 根据系统识别信息选择图标 |
 | `widgets/terminal_special_keys.dart` | 默认/自定义快捷键、修饰键状态、自动换行与编辑器 |
 | `widgets/ai_chat_sheet.dart` | Catty 多轮聊天、模型切换、终端输出共享状态、会话独立历史、命令复制/定向粘贴与执行确认 |
-| `widgets/server_monitor_sheet.dart` | 性能监控面板 |
+| `widgets/server_monitor_sheet.dart` | 性能监控面板、资源详情展开动画与累计流量 |
+| `widgets/server_network_chart.dart` | 吞吐折线图、三分钟时间轴、触摸采样浮窗与拖动交互 |
 | `widgets/port_forward_sheet.dart` | 端口转发配置和活动转发列表 |
 | `widgets/empty_state.dart` | 通用空状态 |
 

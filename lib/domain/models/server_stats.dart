@@ -62,6 +62,8 @@ class ServerStats {
     this.disks = const [],
     this.connectionCount,
     this.sampledAt,
+    this.networkRxBytesTotal,
+    this.networkTxBytesTotal,
   });
 
   final ServerSystemInfo system;
@@ -72,6 +74,8 @@ class ServerStats {
   final int diskTotalBytes;
   final double networkRxBytesPerSecond;
   final double networkTxBytesPerSecond;
+  final int? networkRxBytesTotal;
+  final int? networkTxBytesTotal;
   final int uptimeSeconds;
   final List<double> loadAverage;
   final String cpuModel;

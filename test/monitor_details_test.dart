@@ -44,7 +44,7 @@ void main() {
         keyboardInteractive: null);
     final monitor = SessionMonitor(session, service: _Monitor());
     monitor.stats = ServerMonitorService().parse(
-        'CORES=2\nCPU_MODEL=Demo CPU\nCORE_0=100 50\nMEM=1000 500\nSWAP=200 100\nDISK_1=/dev/demo\t1000\t500\t/data\nCONNECTIONS=4');
+        'CORES=2\nCPU_MODEL=Demo CPU\nCORE_0=100 50\nMEM=1000 500\nSWAP=200 100\nDISK_1=/dev/demo\t1000\t500\t/data\nCONNECTIONS=4\nNET=1073741824 2147483648');
     monitor.history.add(monitor.stats!);
     monitor.stop();
     session.monitor = monitor;
@@ -52,18 +52,31 @@ void main() {
         home: Scaffold(body: ServerMonitorSheet(session: session))));
     await tester.pump();
     expect(find.byType(CircularProgressIndicator), findsNothing);
+    expect(find.text('累计：1.0 GB'), findsOneWidget);
+    expect(find.text('累计：2.0 GB'), findsOneWidget);
     await tester.tap(find.text('CPU').first);
     await tester.pump();
+    await tester.pump(const Duration(milliseconds: 80));
+    final cpuDetails = find.byKey(const ValueKey('monitor-cpu-details'));
+    final growingHeight = tester.getSize(cpuDetails).height;
+    expect(growingHeight, greaterThan(0));
+    await tester.pumpAndSettle();
+    final fullHeight = tester.getSize(cpuDetails).height;
+    expect(growingHeight, lessThan(fullHeight));
     expect(find.text('Demo CPU'), findsOneWidget);
     await tester.tap(find.text('CPU').first);
     await tester.pump();
+    await tester.pump(const Duration(milliseconds: 80));
+    expect(tester.getSize(cpuDetails).height, inExclusiveRange(0, fullHeight));
+    await tester.pumpAndSettle();
+    expect(tester.getSize(cpuDetails).height, 0);
     await tester.tap(find.text('内存').first);
-    await tester.pump();
+    await tester.pumpAndSettle();
     expect(find.text('内存与 Swap'), findsOneWidget);
     await tester.tap(find.text('内存').first);
-    await tester.pump();
+    await tester.pumpAndSettle();
     await tester.tap(find.text('根分区').first);
-    await tester.pump();
+    await tester.pumpAndSettle();
     expect(find.text('/dev/demo → /data'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
@@ -80,13 +93,19 @@ void main() {
     expect(stats.corePercents['0'], 50);
     expect(stats.networkRxBytesPerSecond, 100);
     expect(stats.networkTxBytesPerSecond, 200);
+    expect(stats.networkRxBytesTotal, 400);
+    expect(stats.networkTxBytesTotal, 800);
     expect(stats.swapUsedBytes, 50);
     expect(stats.memoryAvailableBytes, 400);
     expect(stats.disks.single.mount, '/mount with spaces');
     expect(stats.disks.single.percent, 40);
     expect(stats.connectionCount, 42);
     expect(stats.cpuModel, 'Example CPU');
-    expect(parser.parse('CORE_0=10 5\nNET=1 2').corePercents['0'], 0);
+    final reset = parser.parse('CORE_0=10 5\nNET=1 2');
+    expect(reset.corePercents['0'], 0);
+    expect(reset.networkRxBytesTotal, 1);
+    expect(reset.networkTxBytesTotal, 2);
+    expect(parser.parse('').networkRxBytesTotal, isNull);
   });
 
   testWidgets(

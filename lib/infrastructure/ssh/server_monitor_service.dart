@@ -170,6 +170,8 @@ class ServerMonitorService {
       disks: disks,
       connectionCount: int.tryParse(values['CONNECTIONS'] ?? ''),
       sampledAt: now,
+      networkRxBytesTotal: network.length >= 2 ? network[0] : null,
+      networkTxBytesTotal: network.length >= 2 ? network[1] : null,
       system: _system(values),
       cpuPercent: cpuPercent,
       memoryUsedBytes: memory.length > 1 ? memory[1] : 0,
