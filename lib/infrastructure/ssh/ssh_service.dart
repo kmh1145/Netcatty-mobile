@@ -8,6 +8,7 @@ import 'package:xterm2/xterm.dart';
 
 import '../../domain/models/host.dart';
 import '../../domain/models/server_stats.dart';
+import 'server_monitor_service.dart';
 
 typedef HostKeyVerifier = Future<bool> Function(
   HostProfile host,
@@ -96,6 +97,7 @@ class ActiveTerminalSession {
   bool connected = true;
   bool closedByUser = false;
   ServerSystemInfo? systemInfo;
+  SessionMonitor? monitor;
 
   SSHClient? get sshClient => sshClients.isEmpty ? null : sshClients.last;
   bool get isSsh => sshClient != null;
@@ -113,6 +115,7 @@ class ActiveTerminalSession {
   }
 
   void abort() {
+    monitor?.stop();
     connected = false;
     sshSession?.close();
     for (final client in sshClients.reversed) {
@@ -122,6 +125,7 @@ class ActiveTerminalSession {
   }
 
   Future<void> close() async {
+    monitor?.stop();
     closedByUser = true;
     connected = false;
     sshSession?.close();

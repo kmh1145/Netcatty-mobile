@@ -1,4 +1,4 @@
-import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:netcatty_mobile/presentation/localization/localized_widgets.dart';
@@ -18,43 +18,34 @@ class ServerMonitorSheet extends StatefulWidget {
 }
 
 class _ServerMonitorSheetState extends State<ServerMonitorSheet> {
-  final service = ServerMonitorService();
-  Timer? timer;
-  ServerStats? stats;
-  Object? error;
-  bool polling = false;
+  late SessionMonitor monitor;
+  final expanded = <String>{};
+  ServerStats? get stats => monitor.stats;
+  Object? get error => monitor.error;
+  bool get polling => monitor.polling;
 
   @override
   void initState() {
     super.initState();
-    _poll();
-    timer = Timer.periodic(const Duration(seconds: 3), (_) => _poll());
+    monitor = widget.session.monitor ??= SessionMonitor(widget.session);
+    monitor.addListener(_updated);
+    monitor.start();
   }
 
   @override
   void dispose() {
-    timer?.cancel();
+    monitor.removeListener(_updated);
     super.dispose();
   }
 
-  Future<void> _poll() async {
-    if (polling || !widget.session.connected) return;
-    polling = true;
-    try {
-      final value = await service.poll(widget.session);
-      widget.session.systemInfo = value.system;
-      if (mounted) {
-        setState(() {
-          stats = value;
-          error = null;
-        });
-      }
-    } catch (value) {
-      if (mounted) setState(() => error = value);
-    } finally {
-      polling = false;
-    }
+  void _updated() {
+    if (mounted) setState(() {});
   }
+
+  Future<void> _poll() => monitor.refresh();
+  void _toggle(String key) => setState(() {
+        if (!expanded.remove(key)) expanded.add(key);
+      });
 
   @override
   Widget build(BuildContext context) {
@@ -154,12 +145,14 @@ class _ServerMonitorSheetState extends State<ServerMonitorSheet> {
                     children: [
                       _GaugeCard(
                         icon: Icons.speed,
+                        onTap: () => _toggle('cpu'),
                         label: 'CPU',
                         percent: value.cpuPercent,
                         detail: '${value.system.cores} 核',
                       ),
                       _GaugeCard(
                         icon: Icons.memory,
+                        onTap: () => _toggle('memory'),
                         label: '内存',
                         percent: value.memoryPercent,
                         detail:
@@ -167,6 +160,7 @@ class _ServerMonitorSheetState extends State<ServerMonitorSheet> {
                       ),
                       _GaugeCard(
                         icon: Icons.storage_outlined,
+                        onTap: () => _toggle('disk'),
                         label: '根分区',
                         percent: value.diskPercent,
                         detail:
@@ -182,6 +176,38 @@ class _ServerMonitorSheetState extends State<ServerMonitorSheet> {
                     ],
                   ),
                   const SizedBox(height: 10),
+                  if (expanded.contains('cpu'))
+                    _detailCard('CPU', [
+                      LText(value.cpuModel.isEmpty ? '暂无详细数据' : value.cpuModel),
+                      LText(
+                          '${value.cpuArchitecture} · ${value.system.cores} cores · ${value.cpuMHz} MHz'),
+                      for (final core in value.corePercents.entries)
+                        _usage('CPU ${core.key}', core.value,
+                            '${core.value.toStringAsFixed(1)}%'),
+                    ]),
+                  if (expanded.contains('memory'))
+                    _detailCard('内存与 Swap', [
+                      _usage('内存', value.memoryPercent,
+                          '${_bytes(value.memoryUsedBytes)} / ${_bytes(value.memoryTotalBytes)}'),
+                      LText('可用：${_bytes(value.memoryAvailableBytes)}'),
+                      LText('空闲：${_bytes(value.memoryFreeBytes)}'),
+                      LText('缓存：${_bytes(value.memoryCacheBytes)}'),
+                      _usage(
+                          'Swap',
+                          value.swapTotalBytes <= 0
+                              ? 0
+                              : value.swapUsedBytes /
+                                  value.swapTotalBytes *
+                                  100,
+                          '${_bytes(value.swapUsedBytes)} / ${_bytes(value.swapTotalBytes)}'),
+                    ]),
+                  if (expanded.contains('disk'))
+                    _detailCard('分区与磁盘', [
+                      if (value.disks.isEmpty) const LText('暂无详细数据'),
+                      for (final disk in value.disks)
+                        _usage('${disk.device} → ${disk.mount}', disk.percent,
+                            '${_bytes(disk.usedBytes)} / ${_bytes(disk.totalBytes)}'),
+                    ]),
                   Card(
                     child: Padding(
                       padding: const EdgeInsets.all(14),
@@ -213,6 +239,28 @@ class _ServerMonitorSheetState extends State<ServerMonitorSheet> {
                               ),
                             ],
                           ),
+                          const SizedBox(height: 12),
+                          LText(
+                              '当前 TCP 连接数：${value.connectionCount?.toString() ?? '—'}'),
+                          const SizedBox(height: 8),
+                          LText('最近 3 分钟 · 接收 / 发送'),
+                          SizedBox(
+                              height: 110,
+                              width: double.infinity,
+                              child: CustomPaint(
+                                  painter: _NetworkChart(
+                                      List.of(monitor.history),
+                                      Theme.of(context).colorScheme.primary,
+                                      Theme.of(context).colorScheme.tertiary))),
+                          Row(children: [
+                            Icon(Icons.remove,
+                                color: Theme.of(context).colorScheme.primary),
+                            const LText('接收'),
+                            const SizedBox(width: 16),
+                            Icon(Icons.remove,
+                                color: Theme.of(context).colorScheme.tertiary),
+                            const LText('发送'),
+                          ]),
                         ],
                       ),
                     ),
@@ -250,6 +298,7 @@ class _GaugeCard extends StatelessWidget {
     required this.percent,
     required this.detail,
     this.showProgress = true,
+    this.onTap,
   });
 
   final IconData icon;
@@ -257,9 +306,12 @@ class _GaugeCard extends StatelessWidget {
   final double percent;
   final String detail;
   final bool showProgress;
+  final VoidCallback? onTap;
 
   @override
-  Widget build(BuildContext context) => Card(
+  Widget build(BuildContext context) => GestureDetector(
+      onTap: onTap,
+      child: Card(
         margin: EdgeInsets.zero,
         child: Padding(
           padding: const EdgeInsets.all(12),
@@ -291,7 +343,78 @@ class _GaugeCard extends StatelessWidget {
             ],
           ),
         ),
-      );
+      ));
+}
+
+Widget _detailCard(String title, List<Widget> children) => Card(
+    child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          LText(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          ...children
+        ])));
+
+Widget _usage(String label, double percent, String detail) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 6),
+    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      LText(label),
+      LText(detail),
+      const SizedBox(height: 4),
+      LinearProgressIndicator(value: percent.clamp(0, 100) / 100)
+    ]));
+
+class _NetworkChart extends CustomPainter {
+  _NetworkChart(this.samples, this.rxColor, this.txColor);
+  final List<ServerStats> samples;
+  final Color rxColor;
+  final Color txColor;
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (samples.isEmpty) return;
+    final maximum = samples.fold<double>(
+        1,
+        (v, s) => math.max(
+            v, math.max(s.networkRxBytesPerSecond, s.networkTxBytesPerSecond)));
+    final label = TextPainter(
+        text: TextSpan(
+            text: '${_bytes(maximum.round())}/s',
+            style: TextStyle(color: rxColor, fontSize: 10)),
+        textDirection: TextDirection.ltr)
+      ..layout();
+    label.paint(canvas, Offset.zero);
+    label.dispose();
+    for (final rx in [true, false]) {
+      final path = Path();
+      final end = samples.last.sampledAt;
+      for (var i = 0; i < samples.length; i++) {
+        final sample = samples[i];
+        final x = end != null && sample.sampledAt != null
+            ? size.width *
+                (1 - end.difference(sample.sampledAt!).inMilliseconds / 180000)
+                    .clamp(0, 1)
+            : size.width * i / math.max(1, samples.length - 1);
+        final rate = rx
+            ? sample.networkRxBytesPerSecond
+            : sample.networkTxBytesPerSecond;
+        final y = size.height - 4 - rate / maximum * (size.height - 22);
+        if (i == 0) {
+          path.moveTo(x, y);
+        } else {
+          path.lineTo(x, y);
+        }
+      }
+      canvas.drawPath(
+          path,
+          Paint()
+            ..color = (rx ? rxColor : txColor)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 2);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _NetworkChart old) => true;
 }
 
 class _Metric extends StatelessWidget {

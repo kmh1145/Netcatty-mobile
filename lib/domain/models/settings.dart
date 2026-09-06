@@ -57,6 +57,7 @@ class AppSettings {
     this.serverViewMode = 'grid',
     this.terminalFontSize = 14,
     this.terminalSecureKeyboard = false,
+    this.sftpSyntaxHighlight = true,
     this.customBackgroundEnabled = false,
     this.customBackgroundPath = '',
     this.customBackgroundOpacity = 0.35,
@@ -111,6 +112,7 @@ class AppSettings {
           .clamp(minTerminalFontSize, maxTerminalFontSize)
           .toDouble(),
       terminalSecureKeyboard: json['terminalSecureKeyboard'] == true,
+      sftpSyntaxHighlight: json['sftpSyntaxHighlight'] != false,
       customBackgroundEnabled: json['customBackgroundEnabled'] == true,
       customBackgroundPath: json['customBackgroundPath']?.toString() ?? '',
       customBackgroundOpacity:
@@ -143,6 +145,7 @@ class AppSettings {
   final String serverViewMode;
   final double terminalFontSize;
   final bool terminalSecureKeyboard;
+  final bool sftpSyntaxHighlight;
   final bool customBackgroundEnabled;
   final String customBackgroundPath;
   final double customBackgroundOpacity;
@@ -164,6 +167,7 @@ class AppSettings {
     String? serverViewMode,
     double? terminalFontSize,
     bool? terminalSecureKeyboard,
+    bool? sftpSyntaxHighlight,
     bool? customBackgroundEnabled,
     String? customBackgroundPath,
     double? customBackgroundOpacity,
@@ -186,6 +190,7 @@ class AppSettings {
         terminalFontSize: terminalFontSize ?? this.terminalFontSize,
         terminalSecureKeyboard:
             terminalSecureKeyboard ?? this.terminalSecureKeyboard,
+        sftpSyntaxHighlight: sftpSyntaxHighlight ?? this.sftpSyntaxHighlight,
         customBackgroundEnabled:
             customBackgroundEnabled ?? this.customBackgroundEnabled,
         customBackgroundPath: customBackgroundPath ?? this.customBackgroundPath,
@@ -213,6 +218,7 @@ class AppSettings {
         'serverViewMode': serverViewMode,
         'terminalFontSize': terminalFontSize,
         'terminalSecureKeyboard': terminalSecureKeyboard,
+        'sftpSyntaxHighlight': sftpSyntaxHighlight,
         'customBackgroundEnabled': customBackgroundEnabled,
         'customBackgroundPath': customBackgroundPath,
         'customBackgroundOpacity': customBackgroundOpacity,

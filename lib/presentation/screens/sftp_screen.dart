@@ -1,4 +1,7 @@
 import 'dart:io';
+import '../../infrastructure/ssh/remote_archive.dart';
+import '../../infrastructure/ssh/file_selection.dart';
+import '../../infrastructure/ssh/zip_selection.dart';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -14,6 +17,7 @@ import '../../application/settings_controller.dart';
 import '../../infrastructure/ssh/android_document_tree_service.dart';
 import '../../infrastructure/ssh/sftp_service.dart';
 import '../widgets/custom_background.dart';
+import '../widgets/sftp_editor.dart';
 
 part 'sftp_screen_pane.dart';
 
@@ -37,6 +41,13 @@ class _SftpScreenState extends ConsumerState<SftpScreen> {
   _TransferProgressSnapshot? _transfer;
   TransferCancellationToken? _transferCancellation;
   var _dualPane = true;
+  final _clipboard = ValueNotifier<FileSelection?>(null);
+
+  @override
+  void dispose() {
+    _clipboard.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -161,6 +172,9 @@ class _SftpScreenState extends ConsumerState<SftpScreen> {
                           label: _dualPane ? '左侧' : '当前',
                           service: left,
                           sources: sources,
+                          clipboard: _clipboard,
+                          sharedTransferBusy: _transfer != null,
+                          onPaste: _paste,
                           onSourceChanged: (id) => _changeSource(true, id),
                           onPhoneMountChanged: _phoneMountChanged,
                           onOpenInTerminal: left.isLocal
@@ -187,6 +201,9 @@ class _SftpScreenState extends ConsumerState<SftpScreen> {
                             label: '右侧',
                             service: right,
                             sources: sources,
+                            clipboard: _clipboard,
+                            sharedTransferBusy: _transfer != null,
+                            onPaste: _paste,
                             onSourceChanged: (id) => _changeSource(false, id),
                             onPhoneMountChanged: _phoneMountChanged,
                             onOpenInTerminal: right.isLocal
@@ -334,6 +351,82 @@ class _SftpScreenState extends ConsumerState<SftpScreen> {
     } finally {
       _transferCancellation = null;
       if (mounted) setState(() => _transfer = null);
+    }
+  }
+
+  Future<void> _paste(
+      FileSelection selection, FileTransferService target, String path) async {
+    if (_transfer != null) return;
+    if (selection.move) {
+      final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+                  title: const LText('移动所选文件？'),
+                  content: Column(mainAxisSize: MainAxisSize.min, children: [
+                    Text(
+                        '${selection.source.displayName} → ${target.displayName}\n${target.displayPath(path)}'),
+                    const LText('传输并校验成功后删除源文件'),
+                  ]),
+                  actions: [
+                    TextButton(
+                        onPressed: () => Navigator.pop(context, false),
+                        child: const LText('取消')),
+                    FilledButton(
+                        onPressed: () => Navigator.pop(context, true),
+                        child: const LText('移动'))
+                  ]));
+      if (confirmed != true || !mounted) return;
+    }
+    if (_transfer != null) return;
+    final token = TransferCancellationToken();
+    _transferCancellation = token;
+    final tracker = _TransferProgressTracker(
+        title: '${selection.entries.length} → ${target.displayName}',
+        totalBytes: null,
+        onChanged: (value) {
+          if (mounted) setState(() => _transfer = value);
+        })
+      ..start(preparing: true);
+    final remaining = selection.entries.toList();
+    selection.source.activeOperations++;
+    target.activeOperations++;
+    try {
+      var total = 0;
+      for (final entry in selection.entries) {
+        total += await calculateTransferSize(selection.source, entry,
+            cancellationToken: token);
+      }
+      tracker.setTotalBytes(total);
+      await transferSelection(selection, target, path,
+          cancellationToken: token,
+          onProgress: tracker.update, onCompleted: (entry) {
+        remaining.remove(entry);
+        if (mounted &&
+            identical(_clipboard.value, selection) &&
+            selection.move &&
+            remaining.isEmpty) {
+          _clipboard.value = null;
+        }
+      });
+      tracker.finish();
+      _message('批量操作完成');
+    } catch (e) {
+      _message('批量操作未完成：$e');
+    } finally {
+      selection.source.activeOperations--;
+      target.activeOperations--;
+      if (mounted) {
+        if (selection.move &&
+            remaining.isNotEmpty &&
+            identical(_clipboard.value, selection)) {
+          _clipboard.value =
+              FileSelection(selection.source, remaining, move: true);
+        }
+        _transferCancellation = null;
+        setState(() => _transfer = null);
+        await _leftKey.currentState?.refresh();
+        await _rightKey.currentState?.refresh();
+      }
     }
   }
 

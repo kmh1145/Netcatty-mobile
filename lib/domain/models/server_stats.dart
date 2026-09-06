@@ -50,6 +50,18 @@ class ServerStats {
     required this.networkTxBytesPerSecond,
     required this.uptimeSeconds,
     required this.loadAverage,
+    this.cpuModel = '',
+    this.cpuArchitecture = '',
+    this.cpuMHz = '',
+    this.corePercents = const {},
+    this.memoryFreeBytes = 0,
+    this.memoryAvailableBytes = 0,
+    this.memoryCacheBytes = 0,
+    this.swapTotalBytes = 0,
+    this.swapUsedBytes = 0,
+    this.disks = const [],
+    this.connectionCount,
+    this.sampledAt,
   });
 
   final ServerSystemInfo system;
@@ -62,11 +74,34 @@ class ServerStats {
   final double networkTxBytesPerSecond;
   final int uptimeSeconds;
   final List<double> loadAverage;
+  final String cpuModel;
+  final String cpuArchitecture;
+  final String cpuMHz;
+  final Map<String, double> corePercents;
+  final int memoryFreeBytes;
+  final int memoryAvailableBytes;
+  final int memoryCacheBytes;
+  final int swapTotalBytes;
+  final int swapUsedBytes;
+  final List<ServerDiskUsage> disks;
+  final int? connectionCount;
+  final DateTime? sampledAt;
 
   double get memoryPercent =>
       memoryTotalBytes <= 0 ? 0 : memoryUsedBytes / memoryTotalBytes * 100;
   double get diskPercent =>
       diskTotalBytes <= 0 ? 0 : diskUsedBytes / diskTotalBytes * 100;
+}
+
+class ServerDiskUsage {
+  const ServerDiskUsage(
+      this.device, this.mount, this.totalBytes, this.usedBytes);
+  final String device;
+  final String mount;
+  final int totalBytes;
+  final int usedBytes;
+  double get percent =>
+      totalBytes <= 0 ? 0 : (usedBytes / totalBytes * 100).clamp(0, 100);
 }
 
 String normalizeDistroId(String value) {

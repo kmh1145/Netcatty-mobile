@@ -7,6 +7,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'ssh_service.dart';
+import 'remote_archive.dart';
 
 class RemoteEntry {
   const RemoteEntry({
@@ -59,11 +60,18 @@ class TransferCancellationToken {
 }
 
 abstract class FileTransferService {
+  // A mounted phone source is mutable. Do not rebind it while operations run.
+  int activeOperations = 0;
   String get id;
   String get displayName;
   String get rootPath;
   bool get isLocal;
   bool get supportsUnixPermissions => false;
+  bool get supportsArchiveExtraction => false;
+  Future<void> extractArchive(String archive, String destination) =>
+      Future<void>.error(UnsupportedError('Remote archives only'));
+  Future<void> compressEntries(List<RemoteEntry> entries, String destination) =>
+      Future<void>.error(UnsupportedError('Remote archives only'));
 
   String displayPath(String path);
   String joinPath(String path, String name);
@@ -118,6 +126,52 @@ class SftpService extends FileTransferService {
   SftpService(this.session);
 
   final ActiveTerminalSession session;
+  @override
+  bool get supportsArchiveExtraction => true;
+
+  @override
+  Future<void> extractArchive(String archive, String destination) async {
+    final command = RemoteArchive.command(archive, destination);
+    await _archiveCommand(command);
+  }
+
+  @override
+  Future<void> compressEntries(List<RemoteEntry> entries, String destination) =>
+      _archiveCommand(RemoteArchive.compressCommand(
+          entries.map((e) => e.path).toList(), destination));
+
+  Future<void> _archiveCommand(String command) async {
+    final ssh = session.sshClient;
+    if (ssh == null) throw StateError('当前会话不支持 SFTP');
+    final process = await ssh.execute(command);
+    final output = StringBuffer();
+    Future<void> drain(Stream<Uint8List> stream) async {
+      await for (final text
+          in const Utf8Decoder(allowMalformed: true).bind(stream)) {
+        final remaining = 8192 - output.length;
+        if (remaining > 0) {
+          output.write(text.substring(0, text.length.clamp(0, remaining)));
+        }
+      }
+    }
+
+    try {
+      await process.stdin.close();
+      await Future.wait([drain(process.stdout), drain(process.stderr)]);
+      await process.done;
+      if (process.exitCode == 127) {
+        throw StateError('服务器未安装所需解压工具，请安装后重试');
+      }
+      if (process.exitCode != 0) {
+        throw StateError(output.toString().trim().isEmpty
+            ? 'Archive extraction failed'
+            : output.toString().trim());
+      }
+    } finally {
+      process.close();
+    }
+  }
+
   SftpClient? _client;
 
   @override
@@ -479,6 +533,24 @@ Future<int> calculateTransferSize(
   return total;
 }
 
+/// Multiple terminal tabs can point at the same saved server and filesystem.
+bool sameTransferStorage(FileTransferService a, FileTransferService b) {
+  if (a.id == b.id) return true;
+  if (a is! SftpService || b is! SftpService) return false;
+  final left = a.session.host;
+  final right = b.session.host;
+  return left.id.isNotEmpty &&
+      left.id == right.id &&
+      left.hostname == right.hostname &&
+      left.port == right.port &&
+      left.username == right.username &&
+      jsonEncode(left.data['hostChain']) ==
+          jsonEncode(right.data['hostChain']) &&
+      left.proxyProfileId == right.proxyProfileId &&
+      jsonEncode(left.data['proxyConfig']) ==
+          jsonEncode(right.data['proxyConfig']);
+}
+
 Future<int> transferEntry(
   FileTransferService source,
   RemoteEntry entry,
@@ -486,11 +558,12 @@ Future<int> transferEntry(
   String targetDirectory, {
   TransferProgressCallback? onProgress,
   TransferCancellationToken? cancellationToken,
+  bool resume = true,
 }) async {
   cancellationToken?.throwIfCancelled();
   final targetPath = target.joinPath(targetDirectory, entry.name);
   final separator = source.isLocal ? Platform.pathSeparator : '/';
-  if (source.id == target.id &&
+  if (sameTransferStorage(source, target) &&
       (targetPath == entry.path ||
           targetPath.startsWith('${entry.path}$separator'))) {
     throw StateError('不能把文件或目录复制到自身');
@@ -514,7 +587,7 @@ Future<int> transferEntry(
       directory,
       '.${current.name}.netcatty-part',
     );
-    var resumeOffset = await target.fileSize(partialPath) ?? 0;
+    var resumeOffset = resume ? await target.fileSize(partialPath) ?? 0 : 0;
     if (resumeOffset < 0 || resumeOffset > current.size) {
       resumeOffset = 0;
     }
