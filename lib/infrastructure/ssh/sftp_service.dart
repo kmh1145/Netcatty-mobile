@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -8,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'ssh_service.dart';
 import 'remote_archive.dart';
+import 'server_transfer_commands.dart';
 
 class RemoteEntry {
   const RemoteEntry({
@@ -68,6 +70,17 @@ abstract class FileTransferService {
   bool get isLocal;
   bool get supportsUnixPermissions => false;
   bool get supportsArchiveExtraction => false;
+  bool get supportsServerTransfer => false;
+  Future<String> canonicalPath(String path) async => path;
+  Future<void> probeServerTransfer(FileTransferService target,
+          TransferCancellationToken? cancellationToken) =>
+      Future.error(UnsupportedError('Server-side transfer is unavailable'));
+  Future<void> copyOnServer(RemoteEntry entry, FileTransferService target,
+          String destination, TransferCancellationToken? cancellationToken) =>
+      Future.error(UnsupportedError('Server-side transfer is unavailable'));
+  Future<void> moveOnServer(String source, String destination,
+          TransferCancellationToken? cancellationToken) =>
+      Future.error(UnsupportedError('Server-side transfer is unavailable'));
   Future<void> extractArchive(String archive, String destination) =>
       Future<void>.error(UnsupportedError('Remote archives only'));
   Future<void> compressEntries(List<RemoteEntry> entries, String destination) =>
@@ -126,6 +139,146 @@ class SftpService extends FileTransferService {
   SftpService(this.session);
 
   final ActiveTerminalSession session;
+  @override
+  bool get supportsServerTransfer => true;
+
+  @override
+  Future<String> canonicalPath(String path) async =>
+      (await _sftp).absolute(path);
+
+  @override
+  Future<void> probeServerTransfer(FileTransferService target,
+      TransferCancellationToken? cancellationToken) async {
+    if (target is! SftpService) throw UnsupportedError('Not an SSH target');
+    if (sameTransferStorage(this, target)) {
+      await _runFileCommand(
+          'command -v cp >/dev/null && command -v mv >/dev/null',
+          cancellationToken: cancellationToken,
+          timeout: const Duration(seconds: 15));
+    } else {
+      // Never reinterpret the phone's private routes on a different machine.
+      final host = target.session.host;
+      if ((host.proxyProfileId?.isNotEmpty ?? false) ||
+          host.hostChainIds.isNotEmpty ||
+          (host.data['proxyConfig'] is Map &&
+              (host.data['proxyConfig'] as Map).isNotEmpty)) {
+        throw UnsupportedError(
+            'Phone proxy/jump-host routes require phone relay');
+      }
+      final command =
+          ServerTransferCommands.sftp(host.hostname, host.port, host.username);
+      await _runFileCommand('exec $command',
+          input: 'pwd\nbye\n',
+          cancellationToken: cancellationToken,
+          timeout: const Duration(seconds: 15));
+      await target._runFileCommand('command -v mv >/dev/null',
+          cancellationToken: cancellationToken,
+          timeout: const Duration(seconds: 15));
+    }
+  }
+
+  @override
+  Future<void> copyOnServer(RemoteEntry entry, FileTransferService target,
+      String destination, TransferCancellationToken? cancellationToken) async {
+    if (sameTransferStorage(this, target)) {
+      await _runFileCommand(
+          ServerTransferCommands.copy(entry.path, destination),
+          cancellationToken: cancellationToken);
+    } else {
+      if (target is! SftpService) throw UnsupportedError('Not an SSH target');
+      final host = target.session.host;
+      final command =
+          ServerTransferCommands.sftp(host.hostname, host.port, host.username);
+      await _runFileCommand('exec $command',
+          input: ServerTransferCommands.upload(
+              entry.path, destination, entry.isDirectory),
+          cancellationToken: cancellationToken);
+    }
+  }
+
+  @override
+  Future<void> moveOnServer(String source, String destination,
+          TransferCancellationToken? cancellationToken) =>
+      _runFileCommand(ServerTransferCommands.move(source, destination),
+          cancellationToken: cancellationToken);
+
+  Future<void> _runFileCommand(String command,
+      {String input = '',
+      TransferCancellationToken? cancellationToken,
+      Duration? timeout}) async {
+    cancellationToken?.throwIfCancelled();
+    final ssh = session.sshClient;
+    if (ssh == null) throw StateError('SSH session is disconnected');
+    final interrupted = Completer<void>();
+    SSHSession? process;
+    var finished = false;
+    void interrupt(Object error) {
+      if (!finished && !interrupted.isCompleted) {
+        interrupted.completeError(error);
+      }
+    }
+
+    final cancelTimer = Timer.periodic(const Duration(milliseconds: 200), (_) {
+      if (cancellationToken?.isCancelled ?? false) {
+        interrupt(const TransferCancelledException());
+      }
+    });
+    final deadline = timeout == null
+        ? null
+        : Timer(
+            timeout,
+            () =>
+                interrupt(TimeoutException('Server transfer probe timed out')));
+    final output = StringBuffer();
+    Future<void> drain(Stream<Uint8List> stream) async {
+      await for (final text
+          in const Utf8Decoder(allowMalformed: true).bind(stream)) {
+        final remaining = 4096 - output.length;
+        if (remaining > 0) {
+          output.write(text.substring(0, text.length.clamp(0, remaining)));
+        }
+      }
+    }
+
+    Future<void> execute() async {
+      final opened = await ssh.execute(command);
+      if (finished) {
+        opened.close();
+        return;
+      }
+      process = opened;
+      Future<void> sendInput() async {
+        opened.stdin.add(Uint8List.fromList(utf8.encode(input)));
+        await opened.stdin.close();
+      }
+
+      await Future.wait([
+        drain(opened.stdout),
+        drain(opened.stderr),
+        sendInput(),
+        opened.done,
+      ]);
+      if (opened.exitCode != 0) {
+        throw StateError(output.isEmpty
+            ? 'Server transfer command failed'
+            : output.toString().trim());
+      }
+    }
+
+    try {
+      await Future.any([execute(), interrupted.future]);
+      cancellationToken?.throwIfCancelled();
+    } finally {
+      finished = true;
+      cancelTimer.cancel();
+      deadline?.cancel();
+      try {
+        process?.kill(SSHSignal.TERM);
+      } catch (_) {/* Best effort. */}
+      process?.close();
+    }
+  }
+
   @override
   bool get supportsArchiveExtraction => true;
 
@@ -533,14 +686,13 @@ Future<int> calculateTransferSize(
   return total;
 }
 
-/// Multiple terminal tabs can point at the same saved server and filesystem.
+/// Multiple tabs or duplicate profiles can point at the same endpoint.
 bool sameTransferStorage(FileTransferService a, FileTransferService b) {
   if (a.id == b.id) return true;
   if (a is! SftpService || b is! SftpService) return false;
   final left = a.session.host;
   final right = b.session.host;
-  return left.id.isNotEmpty &&
-      left.id == right.id &&
+  return left.hostname.isNotEmpty &&
       left.hostname == right.hostname &&
       left.port == right.port &&
       left.username == right.username &&

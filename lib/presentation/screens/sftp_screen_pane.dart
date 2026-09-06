@@ -916,6 +916,7 @@ class _TransferProgressSnapshot {
     required this.totalBytes,
     required this.bytesPerSecond,
     required this.preparing,
+    this.status,
   });
 
   final String title;
@@ -923,6 +924,7 @@ class _TransferProgressSnapshot {
   final int? totalBytes;
   final double bytesPerSecond;
   final bool preparing;
+  final String? status;
 
   double? get value {
     final total = totalBytes;
@@ -951,6 +953,13 @@ class _TransferProgressTracker {
   Duration _lastEmittedAt = Duration.zero;
   double _bytesPerSecond = 0;
   bool _preparing = false;
+  String? _status;
+
+  void setStatus(String value) {
+    _status = value;
+    _preparing = false;
+    _emit(_transferredBytes, force: true);
+  }
 
   void start({bool preparing = false}) {
     _preparing = preparing;
@@ -1002,6 +1011,7 @@ class _TransferProgressTracker {
         totalBytes: _totalBytes,
         bytesPerSecond: _bytesPerSecond,
         preparing: _preparing,
+        status: _status,
       ),
     );
   }
@@ -1030,10 +1040,12 @@ class _TransferProgressView extends StatelessWidget {
     final details = progress.preparing
         ? '正在计算文件大小…'
         : [
+            if (progress.status != null) localized(progress.status!),
             if (percent != null) percent,
-            total == null || total <= 0
-                ? _formatBytes(progress.transferredBytes)
-                : '${_formatBytes(progress.transferredBytes)} / ${_formatBytes(total)}',
+            if (progress.transferredBytes > 0 || total != null)
+              total == null || total <= 0
+                  ? _formatBytes(progress.transferredBytes)
+                  : '${_formatBytes(progress.transferredBytes)} / ${_formatBytes(total)}',
             if (speed != null) speed,
           ].join(' · ');
     return Semantics(

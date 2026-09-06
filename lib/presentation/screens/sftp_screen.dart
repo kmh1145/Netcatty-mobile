@@ -45,6 +45,7 @@ class _SftpScreenState extends ConsumerState<SftpScreen> {
 
   @override
   void dispose() {
+    _transferCancellation?.cancel();
     _clipboard.dispose();
     super.dispose();
   }
@@ -313,49 +314,14 @@ class _SftpScreenState extends ConsumerState<SftpScreen> {
     final source = sourceKey.currentState;
     final target = targetKey.currentState;
     if (source == null || target == null || _transfer != null) return;
-    final cancellation = TransferCancellationToken();
-    _transferCancellation = cancellation;
-    final tracker = _TransferProgressTracker(
-      title: '${entry.name} → ${target.service.displayName}',
-      totalBytes: entry.isDirectory ? null : entry.size,
-      onChanged: (progress) {
-        if (mounted) setState(() => _transfer = progress);
-      },
-    )..start(preparing: entry.isDirectory);
-    try {
-      if (entry.isDirectory) {
-        tracker.setTotalBytes(await calculateTransferSize(
-          source.service,
-          entry,
-          cancellationToken: cancellation,
-        ));
-      }
-      await transferEntry(
-        source.service,
-        entry,
-        target.service,
-        target.path,
-        onProgress: tracker.update,
-        cancellationToken: cancellation,
-      );
-      tracker.finish();
-      await target.refresh();
-      _message(
-        '已将 ${entry.name} 从 ${source.service.displayName} 传输到'
-        '$targetLabel ${target.service.displayName}',
-      );
-    } on TransferCancelledException {
-      _message('传输已取消，可再次传输以继续');
-    } catch (error) {
-      _message('传输失败：$error');
-    } finally {
-      _transferCancellation = null;
-      if (mounted) setState(() => _transfer = null);
-    }
+    await _paste(
+        FileSelection(source.service, [entry]), target.service, target.path,
+        resumePhoneCopy: true);
   }
 
   Future<void> _paste(
-      FileSelection selection, FileTransferService target, String path) async {
+      FileSelection selection, FileTransferService target, String path,
+      {bool resumePhoneCopy = false}) async {
     if (_transfer != null) return;
     if (selection.move) {
       final confirmed = await showDialog<bool>(
@@ -391,16 +357,58 @@ class _SftpScreenState extends ConsumerState<SftpScreen> {
     selection.source.activeOperations++;
     target.activeOperations++;
     try {
-      var total = 0;
-      for (final entry in selection.entries) {
-        total += await calculateTransferSize(selection.source, entry,
-            cancellationToken: token);
+      tracker.setStatus('正在检查服务器传输条件…');
+      final plan = await prepareTransferRoute(selection, target, token,
+          targetDirectory: path);
+      if (!mounted) return;
+      if (plan.relayReason != null) {
+        final accepted = await showDialog<bool>(
+            context: context,
+            builder: (context) => AlertDialog(
+                  title: const LText('改用手机中转？'),
+                  content: SingleChildScrollView(
+                      child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const LText(
+                          '服务器直传不可用。直传需要服务器之间可达，并已配置密钥认证和可信主机指纹。手机中转会使用手机流量。'),
+                      const SizedBox(height: 12),
+                      Text(plan.relayReason!,
+                          style: Theme.of(context).textTheme.bodySmall),
+                    ],
+                  )),
+                  actions: [
+                    TextButton(
+                        onPressed: () => Navigator.pop(context, false),
+                        child: const LText('取消')),
+                    FilledButton(
+                        onPressed: () => Navigator.pop(context, true),
+                        child: const LText('使用手机中转')),
+                  ],
+                ));
+        if (accepted != true || !mounted) return;
       }
-      tracker.setTotalBytes(total);
+      token.throwIfCancelled();
+      if (plan.route == TransferRoute.phoneRelay) {
+        tracker.setStatus('正在计算文件大小…');
+        var total = 0;
+        for (final entry in selection.entries) {
+          total += await calculateTransferSize(selection.source, entry,
+              cancellationToken: token);
+        }
+        tracker.setTotalBytes(total);
+        tracker.setStatus('通过手机传输中…');
+      }
       await transferSelection(selection, target, path,
+          route: plan.route,
+          resumePhoneCopy: resumePhoneCopy,
           cancellationToken: token,
+          onStatus: tracker.setStatus,
           onProgress: tracker.update, onCompleted: (entry) {
         remaining.remove(entry);
+        tracker.setStatus(
+            '已完成 ${selection.entries.length - remaining.length}/${selection.entries.length}');
         if (mounted &&
             identical(_clipboard.value, selection) &&
             selection.move &&
@@ -410,6 +418,8 @@ class _SftpScreenState extends ConsumerState<SftpScreen> {
       });
       tracker.finish();
       _message('批量操作完成');
+    } on TransferCancelledException {
+      _message('传输已取消');
     } catch (e) {
       _message('批量操作未完成：$e');
     } finally {

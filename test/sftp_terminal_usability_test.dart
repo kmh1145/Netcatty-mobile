@@ -21,6 +21,44 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xterm2/xterm.dart';
 
 void main() {
+  testWidgets('unavailable server copy requires explicit phone-relay consent',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final repository = await VaultRepository.open();
+    final source = _ArchiveTransferService('local')
+      ..files['/a.txt'] = Uint8List.fromList([1, 2])
+      ..directories.add('/target');
+    await tester.pumpWidget(ProviderScope(
+      overrides: [vaultRepositoryProvider.overrideWithValue(repository)],
+      child: MaterialApp(
+          home: Scaffold(body: SftpScreen(localService: Future.value(source)))),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('sftp-pane-mode-toggle')));
+    await tester.pumpAndSettle();
+    await tester.longPress(find.text('a.txt'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('复制'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('target'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('粘贴 (1)'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('改用手机中转？'), findsOneWidget);
+    expect(source.files.containsKey('/target/a.txt'), isFalse);
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    expect(source.files.containsKey('/target/a.txt'), isFalse);
+    await tester.tap(find.text('粘贴 (1)'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tap(find.text('使用手机中转'));
+    await tester.pumpAndSettle();
+    expect(source.files['/target/a.txt'], [1, 2]);
+    expect(source.files['/a.txt'], [1, 2]);
+    expect(source.activeOperations, 0);
+  });
   testWidgets(
       'another pane cannot remount a phone source with active operations',
       (tester) async {

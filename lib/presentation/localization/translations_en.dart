@@ -1,4 +1,13 @@
 const englishTranslations = <String, String>{
+  '服务器内部操作中…': 'Working on the server…',
+  '服务器间直传中…': 'Transferring directly between servers…',
+  '正在校验服务器文件…': 'Verifying server files…',
+  '正在检查服务器传输条件…': 'Checking server transfer capabilities…',
+  '通过手机传输中…': 'Transferring through the phone…',
+  '改用手机中转？': 'Use phone relay instead?',
+  '使用手机中转': 'Use phone relay',
+  '服务器直传不可用。直传需要服务器之间可达，并已配置密钥认证和可信主机指纹。手机中转会使用手机流量。':
+      'Server-side transfer is unavailable. Direct transfers require reachable servers, configured key authentication and trusted host keys. Phone relay uses your phone’s data connection.',
   '按住或拖动曲线查看采样时间与网速': 'Touch or drag to inspect sample time and speed',
   '累计流量来自服务器网络接口计数，接口重置后可能归零':
       'Totals are server network-interface counters and may reset with the interfaces',
@@ -496,6 +505,15 @@ const englishTranslations = <String, String>{
 /// Ordered fragments cover dynamic values and infrastructure errors that are
 /// ultimately rendered by a localized text widget.
 const englishReplacements = <(String, String)>[
+  (
+    '服务器移动未确认完成，请检查源目录和目标目录后再重试：',
+    'Server move could not be confirmed. Check the source and destination before retrying: '
+  ),
+  (
+    '服务器操作未完成，未自动切换手机中转；请检查目标及临时目录：',
+    'Server operation incomplete; phone relay was not started. Check the destination and staging directory: '
+  ),
+  ('已完成 ', 'Completed '),
   ('目标目录已有同名文件：', 'A file with this name already exists: '),
   ('累计：', 'Total: '),
   ('批量操作未完成：', 'Batch operation incomplete: '),

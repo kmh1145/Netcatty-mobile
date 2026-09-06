@@ -72,7 +72,8 @@ Netcatty-mobile/
 | `ssh/ssh_service.dart` | SSH/Telnet 连接、认证、主机指纹、代理、跳板机、Shell 和端口转发底层 |
 | `ssh/server_monitor_service.dart` | 系统识别与 CPU/内存/磁盘/网络/负载采集 |
 | `ssh/sftp_service.dart` | `FileTransferService`、远程/本地文件实现、递归传输、进度和 iOS 有界并发 |
-| `ssh/file_selection.dart` | 多选剪贴板、批量复制/移动、冲突检查和跨设备移动的删除前验证 |
+| `ssh/file_selection.dart` | 多选剪贴板、内部/直传/中转路由、临时目录发布、冲突检查和移动前验证 |
+| `ssh/server_transfer_commands.dart` | 服务器 cp/mv、SFTP 直传命令、安全路径引用与非交互严格认证选项 |
 | `ssh/remote_archive.dart` | 服务器解压/压缩命令构造、格式识别、路径验证和 Shell 转义 |
 | `ssh/zip_selection.dart` | 手机文件流式 ZIP/Deflate 压缩、CRC32 和 ZIP64 边界检查 |
 | `ssh/android_document_tree_service.dart` | Android SAF Dart 适配器，通过 MethodChannel 读写授权目录 |
