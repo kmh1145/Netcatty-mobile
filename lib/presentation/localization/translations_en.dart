@@ -8,9 +8,6 @@ const englishTranslations = <String, String>{
   '使用手机中转': 'Use phone relay',
   '服务器直传不可用。直传需要服务器之间可达，并已配置密钥认证和可信主机指纹。手机中转会使用手机流量。':
       'Server-side transfer is unavailable. Direct transfers require reachable servers, configured key authentication and trusted host keys. Phone relay uses your phone’s data connection.',
-  '按住或拖动曲线查看采样时间与网速': 'Touch or drag to inspect sample time and speed',
-  '累计流量来自服务器网络接口计数，接口重置后可能归零':
-      'Totals are server network-interface counters and may reset with the interfaces',
   '正在压缩…': 'Compressing…',
   'SFTP 代码高亮': 'SFTP syntax highlighting',
   '编辑文件时显示语法颜色': 'Show syntax colors when editing files',
@@ -47,7 +44,6 @@ const englishTranslations = <String, String>{
   '暂无详细数据': 'Detailed data unavailable',
   '内存与 Swap': 'Memory and Swap',
   '分区与磁盘': 'Partitions and disks',
-  '最近 3 分钟 · 接收 / 发送': 'Last 3 minutes · Receive / Send',
   '解压缩': 'Extract archive',
   '服务器未安装所需解压工具，请安装后重试':
       'Install the required extraction tool on the server and try again',

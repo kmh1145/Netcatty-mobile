@@ -146,8 +146,6 @@ class _ServerNetworkChartState extends State<ServerNetworkChart> {
                             fontSize: 11, color: colors.onSurfaceVariant)))),
           ),
       ]),
-      const SizedBox(height: 6),
-      const LText('按住或拖动曲线查看采样时间与网速', style: TextStyle(fontSize: 11)),
     ]);
   }
 
@@ -201,7 +199,7 @@ class _NetworkPlot extends CustomPainter {
             value,
             math.max(sample.networkRxBytesPerSecond,
                 sample.networkTxBytesPerSecond)));
-    final chart = Rect.fromLTRB(0, 22, size.width, size.height - 4);
+    final chart = Rect.fromLTRB(0, 4, size.width, size.height - 4);
     Offset point(ServerStats s, bool rx) => Offset(
         timeline.x(s) * chart.width,
         chart.bottom -
@@ -216,14 +214,6 @@ class _NetworkPlot extends CustomPainter {
       canvas.drawLine(Offset(x, chart.top), Offset(x, chart.bottom),
           Paint()..color = gridColor);
     }
-    final label = TextPainter(
-        text: TextSpan(
-            text: '${formatTrafficBytes(maximum.round())}/s',
-            style: TextStyle(color: textColor, fontSize: 10)),
-        textDirection: TextDirection.ltr)
-      ..layout(maxWidth: size.width);
-    label.paint(canvas, Offset.zero);
-    label.dispose();
     canvas.save();
     canvas.clipRect(Offset.zero & size);
     if (selected != null) {

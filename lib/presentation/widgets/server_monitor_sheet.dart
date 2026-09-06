@@ -245,13 +245,9 @@ class _ServerMonitorSheetState extends State<ServerMonitorSheet> {
                             ],
                           ),
                           const SizedBox(height: 12),
-                          const LText('累计流量来自服务器网络接口计数，接口重置后可能归零',
-                              style: TextStyle(fontSize: 11)),
-                          const SizedBox(height: 8),
                           LText(
                               '当前 TCP 连接数：${value.connectionCount?.toString() ?? '—'}'),
                           const SizedBox(height: 8),
-                          LText('最近 3 分钟 · 接收 / 发送'),
                           ServerNetworkChart(samples: List.of(monitor.history)),
                           Row(children: [
                             Icon(Icons.remove,
