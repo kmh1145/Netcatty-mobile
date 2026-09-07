@@ -72,6 +72,10 @@ Netcatty-mobile/
 | `ssh/ssh_service.dart` | SSH/Telnet 连接、认证、主机指纹、代理、跳板机、Shell 和端口转发底层 |
 | `ssh/server_monitor_service.dart` | 系统识别与 CPU/内存/磁盘/网络/负载采集 |
 | `ssh/sftp_service.dart` | `FileTransferService`、远程/本地文件实现、递归传输、进度和 iOS 有界并发 |
+| `ssh/file_selection.dart` | 多选剪贴板、内部/直传/中转路由、临时目录发布、冲突检查和移动前验证 |
+| `ssh/server_transfer_commands.dart` | 服务器 cp/mv、SFTP 直传命令、安全路径引用与非交互严格认证选项 |
+| `ssh/remote_archive.dart` | 服务器解压/压缩命令构造、格式识别、路径验证和 Shell 转义 |
+| `ssh/zip_selection.dart` | 手机文件流式 ZIP/Deflate 压缩、CRC32 和 ZIP64 边界检查 |
 | `ssh/android_document_tree_service.dart` | Android SAF Dart 适配器，通过 MethodChannel 读写授权目录 |
 | `ssh/system_management_service.dart` | 进程信号、Docker、Compose、systemd/OpenRC、tmux 命令构造、权限探测和输出解析 |
 | `ssh/connection_platform_service.dart` | 活动 SSH 会话与原生后台策略之间的桥接 |
@@ -121,7 +125,9 @@ Netcatty-mobile/
 | `widgets/host_system_icon.dart` | 根据系统识别信息选择图标 |
 | `widgets/terminal_special_keys.dart` | 默认/自定义快捷键、修饰键状态、自动换行与编辑器 |
 | `widgets/ai_chat_sheet.dart` | Catty 多轮聊天、模型切换、终端输出共享状态、会话独立历史、命令复制/定向粘贴与执行确认 |
-| `widgets/server_monitor_sheet.dart` | 性能监控面板 |
+| `widgets/server_monitor_sheet.dart` | 性能监控面板、资源详情展开动画与累计流量 |
+| `widgets/server_network_chart.dart` | 吞吐折线图、三分钟时间轴、触摸采样浮窗与拖动交互 |
+| `widgets/sftp_editor.dart` | 远程文本编辑、自适应行号、自动换行、双指字体缩放、代码高亮及普通/全词/正则文件内搜索 |
 | `widgets/port_forward_sheet.dart` | 端口转发配置和活动转发列表 |
 | `widgets/empty_state.dart` | 通用空状态 |
 

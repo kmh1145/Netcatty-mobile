@@ -1,4 +1,7 @@
 import 'dart:typed_data';
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -7,6 +10,8 @@ import 'package:netcatty_mobile/application/settings_controller.dart';
 import 'package:netcatty_mobile/domain/models/settings.dart';
 import 'package:netcatty_mobile/infrastructure/storage/vault_repository.dart';
 import 'package:netcatty_mobile/infrastructure/ssh/sftp_service.dart';
+import 'package:netcatty_mobile/infrastructure/ssh/file_selection.dart';
+import 'package:netcatty_mobile/infrastructure/ssh/zip_selection.dart';
 import 'package:netcatty_mobile/infrastructure/ssh/ssh_service.dart';
 import 'package:netcatty_mobile/infrastructure/ssh/terminal_picture_in_picture_service.dart';
 import 'package:netcatty_mobile/presentation/home_shell.dart';
@@ -16,6 +21,238 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xterm2/xterm.dart';
 
 void main() {
+  testWidgets('unavailable server copy requires explicit phone-relay consent',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final repository = await VaultRepository.open();
+    final source = _ArchiveTransferService('local')
+      ..files['/a.txt'] = Uint8List.fromList([1, 2])
+      ..directories.add('/target');
+    await tester.pumpWidget(ProviderScope(
+      overrides: [vaultRepositoryProvider.overrideWithValue(repository)],
+      child: MaterialApp(
+          home: Scaffold(body: SftpScreen(localService: Future.value(source)))),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('sftp-pane-mode-toggle')));
+    await tester.pumpAndSettle();
+    await tester.longPress(find.text('a.txt'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('复制'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('target'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('粘贴 (1)'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('改用手机中转？'), findsOneWidget);
+    expect(source.files.containsKey('/target/a.txt'), isFalse);
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    expect(source.files.containsKey('/target/a.txt'), isFalse);
+    await tester.tap(find.text('粘贴 (1)'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tap(find.text('使用手机中转'));
+    await tester.pumpAndSettle();
+    expect(source.files['/target/a.txt'], [1, 2]);
+    expect(source.files['/a.txt'], [1, 2]);
+    expect(source.activeOperations, 0);
+  });
+  testWidgets(
+      'another pane cannot remount a phone source with active operations',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final repository = await VaultRepository.open();
+    final source = _RemountableService('local')..activeOperations = 1;
+    await tester.pumpWidget(ProviderScope(
+      overrides: [vaultRepositoryProvider.overrideWithValue(repository)],
+      child: MaterialApp(
+          home: Scaffold(body: SftpScreen(localService: Future.value(source)))),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('更换挂载目录').last);
+    await tester.pumpAndSettle();
+    expect(source.mountCalls, 0);
+    source.activeOperations = 0;
+    await tester.tap(find.byTooltip('更换挂载目录').last);
+    await tester.pumpAndSettle();
+    expect(source.mountCalls, 1);
+  });
+  testWidgets('late folder listing cannot replace the current directory',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final repository = await VaultRepository.open();
+    final source = _DelayedListingService('local')..directories.add('/slow');
+    await tester.pumpWidget(ProviderScope(
+      overrides: [vaultRepositoryProvider.overrideWithValue(repository)],
+      child: MaterialApp(
+          home: Scaffold(body: SftpScreen(localService: Future.value(source)))),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('sftp-pane-mode-toggle')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('slow'));
+    await tester.pump();
+    await tester.tap(find.byTooltip('上级'));
+    await tester.pumpAndSettle();
+    source.pending.complete([
+      const RemoteEntry(
+          name: 'stale.txt',
+          path: '/slow/stale.txt',
+          isDirectory: false,
+          size: 1)
+    ]);
+    await tester.pumpAndSettle();
+    expect(find.text('stale.txt'), findsNothing);
+    expect(find.text('slow'), findsOneWidget);
+  });
+  testWidgets('multi-selection copies two files then pastes into a directory',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final repository = await VaultRepository.open();
+    final source = _MemoryMountableTransferService('local')
+      ..files['/a.txt'] = Uint8List.fromList([1])
+      ..files['/b.txt'] = Uint8List.fromList([2])
+      ..directories.add('/target');
+    await tester.pumpWidget(ProviderScope(
+      overrides: [vaultRepositoryProvider.overrideWithValue(repository)],
+      child: MaterialApp(
+          home: Scaffold(body: SftpScreen(localService: Future.value(source)))),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('sftp-pane-mode-toggle')));
+    await tester.pumpAndSettle();
+    await tester.longPress(find.text('a.txt'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('b.txt'));
+    await tester.pumpAndSettle();
+    expect(
+        tester
+            .widgetList<Checkbox>(find.byType(Checkbox))
+            .where((c) => c.value == true),
+        hasLength(2));
+    await tester.tap(find.byTooltip('复制'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('target'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('粘贴 (2)'));
+    await tester.pumpAndSettle();
+    expect(source.files['/target/a.txt'], [1]);
+    expect(source.files['/target/b.txt'], [2]);
+    expect(source.files['/a.txt'], [1]);
+    expect(source.activeOperations, 0);
+    expect(find.text('批量操作完成'), findsOneWidget);
+  });
+  test('batch move verifies target and deletes sources only after transfer',
+      () async {
+    final source = _MemoryTransferService('source')
+      ..files['/a.txt'] = Uint8List.fromList([1, 2, 3]);
+    final target = _MemoryTransferService('target');
+    await transferSelection(
+        FileSelection(source, await source.list('/'), move: true), target, '/');
+    expect(source.files, isEmpty);
+    expect(target.files['/a.txt'], [1, 2, 3]);
+  });
+  test('batch conflict and cancellation keep originals', () async {
+    final source = _MemoryTransferService('source')
+      ..files['/a.txt'] = Uint8List.fromList([1, 2, 3]);
+    final target = _MemoryTransferService('target')
+      ..files['/a.txt'] = Uint8List.fromList([4]);
+    final selection = FileSelection(source, await source.list('/'), move: true);
+    await expectLater(
+        transferSelection(selection, target, '/'), throwsStateError);
+    expect(source.files['/a.txt'], [1, 2, 3]);
+    expect(target.files['/a.txt'], [4]);
+    target.files.clear();
+    await expectLater(
+        transferSelection(selection, target, '/',
+            cancellationToken: TransferCancellationToken()..cancel()),
+        throwsA(isA<TransferCancelledException>()));
+    expect(source.files['/a.txt'], [1, 2, 3]);
+  });
+  test('same-server cut moves without downloading file bytes', () async {
+    final source = _MemoryTransferService('source')
+      ..files['/a.txt'] = Uint8List.fromList([1, 2, 3])
+      ..directories.add('/folder');
+    await transferSelection(
+        FileSelection(
+            source, (await source.list('/')).where((e) => !e.isDirectory),
+            move: true),
+        source,
+        '/folder');
+    expect(source.files.containsKey('/a.txt'), isFalse);
+    expect(source.files['/folder/a.txt'], [1, 2, 3]);
+  });
+  test('corrupt target never causes source deletion', () async {
+    final source = _MemoryTransferService('source')
+      ..files['/a.txt'] = Uint8List.fromList([1, 2, 3]);
+    final target = _CorruptTransferService('target');
+    await expectLater(
+        transferSelection(
+            FileSelection(source, await source.list('/'), move: true),
+            target,
+            '/'),
+        throwsStateError);
+    expect(source.files['/a.txt'], [1, 2, 3]);
+  });
+  test('batch move does not reuse an unrelated partial file', () async {
+    final source = _MemoryTransferService('source')
+      ..files['/a.txt'] = Uint8List.fromList([1, 2, 3]);
+    final target = _MemoryTransferService('target')
+      ..files['/.a.txt.netcatty-part'] = Uint8List.fromList([9, 9]);
+    await transferSelection(
+        FileSelection(source, await source.list('/'), move: true), target, '/');
+    expect(target.files['/a.txt'], [1, 2, 3]);
+    expect(source.files, isEmpty);
+  });
+  test('streamed phone ZIP has valid Deflate, CRC and central directory',
+      () async {
+    final source = _MemoryMountableTransferService('local')
+      ..files['/number.txt'] = Uint8List.fromList(utf8.encode('123456789'));
+    await zipSelection(source, await source.list('/'), '/archive.zip');
+    final bytes = source.files['/archive.zip']!;
+    final data = ByteData.sublistView(bytes);
+    final end = bytes.length - 22;
+    expect(data.getUint32(end, Endian.little), 0x06054b50);
+    final central = data.getUint32(end + 16, Endian.little);
+    expect(data.getUint32(central, Endian.little), 0x02014b50);
+    expect(data.getUint32(central + 16, Endian.little), 0xcbf43926);
+    final size = data.getUint32(central + 20, Endian.little);
+    final start = 30 + data.getUint16(26, Endian.little);
+    expect(
+        utf8.decode(
+            ZLibCodec(raw: true).decode(bytes.sublist(start, start + size))),
+        '123456789');
+    expect(source.files['/number.txt'], utf8.encode('123456789'));
+  });
+  testWidgets('remote archives extract to the confirmed directory and refresh',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final repository = await VaultRepository.open();
+    final remote = _ArchiveTransferService('local');
+    remote.files['/backup.zip'] = Uint8List(1);
+    await tester.pumpWidget(ProviderScope(
+      overrides: [vaultRepositoryProvider.overrideWithValue(repository)],
+      child: MaterialApp(
+          home: Scaffold(body: SftpScreen(localService: Future.value(remote)))),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('sftp-pane-mode-toggle')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('文件操作').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('解压缩'));
+    await tester.pumpAndSettle();
+    expect(find.text('/backup-extracted'), findsOneWidget);
+    await tester.tap(find.text('确定'));
+    await tester.pumpAndSettle();
+    expect(remote.extractedArchive, '/backup.zip');
+    expect(remote.extractedDestination, '/backup-extracted');
+    expect(find.text('backup-extracted'), findsOneWidget);
+    expect(find.text('解压完成'), findsOneWidget);
+  });
+
   test('home navigation only hides for a fullscreen terminal', () {
     expect(shouldHideHomeNavigation(1, true), isTrue);
     expect(shouldHideHomeNavigation(1, false), isFalse);
@@ -169,6 +406,7 @@ void main() {
         ),
       );
       final localService = _MemoryMountableTransferService('local');
+      localService.files['/backup.zip'] = Uint8List(1);
 
       await tester.pumpWidget(
         ProviderScope(
@@ -185,6 +423,12 @@ void main() {
           ),
         ),
       );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('文件操作').first);
+      await tester.pumpAndSettle();
+      expect(find.text('解压缩'), findsNothing);
+      await tester.tapAt(const Offset(1, 1));
       await tester.pumpAndSettle();
 
       expect(find.text('SFTP文件管理'), findsOneWidget);
@@ -462,8 +706,55 @@ class _MemoryMountableTransferService extends _MemoryTransferService
   Future<bool> mount() async => true;
 }
 
+class _DelayedListingService extends _MemoryMountableTransferService {
+  _DelayedListingService(super.name);
+  final pending = Completer<List<RemoteEntry>>();
+  @override
+  Future<List<RemoteEntry>> list(String path) =>
+      path == '/slow' ? pending.future : super.list(path);
+}
+
+class _RemountableService extends _MemoryMountableTransferService {
+  _RemountableService(super.name);
+  int mountCalls = 0;
+  @override
+  bool get usesAppDocuments => false;
+  @override
+  Future<bool> mount() async {
+    mountCalls++;
+    return true;
+  }
+}
+
 class _SeededSettingsController extends SettingsController {
   _SeededSettingsController(super.repository, AppSettings initialState) {
     state = initialState;
   }
+}
+
+class _ArchiveTransferService extends _MemoryMountableTransferService {
+  _ArchiveTransferService(super.name);
+
+  String? extractedArchive;
+  String? extractedDestination;
+
+  @override
+  bool get isLocal => false;
+
+  @override
+  bool get supportsArchiveExtraction => true;
+
+  @override
+  Future<void> extractArchive(String archive, String destination) async {
+    extractedArchive = archive;
+    extractedDestination = destination;
+    directories.add(destination);
+  }
+}
+
+class _CorruptTransferService extends _MemoryTransferService {
+  _CorruptTransferService(super.name);
+  @override
+  Future<int?> fileSize(String path) async =>
+      path.endsWith('.netcatty-part') ? null : 0;
 }

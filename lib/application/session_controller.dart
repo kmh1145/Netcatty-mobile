@@ -269,6 +269,10 @@ class SessionController extends StateNotifier<SessionState> {
   }
 
   void _watchSession(ActiveTerminalSession session) {
+    if (session.isSsh) {
+      session.monitor ??= SessionMonitor(session);
+      session.monitor!.start();
+    }
     unawaited(session.done.then((_) {
       _markDisconnected(session);
     }));
@@ -341,6 +345,7 @@ class SessionController extends StateNotifier<SessionState> {
   }
 
   void _markDisconnected(ActiveTerminalSession session) {
+    session.monitor?.stop();
     if (session.closedByUser || !session.connected) return;
     session.connected = false;
     session.terminal.write(
@@ -485,6 +490,9 @@ class SessionController extends StateNotifier<SessionState> {
 
   @override
   void dispose() {
+    for (final session in state.sessions) {
+      session.monitor?.stop();
+    }
     _backgroundMaintenanceTimer?.cancel();
     super.dispose();
   }

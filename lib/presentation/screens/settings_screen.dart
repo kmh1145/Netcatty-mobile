@@ -60,6 +60,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   var themeMode = 'dark';
   var uiThemeId = 'tokyo-night';
   var terminalFontSize = 14.0;
+  var sftpSyntaxHighlight = true;
   var terminalSecureKeyboard = false;
   var customBackgroundEnabled = false;
   var customBackgroundPath = '';
@@ -151,6 +152,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     themeMode = settings.themeMode;
     uiThemeId = settings.uiThemeId;
     terminalFontSize = settings.terminalFontSize;
+    sftpSyntaxHighlight = settings.sftpSyntaxHighlight;
     terminalSecureKeyboard = settings.terminalSecureKeyboard;
     customBackgroundEnabled = settings.customBackgroundEnabled;
     customBackgroundPath = settings.customBackgroundPath;
@@ -409,6 +411,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         onChanged: _savingTerminalSecureKeyboard
                             ? null
                             : _setTerminalSecureKeyboard,
+                      ),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const LText('SFTP 代码高亮'),
+                        subtitle: const LText('编辑文件时显示语法颜色'),
+                        value: sftpSyntaxHighlight,
+                        onChanged: (value) =>
+                            setState(() => sftpSyntaxHighlight = value),
                       ),
                       const SizedBox(height: 8),
                       SegmentedButton<String>(
@@ -1489,6 +1499,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             themeMode: themeMode,
             uiThemeId: uiThemeId,
             terminalFontSize: terminalFontSize,
+            sftpSyntaxHighlight: sftpSyntaxHighlight,
             terminalSecureKeyboard: terminalSecureKeyboard,
             customBackgroundEnabled: customBackgroundEnabled,
             customBackgroundPath: customBackgroundPath,

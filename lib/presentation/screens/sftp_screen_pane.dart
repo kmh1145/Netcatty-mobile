@@ -8,6 +8,9 @@ class _SftpPane extends StatefulWidget {
     required this.sources,
     required this.onSourceChanged,
     required this.onPhoneMountChanged,
+    required this.clipboard,
+    required this.sharedTransferBusy,
+    required this.onPaste,
     this.onCopyToOther,
     this.onOpenInTerminal,
   });
@@ -17,6 +20,10 @@ class _SftpPane extends StatefulWidget {
   final List<FileTransferService> sources;
   final ValueChanged<String> onSourceChanged;
   final VoidCallback onPhoneMountChanged;
+  final ValueNotifier<FileSelection?> clipboard;
+  final bool sharedTransferBusy;
+  final Future<void> Function(FileSelection, FileTransferService, String)
+      onPaste;
   final ValueChanged<RemoteEntry>? onCopyToOther;
   final ValueChanged<String>? onOpenInTerminal;
 
@@ -27,11 +34,18 @@ class _SftpPane extends StatefulWidget {
 class _SftpPaneState extends State<_SftpPane> {
   late String path = widget.service.rootPath;
   var _loading = false;
+  var _listGeneration = 0;
   Object? _error;
   List<RemoteEntry> _entries = const [];
   String? _highlightedEntryPath;
   _TransferProgressSnapshot? _transfer;
   TransferCancellationToken? _transferCancellation;
+  bool _extracting = false;
+  String _archiveStatus = '正在服务器上解压…';
+  bool _selecting = false;
+  final _selected = <String>{};
+  List<RemoteEntry> get _selection =>
+      _entries.where((e) => _selected.contains(e.path)).toList();
 
   FileTransferService get service => widget.service;
 
@@ -45,6 +59,8 @@ class _SftpPaneState extends State<_SftpPane> {
   void didUpdateWidget(covariant _SftpPane oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!identical(oldWidget.service, widget.service)) {
+      _selected.clear();
+      _selecting = false;
       path = widget.service.rootPath;
       _entries = const [];
       WidgetsBinding.instance.addPostFrameCallback((_) => refresh());
@@ -204,6 +220,80 @@ class _SftpPaneState extends State<_SftpPane> {
                 ),
               ),
               if (_loading) const LinearProgressIndicator(minHeight: 2),
+              ValueListenableBuilder<FileSelection?>(
+                  valueListenable: widget.clipboard,
+                  builder: (context, clipboard, _) => Wrap(
+                          alignment: WrapAlignment.center,
+                          spacing: 2,
+                          children: [
+                            if (_selecting) ...[
+                              TextButton(
+                                  onPressed: () => setState(() {
+                                        if (_selected.length ==
+                                            _entries.length) {
+                                          _selected.clear();
+                                        } else {
+                                          _selected.addAll(
+                                              _entries.map((e) => e.path));
+                                        }
+                                      }),
+                                  child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const LText('全选'),
+                                        Text(' (${_selected.length})'),
+                                      ])),
+                              IconButton(
+                                  tooltip: localized('复制'),
+                                  onPressed: _selected.isEmpty
+                                      ? null
+                                      : () => _copySelection(false),
+                                  icon: const Icon(Icons.copy)),
+                              IconButton(
+                                  tooltip: localized('剪切'),
+                                  onPressed: _selected.isEmpty
+                                      ? null
+                                      : () => _copySelection(true),
+                                  icon: const Icon(Icons.cut)),
+                              if (service.isLocal ||
+                                  service.supportsArchiveExtraction)
+                                IconButton(
+                                    tooltip: localized('压缩'),
+                                    onPressed: _selected.isEmpty || _extracting
+                                        ? null
+                                        : _compressSelection,
+                                    icon:
+                                        const Icon(Icons.folder_zip_outlined)),
+                              IconButton(
+                                  tooltip: localized('删除所选文件'),
+                                  onPressed: _selected.isEmpty
+                                      ? null
+                                      : _deleteSelection,
+                                  icon: const Icon(Icons.delete_outline)),
+                              IconButton(
+                                  tooltip: localized('取消多选'),
+                                  onPressed: () => setState(() {
+                                        _selecting = false;
+                                        _selected.clear();
+                                      }),
+                                  icon: const Icon(Icons.close)),
+                            ],
+                            if (clipboard != null) ...[
+                              TextButton.icon(
+                                  onPressed: () =>
+                                      widget.onPaste(clipboard, service, path),
+                                  icon: const Icon(Icons.paste),
+                                  label: LText(
+                                      '${localized('粘贴')} (${clipboard.entries.length})')),
+                              IconButton(
+                                  tooltip: localized('清空文件剪贴板'),
+                                  onPressed: () =>
+                                      widget.clipboard.value = null,
+                                  icon: const Icon(Icons.clear)),
+                            ],
+                          ])),
+              if (_extracting) const LinearProgressIndicator(minHeight: 2),
+              if (_extracting) LText(_archiveStatus),
               if (_transfer != null)
                 _TransferProgressView(
                   progress: _transfer!,
@@ -255,7 +345,8 @@ class _SftpPaneState extends State<_SftpPane> {
       );
 
   Widget _entryTile(RemoteEntry entry, bool compact) => ListTile(
-        selected: entry.path == _highlightedEntryPath,
+        selected: _selected.contains(entry.path) ||
+            entry.path == _highlightedEntryPath,
         selectedTileColor: Theme.of(context)
             .colorScheme
             .primaryContainer
@@ -265,11 +356,15 @@ class _SftpPaneState extends State<_SftpPane> {
             ? const VisualDensity(horizontal: -4, vertical: -3)
             : VisualDensity.compact,
         contentPadding: const EdgeInsets.only(left: 5, right: 0),
-        leading: Icon(
-          entry.isDirectory ? Icons.folder : _fileIcon(entry.name),
-          size: compact ? 20 : 23,
-          color: entry.isDirectory ? const Color(0xfff59e0b) : null,
-        ),
+        leading: _selecting
+            ? Checkbox(
+                value: _selected.contains(entry.path),
+                onChanged: (_) => _toggleEntry(entry))
+            : Icon(
+                entry.isDirectory ? Icons.folder : _fileIcon(entry.name),
+                size: compact ? 20 : 23,
+                color: entry.isDirectory ? const Color(0xfff59e0b) : null,
+              ),
         title: LText(
           entry.name,
           maxLines: 1,
@@ -279,12 +374,33 @@ class _SftpPaneState extends State<_SftpPane> {
         subtitle: compact
             ? null
             : LText(entry.isDirectory ? '目录' : _formatBytes(entry.size)),
-        onTap: () => entry.isDirectory ? _open(entry.path) : _edit(entry),
+        onLongPress: () => _toggleEntry(entry),
+        onTap: () => _selecting
+            ? _toggleEntry(entry)
+            : entry.isDirectory
+                ? _open(entry.path)
+                : _edit(entry),
         trailing: PopupMenuButton<String>(
           tooltip: localized('文件操作'),
           padding: EdgeInsets.zero,
           onSelected: (value) => _entryAction(value, entry),
           itemBuilder: (_) => [
+            const PopupMenuItem(
+                value: 'select',
+                child: ListTile(
+                    leading: Icon(Icons.checklist), title: LText('多选'))),
+            if (!service.isLocal &&
+                service.supportsArchiveExtraction &&
+                !entry.isDirectory &&
+                RemoteArchive.extension(entry.name) != null)
+              PopupMenuItem(
+                value: 'extract',
+                enabled: !_extracting,
+                child: const ListTile(
+                  leading: Icon(Icons.unarchive_outlined),
+                  title: LText('解压缩'),
+                ),
+              ),
             if (widget.onCopyToOther != null)
               const PopupMenuItem(
                 value: 'copy',
@@ -346,18 +462,31 @@ class _SftpPaneState extends State<_SftpPane> {
       );
 
   Future<void> refresh() async {
-    if (_loading || !mounted) return;
+    if (!mounted) return;
+    final generation = ++_listGeneration;
+    final source = service;
+    final directory = path;
+    bool current() =>
+        mounted &&
+        generation == _listGeneration &&
+        identical(source, service) &&
+        directory == path;
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
-      final entries = await service.list(path);
-      if (mounted) setState(() => _entries = entries);
+      final entries = await source.list(directory);
+      if (current()) {
+        setState(() {
+          _entries = entries;
+          _selected.removeWhere((p) => !entries.any((e) => e.path == p));
+        });
+      }
     } catch (error) {
-      if (mounted) setState(() => _error = error);
+      if (current()) setState(() => _error = error);
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (current()) setState(() => _loading = false);
     }
   }
 
@@ -373,12 +502,16 @@ class _SftpPaneState extends State<_SftpPane> {
   }
 
   Future<void> _mountPhoneDirectory() async {
+    if (widget.sharedTransferBusy || _transfer != null || _extracting) return;
     final mountable = service is MountableFileTransferService
         ? service as MountableFileTransferService
         : null;
-    if (mountable == null) return;
+    if (mountable == null || mountable.activeOperations > 0) return;
     try {
       if (!await mountable.mount()) return;
+      widget.clipboard.value = null;
+      _selected.clear();
+      _selecting = false;
       widget.onPhoneMountChanged();
       _message('已挂载手机目录：${mountable.mountedDirectoryName ?? '已选目录'}');
     } catch (error) {
@@ -388,7 +521,10 @@ class _SftpPaneState extends State<_SftpPane> {
 
   void _open(String value) {
     setState(() {
+      _selected.clear();
+      _selecting = false;
       path = value;
+      _entries = const [];
       _highlightedEntryPath = null;
     });
     refresh();
@@ -397,6 +533,8 @@ class _SftpPaneState extends State<_SftpPane> {
   Future<void> openRemoteFileLocation(String filePath) async {
     if (service.isLocal) return;
     setState(() {
+      _selected.clear();
+      _selecting = false;
       path = service.parentPath(filePath);
       _entries = const [];
       _error = null;
@@ -410,45 +548,18 @@ class _SftpPaneState extends State<_SftpPane> {
   Future<void> _edit(RemoteEntry entry) async {
     if (entry.size > 1024 * 1024) return _share(entry);
     try {
-      final controller = TextEditingController(
-        text: await service.readText(entry.path),
-      );
+      final source = service;
+      final content = await source.readText(entry.path);
       if (!mounted) return;
-      final save = await showDialog<bool>(
+      await showDialog<void>(
         context: context,
         builder: (context) => Dialog.fullscreen(
-          child: Scaffold(
-            appBar: AppBar(
-              leading: IconButton(
-                onPressed: () => Navigator.pop(context, false),
-                icon: const Icon(Icons.close),
-              ),
-              title: LText(entry.name),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context, true),
-                  child: const LText('保存'),
-                ),
-              ],
-            ),
-            body: TextField(
-              controller: controller,
-              expands: true,
-              maxLines: null,
-              minLines: null,
-              style: const TextStyle(fontFamily: 'monospace'),
-              decoration: LInputDecoration(
-                filled: false,
-                border: InputBorder.none,
-                contentPadding: EdgeInsets.all(16),
-              ),
-            ),
-          ),
+          child: SftpEditor(
+              name: entry.name,
+              content: content,
+              onSave: (value) => source.writeText(entry.path, value)),
         ),
       );
-      if (save == true) {
-        await service.writeText(entry.path, controller.text);
-      }
       await refresh();
     } catch (error) {
       _message('$error');
@@ -542,6 +653,38 @@ class _SftpPaneState extends State<_SftpPane> {
   }
 
   Future<void> _entryAction(String action, RemoteEntry entry) async {
+    if (action == 'select') {
+      _toggleEntry(entry);
+      return;
+    }
+    if (action == 'extract') {
+      final source = service;
+      if (source.isLocal || !source.supportsArchiveExtraction || _extracting) {
+        return;
+      }
+      final destination = await _ask(
+          '解压缩',
+          '新建解压目录的绝对路径（须不存在）',
+          source.joinPath(source.parentPath(entry.path),
+              RemoteArchive.directoryName(entry.name)));
+      if (destination == null || destination.isEmpty || !mounted) return;
+      setState(() {
+        _extracting = true;
+        _archiveStatus = '正在服务器上解压…';
+      });
+      try {
+        await source.extractArchive(entry.path, destination);
+        _message('解压完成');
+      } catch (error) {
+        _message('解压失败：$error');
+      } finally {
+        if (mounted) {
+          setState(() => _extracting = false);
+          if (identical(service, source)) await refresh();
+        }
+      }
+      return;
+    }
     if (action == 'copy') {
       widget.onCopyToOther?.call(entry);
       return;
@@ -588,6 +731,83 @@ class _SftpPaneState extends State<_SftpPane> {
       await refresh();
     } catch (error) {
       _message('$error');
+    }
+  }
+
+  void _toggleEntry(RemoteEntry entry) => setState(() {
+        _selecting = true;
+        if (!_selected.remove(entry.path)) _selected.add(entry.path);
+      });
+
+  void _copySelection(bool move) {
+    widget.clipboard.value = FileSelection(service, _selection, move: move);
+    setState(() {
+      _selecting = false;
+      _selected.clear();
+    });
+  }
+
+  Future<void> _compressSelection() async {
+    final source = service;
+    final entries = _selection;
+    final directory = path;
+    final name = await _ask(
+        '压缩',
+        source.isLocal ? '压缩文件名（.zip）' : '压缩文件名（.tar.gz 或 .zip）',
+        source.isLocal ? 'archive.zip' : 'archive.tar.gz');
+    if (name == null || name.isEmpty || !mounted) return;
+    if (name.contains('/') || name.contains('\\') || name.contains('\u0000')) {
+      _message('文件名不能包含路径分隔符');
+      return;
+    }
+    setState(() {
+      _extracting = true;
+      _archiveStatus = '正在压缩…';
+    });
+    source.activeOperations++;
+    try {
+      if (source.isLocal) {
+        await zipSelection(source, entries, source.joinPath(directory, name));
+      } else {
+        await source.compressEntries(entries, source.joinPath(directory, name));
+      }
+      _message('压缩完成');
+      if (identical(source, service)) await refresh();
+    } catch (e) {
+      _message('压缩失败：$e');
+    } finally {
+      source.activeOperations--;
+      if (mounted) setState(() => _extracting = false);
+    }
+  }
+
+  Future<void> _deleteSelection() async {
+    final source = service;
+    final entries = _selection;
+    final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+                title: const LText('删除所选文件'),
+                content: LText('${entries.length}\n${localized('此操作无法撤销。')}'),
+                actions: [
+                  TextButton(
+                      onPressed: () => Navigator.pop(context, false),
+                      child: const LText('取消')),
+                  FilledButton(
+                      onPressed: () => Navigator.pop(context, true),
+                      child: const LText('删除'))
+                ]));
+    if (confirmed != true) return;
+    source.activeOperations++;
+    try {
+      for (final entry in entries) {
+        await source.delete(entry);
+      }
+    } catch (e) {
+      _message('$e');
+    } finally {
+      source.activeOperations--;
+      if (mounted && identical(source, service)) await refresh();
     }
   }
 
@@ -696,6 +916,7 @@ class _TransferProgressSnapshot {
     required this.totalBytes,
     required this.bytesPerSecond,
     required this.preparing,
+    this.status,
   });
 
   final String title;
@@ -703,6 +924,7 @@ class _TransferProgressSnapshot {
   final int? totalBytes;
   final double bytesPerSecond;
   final bool preparing;
+  final String? status;
 
   double? get value {
     final total = totalBytes;
@@ -731,6 +953,13 @@ class _TransferProgressTracker {
   Duration _lastEmittedAt = Duration.zero;
   double _bytesPerSecond = 0;
   bool _preparing = false;
+  String? _status;
+
+  void setStatus(String value) {
+    _status = value;
+    _preparing = false;
+    _emit(_transferredBytes, force: true);
+  }
 
   void start({bool preparing = false}) {
     _preparing = preparing;
@@ -782,6 +1011,7 @@ class _TransferProgressTracker {
         totalBytes: _totalBytes,
         bytesPerSecond: _bytesPerSecond,
         preparing: _preparing,
+        status: _status,
       ),
     );
   }
@@ -810,10 +1040,12 @@ class _TransferProgressView extends StatelessWidget {
     final details = progress.preparing
         ? '正在计算文件大小…'
         : [
+            if (progress.status != null) localized(progress.status!),
             if (percent != null) percent,
-            total == null || total <= 0
-                ? _formatBytes(progress.transferredBytes)
-                : '${_formatBytes(progress.transferredBytes)} / ${_formatBytes(total)}',
+            if (progress.transferredBytes > 0 || total != null)
+              total == null || total <= 0
+                  ? _formatBytes(progress.transferredBytes)
+                  : '${_formatBytes(progress.transferredBytes)} / ${_formatBytes(total)}',
             if (speed != null) speed,
           ].join(' · ');
     return Semantics(

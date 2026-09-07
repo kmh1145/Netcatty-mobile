@@ -1,4 +1,7 @@
 import 'dart:io';
+import '../../infrastructure/ssh/remote_archive.dart';
+import '../../infrastructure/ssh/file_selection.dart';
+import '../../infrastructure/ssh/zip_selection.dart';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -14,6 +17,7 @@ import '../../application/settings_controller.dart';
 import '../../infrastructure/ssh/android_document_tree_service.dart';
 import '../../infrastructure/ssh/sftp_service.dart';
 import '../widgets/custom_background.dart';
+import '../widgets/sftp_editor.dart';
 
 part 'sftp_screen_pane.dart';
 
@@ -37,6 +41,14 @@ class _SftpScreenState extends ConsumerState<SftpScreen> {
   _TransferProgressSnapshot? _transfer;
   TransferCancellationToken? _transferCancellation;
   var _dualPane = true;
+  final _clipboard = ValueNotifier<FileSelection?>(null);
+
+  @override
+  void dispose() {
+    _transferCancellation?.cancel();
+    _clipboard.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -161,6 +173,9 @@ class _SftpScreenState extends ConsumerState<SftpScreen> {
                           label: _dualPane ? '左侧' : '当前',
                           service: left,
                           sources: sources,
+                          clipboard: _clipboard,
+                          sharedTransferBusy: _transfer != null,
+                          onPaste: _paste,
                           onSourceChanged: (id) => _changeSource(true, id),
                           onPhoneMountChanged: _phoneMountChanged,
                           onOpenInTerminal: left.isLocal
@@ -187,6 +202,9 @@ class _SftpScreenState extends ConsumerState<SftpScreen> {
                             label: '右侧',
                             service: right,
                             sources: sources,
+                            clipboard: _clipboard,
+                            sharedTransferBusy: _transfer != null,
+                            onPaste: _paste,
                             onSourceChanged: (id) => _changeSource(false, id),
                             onPhoneMountChanged: _phoneMountChanged,
                             onOpenInTerminal: right.isLocal
@@ -296,44 +314,129 @@ class _SftpScreenState extends ConsumerState<SftpScreen> {
     final source = sourceKey.currentState;
     final target = targetKey.currentState;
     if (source == null || target == null || _transfer != null) return;
-    final cancellation = TransferCancellationToken();
-    _transferCancellation = cancellation;
+    await _paste(
+        FileSelection(source.service, [entry]), target.service, target.path,
+        resumePhoneCopy: true);
+  }
+
+  Future<void> _paste(
+      FileSelection selection, FileTransferService target, String path,
+      {bool resumePhoneCopy = false}) async {
+    if (_transfer != null) return;
+    if (selection.move) {
+      final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+                  title: const LText('移动所选文件？'),
+                  content: Column(mainAxisSize: MainAxisSize.min, children: [
+                    Text(
+                        '${selection.source.displayName} → ${target.displayName}\n${target.displayPath(path)}'),
+                    const LText('传输并校验成功后删除源文件'),
+                  ]),
+                  actions: [
+                    TextButton(
+                        onPressed: () => Navigator.pop(context, false),
+                        child: const LText('取消')),
+                    FilledButton(
+                        onPressed: () => Navigator.pop(context, true),
+                        child: const LText('移动'))
+                  ]));
+      if (confirmed != true || !mounted) return;
+    }
+    if (_transfer != null) return;
+    final token = TransferCancellationToken();
+    _transferCancellation = token;
     final tracker = _TransferProgressTracker(
-      title: '${entry.name} → ${target.service.displayName}',
-      totalBytes: entry.isDirectory ? null : entry.size,
-      onChanged: (progress) {
-        if (mounted) setState(() => _transfer = progress);
-      },
-    )..start(preparing: entry.isDirectory);
+        title: '${selection.entries.length} → ${target.displayName}',
+        totalBytes: null,
+        onChanged: (value) {
+          if (mounted) setState(() => _transfer = value);
+        })
+      ..start(preparing: true);
+    final remaining = selection.entries.toList();
+    selection.source.activeOperations++;
+    target.activeOperations++;
     try {
-      if (entry.isDirectory) {
-        tracker.setTotalBytes(await calculateTransferSize(
-          source.service,
-          entry,
-          cancellationToken: cancellation,
-        ));
+      tracker.setStatus('正在检查服务器传输条件…');
+      final plan = await prepareTransferRoute(selection, target, token,
+          targetDirectory: path);
+      if (!mounted) return;
+      if (plan.relayReason != null) {
+        final accepted = await showDialog<bool>(
+            context: context,
+            builder: (context) => AlertDialog(
+                  title: const LText('改用手机中转？'),
+                  content: SingleChildScrollView(
+                      child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const LText(
+                          '服务器直传不可用。直传需要服务器之间可达，并已配置密钥认证和可信主机指纹。手机中转会使用手机流量。'),
+                      const SizedBox(height: 12),
+                      Text(plan.relayReason!,
+                          style: Theme.of(context).textTheme.bodySmall),
+                    ],
+                  )),
+                  actions: [
+                    TextButton(
+                        onPressed: () => Navigator.pop(context, false),
+                        child: const LText('取消')),
+                    FilledButton(
+                        onPressed: () => Navigator.pop(context, true),
+                        child: const LText('使用手机中转')),
+                  ],
+                ));
+        if (accepted != true || !mounted) return;
       }
-      await transferEntry(
-        source.service,
-        entry,
-        target.service,
-        target.path,
-        onProgress: tracker.update,
-        cancellationToken: cancellation,
-      );
+      token.throwIfCancelled();
+      if (plan.route == TransferRoute.phoneRelay) {
+        tracker.setStatus('正在计算文件大小…');
+        var total = 0;
+        for (final entry in selection.entries) {
+          total += await calculateTransferSize(selection.source, entry,
+              cancellationToken: token);
+        }
+        tracker.setTotalBytes(total);
+        tracker.setStatus('通过手机传输中…');
+      }
+      await transferSelection(selection, target, path,
+          route: plan.route,
+          resumePhoneCopy: resumePhoneCopy,
+          cancellationToken: token,
+          onStatus: tracker.setStatus,
+          onProgress: tracker.update, onCompleted: (entry) {
+        remaining.remove(entry);
+        tracker.setStatus(
+            '已完成 ${selection.entries.length - remaining.length}/${selection.entries.length}');
+        if (mounted &&
+            identical(_clipboard.value, selection) &&
+            selection.move &&
+            remaining.isEmpty) {
+          _clipboard.value = null;
+        }
+      });
       tracker.finish();
-      await target.refresh();
-      _message(
-        '已将 ${entry.name} 从 ${source.service.displayName} 传输到'
-        '$targetLabel ${target.service.displayName}',
-      );
+      _message('批量操作完成');
     } on TransferCancelledException {
-      _message('传输已取消，可再次传输以继续');
-    } catch (error) {
-      _message('传输失败：$error');
+      _message('传输已取消');
+    } catch (e) {
+      _message('批量操作未完成：$e');
     } finally {
-      _transferCancellation = null;
-      if (mounted) setState(() => _transfer = null);
+      selection.source.activeOperations--;
+      target.activeOperations--;
+      if (mounted) {
+        if (selection.move &&
+            remaining.isNotEmpty &&
+            identical(_clipboard.value, selection)) {
+          _clipboard.value =
+              FileSelection(selection.source, remaining, move: true);
+        }
+        _transferCancellation = null;
+        setState(() => _transfer = null);
+        await _leftKey.currentState?.refresh();
+        await _rightKey.currentState?.refresh();
+      }
     }
   }
 
