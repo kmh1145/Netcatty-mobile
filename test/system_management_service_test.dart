@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:netcatty_mobile/domain/models/system_management.dart';
 import 'package:netcatty_mobile/infrastructure/ssh/system_management_service.dart';
@@ -196,6 +198,204 @@ __NETCATTY_SERVICE_METADATA__
       service.serviceActionCommand(openRc, RemoteServiceAction.enable),
       'rc-update add sshd default',
     );
+  });
+
+  test('parses Caddy detection and Netcatty-managed sites', () {
+    expect(service.parseCaddyStatus('missing\n').installed, isFalse);
+    final status = service.parseCaddyStatus(
+      'installed\nv2.10.2 h1:example\n/etc/caddy/Caddyfile\n',
+    );
+    expect(status.installed, isTrue);
+    expect(status.version, 'v2.10.2 h1:example');
+    expect(status.configPath, '/etc/caddy/Caddyfile');
+
+    final sites = service.parseCaddySites('''
+manual.example.com {
+    respond "manual"
+}
+${service.buildCaddySiteSnippet(const CaddySite(
+      id: 'site-one',
+      address: 'example.com',
+      upstreams: ['127.0.0.1:8080', '127.0.0.1:8081'],
+    ))}
+# netcatty-begin: malformed
+# netcatty-address: not-base64
+# netcatty-upstreams: broken
+# netcatty-end: malformed
+''');
+    expect(sites, hasLength(1));
+    expect(sites.single.id, 'site-one');
+    expect(sites.single.address, 'example.com');
+    expect(sites.single.upstreams, [
+      '127.0.0.1:8080',
+      '127.0.0.1:8081',
+    ]);
+  });
+
+  test('builds marked Caddyfile blocks with validation and rollback', () {
+    const status = CaddyStatus(
+      installed: true,
+      version: 'v2.10.2',
+      configPath: '/etc/caddy/Caddyfile',
+    );
+    const site = CaddySite(
+      id: 'site-one',
+      address: 'example.com',
+      upstreams: ['127.0.0.1:8080', '127.0.0.1:8081'],
+    );
+
+    final snippet = service.buildCaddySiteSnippet(site);
+    expect(snippet, contains('example.com {'));
+    expect(
+      snippet,
+      contains('reverse_proxy 127.0.0.1:8080 127.0.0.1:8081'),
+    );
+    expect(snippet, contains('# netcatty-address:'));
+    expect(snippet, contains('# netcatty-upstreams:'));
+    expect(snippet, startsWith('# netcatty-begin: site-one'));
+    expect(snippet, endsWith('# netcatty-end: site-one\n'));
+
+    final save = service.saveCaddySiteCommand(status, site);
+    expect(save, contains('/etc/caddy/Caddyfile'));
+    expect(save, contains('# netcatty-begin: site-one'));
+    expect(save, contains('caddy validate'));
+    expect(save, contains('caddy reload'));
+    expect(save, contains('rollback'));
+
+    final delete = service.deleteCaddySiteCommand(status, site);
+    expect(delete, contains('caddy validate'));
+    expect(delete, contains('caddy reload'));
+    expect(delete, contains('rollback'));
+  });
+
+  test('rejects Caddyfile injection and missing installations', () {
+    const installed = CaddyStatus(installed: true);
+    expect(
+      () => service.buildCaddySiteSnippet(
+        const CaddySite(
+          id: '../bad',
+          address: 'example.com',
+          upstreams: ['127.0.0.1:8080'],
+        ),
+      ),
+      throwsFormatException,
+    );
+    expect(
+      () => service.buildCaddySiteSnippet(
+        const CaddySite(
+          id: 'safe-id',
+          address: 'example.com {\nrespond hacked',
+          upstreams: ['127.0.0.1:8080'],
+        ),
+      ),
+      throwsFormatException,
+    );
+    expect(
+      () => service.buildCaddySiteSnippet(
+        const CaddySite(
+          id: 'safe-id',
+          address: 'example.com',
+          upstreams: ['127.0.0.1:8080\nhandle'],
+        ),
+      ),
+      throwsFormatException,
+    );
+    expect(
+      () => service.saveCaddySiteCommand(
+        const CaddyStatus(installed: false),
+        const CaddySite(
+          id: 'safe-id',
+          address: 'example.com',
+          upstreams: ['127.0.0.1:8080'],
+        ),
+      ),
+      throwsUnsupportedError,
+    );
+    expect(
+      service.saveCaddySiteCommand(
+        installed,
+        const CaddySite(
+          id: 'safe-id',
+          address: 'example.com',
+          upstreams: ['127.0.0.1:8080'],
+        ),
+      ),
+      contains('# netcatty-begin: safe-id'),
+    );
+    expect(caddyNotFoundMessage, '未检测到 Caddy，请先安装 Caddy 后再重试。');
+  });
+
+  test('Caddy mutation scripts apply, remove and roll back atomically',
+      () async {
+    if (!Platform.isLinux) return;
+    final temporary = await Directory.systemTemp.createTemp('netcatty caddy ');
+    addTearDown(() => temporary.delete(recursive: true));
+    final binaryDirectory = Directory('${temporary.path}/bin')..createSync();
+    final fakeCaddy = File('${binaryDirectory.path}/caddy');
+    fakeCaddy.writeAsStringSync('''#!/bin/sh
+case "\$1" in
+  version) printf 'v2.test\\n' ;;
+  fmt) exit 0 ;;
+  validate)
+    if [ "\${FAIL_CADDY_VALIDATE:-0}" = 1 ]; then
+      printf 'invalid test configuration\\n' >&2
+      exit 1
+    fi
+    ;;
+  reload) exit 0 ;;
+esac
+''');
+    final chmod = await Process.run('chmod', ['+x', fakeCaddy.path]);
+    expect(chmod.exitCode, 0);
+    final status = CaddyStatus(
+      installed: true,
+      version: 'v2.test',
+      configPath: '${temporary.path}/Caddyfile',
+    );
+    const initial = CaddySite(
+      id: 'site-one',
+      address: 'example.com',
+      upstreams: ['127.0.0.1:8080'],
+    );
+    final environment = {
+      ...Platform.environment,
+      'PATH': '${binaryDirectory.path}:${Platform.environment['PATH']}',
+    };
+    final config = File(status.configPath)
+      ..writeAsStringSync('manual.example.com {\n    respond "manual"\n}\n');
+
+    var result = await Process.run(
+      'sh',
+      ['-c', service.saveCaddySiteCommand(status, initial)],
+      environment: environment,
+    );
+    expect(result.exitCode, 0, reason: '${result.stderr}');
+    expect(config.readAsStringSync(), contains('127.0.0.1:8080'));
+    expect(config.readAsStringSync(), contains('manual.example.com'));
+    expect(config.readAsStringSync(), contains('# netcatty-begin: site-one'));
+
+    const invalidUpdate = CaddySite(
+      id: 'site-one',
+      address: 'example.com',
+      upstreams: ['127.0.0.1:9090'],
+    );
+    result = await Process.run(
+      'sh',
+      ['-c', service.saveCaddySiteCommand(status, invalidUpdate)],
+      environment: {...environment, 'FAIL_CADDY_VALIDATE': '1'},
+    );
+    expect(result.exitCode, isNot(0));
+    expect(config.readAsStringSync(), contains('127.0.0.1:8080'));
+    expect(config.readAsStringSync(), isNot(contains('127.0.0.1:9090')));
+
+    result = await Process.run(
+      'sh',
+      ['-c', service.deleteCaddySiteCommand(status, initial)],
+      environment: environment,
+    );
+    expect(result.exitCode, 0, reason: '${result.stderr}');
+    expect(config.readAsStringSync(), isNot(contains('netcatty-begin')));
+    expect(config.readAsStringSync(), contains('manual.example.com'));
   });
 
   test('recognizes missing tmux command errors', () {

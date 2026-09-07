@@ -44,7 +44,7 @@ Netcatty 的 Android / iOS 移动端实现：一个面向服务器管理、SSH �
   </tr>
 </table>
 
-- **系统管理面板**直接复用当前 SSH 会话，可搜索、筛选和操作远程进程，管理 Docker 容器、镜像、Compose 项目与 systemd/OpenRC 服务，并创建或重新连接 tmux Session。危险操作会先进行二次确认。
+- **系统管理面板**直接复用当前 SSH 会话，可搜索、筛选和操作远程进程，管理 Docker 容器、镜像、Compose 项目、systemd/OpenRC 服务与 Caddy 反向代理，并创建或重新连接 tmux Session。危险操作会先进行二次确认。
 - **性能监控面板**连接后自动识别操作系统、发行版、主机名和内核，以卡片形式实时呈现资源占用和网络吞吐，不需要在多个命令之间来回切换。
 
 ## 更多界面
@@ -130,6 +130,7 @@ Netcatty 的 Android / iOS 移动端实现：一个面向服务器管理、SSH �
 - **Docker**：容器与镜像搜索/筛选，start、stop、restart、pause、resume、kill、删除、日志和进入容器终端；权限不足时支持 sudo 回退。
 - **Compose**：发现 Compose 项目，执行启动、停止、重启、拉取镜像、重建、查看日志和删除。
 - **服务**：自动识别 systemd 或 OpenRC，搜索并按状态筛选服务，执行启动、停止、重启和开机自启管理。
+- **Caddy**：检测 Caddy 安装与版本，直接在主 Caddyfile 中新增、编辑或删除带清晰标记的反向代理站点；保存前校验完整配置，重载失败自动回滚，并保留用户已有配置。
 - **tmux**：查看版本、Session、Window 和 Client，新建 Session，并可从已保存片段选择启动命令。
 
 ### 云同步与安全

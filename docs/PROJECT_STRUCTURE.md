@@ -135,12 +135,13 @@ Netcatty-mobile/
 
 ```text
 presentation/widgets/system_management/
-├─ system_management_sheet.dart   进程 / Docker / 服务 / tmux 顶层 Tab
+├─ system_management_sheet.dart   进程 / Docker / 服务 / Caddy / tmux 顶层 Tab
 ├─ process_manager_panel.dart      进程筛选、排序、详情与信号操作
 ├─ docker_manager_panel.dart       容器 / 镜像管理
 ├─ docker_compose_panel.dart       Compose 项目与常用操作
 ├─ docker_image_badge.dart         镜像品牌识别与图标
 ├─ service_manager_panel.dart      systemd / OpenRC 服务筛选与操作
+├─ caddy_manager_panel.dart        Caddy 检测、反向代理站点增删改与安全重载
 ├─ management_filter_chip.dart     系统管理页共用状态筛选标签
 └─ tmux_manager_panel.dart         Session / Window / Client 管理
 ```

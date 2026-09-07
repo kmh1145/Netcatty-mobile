@@ -104,7 +104,7 @@ Windows 无法完成原生 iOS 编译；涉及 Swift、Info.plist 或 iOS Plugin
 | `host_editor_layout_test.dart` | 键盘弹出、滚动和窄屏表单布局 |
 | `terminal_connection_dialog_test.dart` | Pending 标签、连接弹窗和会话隔离 |
 | `sftp_terminal_usability_test.dart` | SFTP 递归传输、进度、零拷贝、快捷键与 PiP 文本 |
-| `system_management_service_test.dart` | 进程、Docker、Compose、tmux 命令与解析 |
+| `system_management_service_test.dart` | 进程、Docker、Compose、服务、Caddy、tmux 命令与解析 |
 | `mobile_v1_features_test.dart` | 关键移动端功能回归 |
 
 协议解析、Shell 参数转义、模型序列化和控制器状态转换优先写单元测试。触屏布局问题应补充固定窗口尺寸的 Widget Test，并使用 `tester.takeException()` 检查 RenderFlex Overflow。
@@ -117,7 +117,7 @@ Windows 无法完成原生 iOS 编译；涉及 Swift、Info.plist 或 iOS Plugin
 - 同一主机打开两个以上标签，关闭确认和分屏
 - 中文输入、文本选择、拖动选区、复制与粘贴
 - 性能面板与系统识别
-- 进程、Docker/Compose 和 tmux 操作的确认弹窗
+- 进程、Docker/Compose、Caddy 和 tmux 操作的确认弹窗
 - WebDAV、GitHub Gist 与 S3 的统一立即同步及条件写入
 - 桌面端兼容的三方合并、加密共同 base、删除墓碑和 PC 删除数据不复活回归
 - 自动同步开关、修改防抖、前台刷新、失败重试及同步期间继续编辑

@@ -4,6 +4,7 @@ import 'package:netcatty_mobile/presentation/localization/localized_widgets.dart
 import '../../../domain/models/host.dart';
 import '../../../infrastructure/ssh/ssh_service.dart';
 import '../../../infrastructure/ssh/system_management_service.dart';
+import 'caddy_manager_panel.dart';
 import 'docker_manager_panel.dart';
 import 'process_manager_panel.dart';
 import 'service_manager_panel.dart';
@@ -35,7 +36,7 @@ class _SystemManagementSheetState extends State<SystemManagementSheet>
   @override
   void initState() {
     super.initState();
-    _tabs = TabController(length: 4, vsync: this);
+    _tabs = TabController(length: 5, vsync: this);
   }
 
   @override
@@ -103,6 +104,7 @@ class _SystemManagementSheetState extends State<SystemManagementSheet>
                   icon: Icon(Icons.miscellaneous_services_outlined),
                   text: '服务',
                 ),
+                Tab(icon: Icon(Icons.language_outlined), text: 'Caddy'),
                 Tab(icon: Icon(Icons.terminal_outlined), text: 'tmux'),
               ],
             ),
@@ -122,6 +124,10 @@ class _SystemManagementSheetState extends State<SystemManagementSheet>
                     onOpenConfig: _openSftp,
                   ),
                   ServiceManagerPanel(
+                    session: widget.session,
+                    service: _service,
+                  ),
+                  CaddyManagerPanel(
                     session: widget.session,
                     service: _service,
                   ),
