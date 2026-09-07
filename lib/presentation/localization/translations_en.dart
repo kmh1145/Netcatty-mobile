@@ -1,4 +1,5 @@
 const englishTranslations = <String, String>{
+  '自动换行': 'Word wrap',
   '在文件中搜索': 'Find in file',
   '搜索打开的文件': 'Search the open file',
   '关闭搜索': 'Close search',

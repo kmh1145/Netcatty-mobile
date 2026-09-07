@@ -44,6 +44,42 @@ void main() {
         isEmpty);
   });
 
+  test('line labels preserve logical numbering across visual wraps', () {
+    const style = TextStyle(fontFamily: 'monospace', fontSize: 14, height: 1.5);
+    const text =
+        'this is a deliberately long first source line that must wrap\nsecond';
+    expect(buildEditorLineLabels(text, style, TextScaler.noScaling), '1\n2');
+
+    final wrapped = buildEditorLineLabels(
+      text,
+      style,
+      TextScaler.noScaling,
+      wrapWidth: 90,
+    ).split('\n');
+    expect(wrapped.first, '1');
+    expect(wrapped.last, '2');
+    expect(wrapped.where((label) => label == '1'), hasLength(1));
+    expect(wrapped.where((label) => label == '2'), hasLength(1));
+    expect(wrapped.where((label) => label.isEmpty), isNotEmpty);
+
+    final enlarged = buildEditorLineLabels(
+      text,
+      style.copyWith(fontSize: 28),
+      TextScaler.noScaling,
+      wrapWidth: 90,
+    ).split('\n');
+    expect(enlarged.length, greaterThan(wrapped.length));
+    expect(
+        editorVisualRowForOffset(
+          text,
+          text.indexOf('second'),
+          style,
+          TextScaler.noScaling,
+          wrapWidth: 90,
+        ),
+        wrapped.length - 1);
+  });
+
   testWidgets(
       'editor searches, navigates, changes match mode and reports errors',
       (tester) async {
@@ -114,6 +150,66 @@ void main() {
     expect(tester.widget<TextField>(find.byType(TextField)).controller!.text,
         '{"a": 2}');
     expect(find.text('* a.json'), findsOneWidget);
+  });
+
+  testWidgets(
+      'editor is borderless, wraps with logical line labels and pinch zooms',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final repo = await VaultRepository.open();
+    await tester.binding.setSurfaceSize(const Size(390, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    const content =
+        'this is a deliberately very long source line repeated repeated repeated repeated repeated repeated repeated repeated\nsecond';
+    await tester.pumpWidget(ProviderScope(
+        overrides: [vaultRepositoryProvider.overrideWithValue(repo)],
+        child: MaterialApp(
+            home: SftpEditor(
+                name: 'long.txt', content: content, onSave: (_) async {}))));
+    await tester.pumpAndSettle();
+
+    Text gutterText() => tester.widget<Text>(find.descendant(
+        of: find.byKey(const ValueKey('editor-line-numbers')),
+        matching: find.byType(Text)));
+    var editor = tester
+        .widget<TextField>(find.byKey(const ValueKey('sftp-editor-field')));
+    final decoration = editor.decoration!;
+    expect(decoration.border, InputBorder.none);
+    expect(decoration.enabledBorder, InputBorder.none);
+    expect(decoration.focusedBorder, InputBorder.none);
+    expect(decoration.filled, isFalse);
+    expect(gutterText().data, '1\n2');
+    expect(
+        tester.getSize(find.byKey(const ValueKey('editor-line-numbers'))).width,
+        lessThan(40));
+
+    await tester.tap(find.byKey(const ValueKey('editor-wrap-toggle')));
+    await tester.pumpAndSettle();
+    final wrappedLabels = gutterText().data!.split('\n');
+    expect(wrappedLabels.first, '1');
+    expect(wrappedLabels.last, '2');
+    expect(wrappedLabels.where((label) => label.isEmpty), isNotEmpty);
+    expect(wrappedLabels.where((label) => label == '1'), hasLength(1));
+
+    final zoomArea = find.byKey(const ValueKey('editor-zoom-area'));
+    final center = tester.getCenter(zoomArea);
+    final first =
+        await tester.startGesture(center - const Offset(20, 0), pointer: 1);
+    final second =
+        await tester.startGesture(center + const Offset(20, 0), pointer: 2);
+    await first.moveTo(center - const Offset(50, 0));
+    await second.moveTo(center + const Offset(50, 0));
+    await tester.pump();
+    editor = tester
+        .widget<TextField>(find.byKey(const ValueKey('sftp-editor-field')));
+    expect(editor.style!.fontSize, greaterThan(14));
+    expect(gutterText().style!.fontSize, editor.style!.fontSize);
+    expect(find.byKey(const ValueKey('editor-font-size')), findsOneWidget);
+    await first.up();
+    await second.up();
+    await tester.pump();
+    expect(find.byKey(const ValueKey('editor-font-size')), findsNothing);
+    expect(tester.takeException(), isNull);
   });
   testWidgets('highlight toggles colors while preserving exact text',
       (tester) async {

@@ -83,6 +83,76 @@ bool _isWordCharacterAt(String text, int offset, RegExp wordCharacter) {
   return wordCharacter.hasMatch(text.substring(offset, end));
 }
 
+int _visualLineCount(
+  String text,
+  TextStyle style,
+  TextScaler scaler,
+  double? wrapWidth,
+) {
+  if (wrapWidth == null || wrapWidth <= 0 || text.isEmpty) return 1;
+  final painter = TextPainter(
+    text: TextSpan(text: text, style: style),
+    textDirection: TextDirection.ltr,
+    textScaler: scaler,
+  )..layout(maxWidth: wrapWidth);
+  final count = math.max(1, painter.computeLineMetrics().length);
+  painter.dispose();
+  return count;
+}
+
+/// Builds one gutter row per rendered editor row. Wrapped continuation rows
+/// intentionally receive an empty label so a logical line is never presented
+/// as several different source lines.
+String buildEditorLineLabels(
+  String text,
+  TextStyle style,
+  TextScaler scaler, {
+  double? wrapWidth,
+}) {
+  final labels = <String>[];
+  final lines = text.split('\n');
+  for (var index = 0; index < lines.length; index++) {
+    final visualLines =
+        _visualLineCount(lines[index], style, scaler, wrapWidth);
+    labels.add('${index + 1}');
+    labels.addAll(List.filled(visualLines - 1, ''));
+  }
+  return labels.join('\n');
+}
+
+double editorLongestLineWidth(String text, TextStyle style, TextScaler scaler) {
+  var width = 0.0;
+  for (final line in text.split('\n')) {
+    final painter = TextPainter(
+      text: TextSpan(text: line, style: style),
+      textDirection: TextDirection.ltr,
+      textScaler: scaler,
+      maxLines: 1,
+    )..layout();
+    width = math.max(width, painter.width);
+    painter.dispose();
+  }
+  return width;
+}
+
+int editorVisualRowForOffset(
+  String text,
+  int offset,
+  TextStyle style,
+  TextScaler scaler, {
+  double? wrapWidth,
+}) {
+  final safeOffset = offset.clamp(0, text.length);
+  final prefix = text.substring(0, safeOffset);
+  final lines = prefix.split('\n');
+  var row = 0;
+  for (var index = 0; index < lines.length; index++) {
+    final count = _visualLineCount(lines[index], style, scaler, wrapWidth);
+    row += index == lines.length - 1 ? count - 1 : count;
+  }
+  return row;
+}
+
 class CodeTextController extends TextEditingController {
   CodeTextController({required String text, required this.filename})
       : super(text: text);
@@ -211,7 +281,84 @@ class _SftpEditorState extends ConsumerState<SftpEditor> {
   var searchTruncated = false;
   String? searchError;
   String searchedText = '';
+  var softWrap = false;
+  var editorFontSize = 14.0;
+  final pointers = <int, Offset>{};
+  double? pinchStartDistance;
+  double? pinchStartFontSize;
+  var pinching = false;
+  double? lastWrapWidth;
   String? error;
+
+  TextStyle get editorStyle =>
+      TextStyle(fontFamily: 'monospace', fontSize: editorFontSize, height: 1.5);
+
+  void _toggleWrap() {
+    setState(() => softWrap = !softWrap);
+    if (softWrap) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (horizontalScroll.hasClients) horizontalScroll.jumpTo(0);
+      });
+    }
+  }
+
+  void _pointerDown(PointerDownEvent event) {
+    pointers[event.pointer] = event.localPosition;
+    if (pointers.length == 2) {
+      final points = pointers.values.toList();
+      pinchStartDistance = (points[0] - points[1]).distance;
+      pinchStartFontSize = editorFontSize;
+      pinching = true;
+      setState(() {});
+    } else if (pointers.length > 2) {
+      pinchStartDistance = null;
+      pinchStartFontSize = null;
+      if (pinching) setState(() => pinching = false);
+    }
+  }
+
+  void _pointerMove(PointerMoveEvent event) {
+    if (!pointers.containsKey(event.pointer)) return;
+    pointers[event.pointer] = event.localPosition;
+    if (pointers.length != 2 ||
+        pinchStartDistance == null ||
+        pinchStartDistance! <= 0 ||
+        pinchStartFontSize == null) {
+      return;
+    }
+    final points = pointers.values.toList();
+    final next = (pinchStartFontSize! *
+            (points[0] - points[1]).distance /
+            pinchStartDistance!)
+        .clamp(6.0, 32.0);
+    if ((next - editorFontSize).abs() < 0.05) return;
+    final ratio = next / editorFontSize;
+    final oldVertical = editorScroll.hasClients ? editorScroll.offset : 0.0;
+    final oldHorizontal =
+        horizontalScroll.hasClients ? horizontalScroll.offset : 0.0;
+    setState(() => editorFontSize = next);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (editorScroll.hasClients) {
+        editorScroll.jumpTo((oldVertical * ratio)
+            .clamp(0.0, editorScroll.position.maxScrollExtent));
+      }
+      if (!softWrap && horizontalScroll.hasClients) {
+        horizontalScroll.jumpTo((oldHorizontal * ratio)
+            .clamp(0.0, horizontalScroll.position.maxScrollExtent));
+      }
+    });
+  }
+
+  void _pointerEnd(PointerEvent event) {
+    pointers.remove(event.pointer);
+    if (pointers.length < 2) {
+      pinchStartDistance = null;
+      pinchStartFontSize = null;
+      if (pinching && mounted) setState(() => pinching = false);
+    }
+  }
+
   void _changed() {
     if (searchVisible && searchedText != code.text) _calculateSearch();
     if (mounted) setState(() {});
@@ -280,8 +427,15 @@ class _SftpEditorState extends ConsumerState<SftpEditor> {
       if (!mounted) return;
       final prefix = code.text.substring(0, match.start);
       final lineStart = prefix.lastIndexOf('\n') + 1;
-      final line = '\n'.allMatches(prefix).length;
-      const lineHeight = 21.0;
+      final scaler = MediaQuery.textScalerOf(context);
+      final line = editorVisualRowForOffset(
+        code.text,
+        match.start,
+        editorStyle,
+        scaler,
+        wrapWidth: softWrap ? lastWrapWidth : null,
+      );
+      final lineHeight = editorFontSize * 1.5;
       if (editorScroll.hasClients) {
         final target =
             line * lineHeight - editorScroll.position.viewportDimension / 2;
@@ -290,12 +444,13 @@ class _SftpEditorState extends ConsumerState<SftpEditor> {
             duration: const Duration(milliseconds: 180),
             curve: Curves.easeOut);
       }
-      if (horizontalScroll.hasClients) {
+      if (!softWrap && horizontalScroll.hasClients) {
         final painter = TextPainter(
             text: TextSpan(
                 text: code.text.substring(lineStart, match.start),
-                style: const TextStyle(fontFamily: 'monospace', fontSize: 14)),
-            textDirection: TextDirection.ltr)
+                style: editorStyle),
+            textDirection: TextDirection.ltr,
+            textScaler: scaler)
           ..layout();
         final target =
             painter.width - horizontalScroll.position.viewportDimension / 2;
@@ -361,17 +516,8 @@ class _SftpEditorState extends ConsumerState<SftpEditor> {
     code.dark = Theme.of(context).brightness == Brightness.dark;
     code.searchMatches = searchVisible ? searchMatches : const [];
     code.currentSearchIndex = searchVisible ? currentSearchIndex : -1;
-    final lines = code.text.split('\n');
-    const style = TextStyle(fontFamily: 'monospace', fontSize: 14, height: 1.5);
+    final style = editorStyle;
     final scaler = MediaQuery.textScalerOf(context);
-    final measure = TextPainter(
-        text: TextSpan(text: code.text, style: style),
-        textDirection: TextDirection.ltr,
-        textScaler: scaler)
-      ..layout();
-    final width =
-        math.max(MediaQuery.sizeOf(context).width - 64, measure.width + 48);
-    measure.dispose();
     return PopScope(
         canPop: saved == code.text && !saving,
         onPopInvokedWithResult: (didPop, _) {
@@ -383,6 +529,12 @@ class _SftpEditorState extends ConsumerState<SftpEditor> {
                   IconButton(onPressed: _close, icon: const Icon(Icons.close)),
               title: Text('${saved == code.text ? '' : '* '}${widget.name}'),
               actions: [
+                IconButton(
+                    key: const ValueKey('editor-wrap-toggle'),
+                    tooltip: localized('自动换行'),
+                    isSelected: softWrap,
+                    onPressed: _toggleWrap,
+                    icon: const Icon(Icons.wrap_text)),
                 IconButton(
                     key: const ValueKey('editor-search-toggle'),
                     tooltip: localized('在文件中搜索'),
@@ -415,47 +567,127 @@ class _SftpEditorState extends ConsumerState<SftpEditor> {
                           color: Theme.of(context).colorScheme.error))),
             if (code.highlight && code.text.length > 200000)
               const LText('大文件已暂停代码高亮'),
-            Expanded(
-                child: SingleChildScrollView(
-                    controller: editorScroll,
-                    child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Container(
-                              width: 56,
-                              padding: const EdgeInsets.symmetric(
-                                  vertical: 12, horizontal: 6),
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .surfaceContainerHighest,
-                              child: Text(
-                                  List.generate(lines.length, (i) => '${i + 1}')
-                                      .join('\n'),
-                                  style: style,
-                                  textAlign: TextAlign.right)),
-                          Expanded(
-                              child: SingleChildScrollView(
-                                  controller: horizontalScroll,
-                                  scrollDirection: Axis.horizontal,
-                                  child: SizedBox(
-                                      width: width,
-                                      child: TextField(
-                                          controller: code,
-                                          undoController: undo,
-                                          maxLines: null,
-                                          autocorrect: false,
-                                          enableSuggestions: false,
-                                          style: style,
-                                          keyboardType: TextInputType.multiline,
-                                          decoration: const InputDecoration(
-                                              border: InputBorder.none,
-                                              filled: false,
-                                              isDense: true,
-                                              contentPadding:
-                                                  EdgeInsets.all(12)))))),
-                        ]))),
+            Expanded(child: _editorArea(style, scaler)),
           ]),
         ));
+  }
+
+  Widget _editorArea(TextStyle style, TextScaler scaler) {
+    return LayoutBuilder(builder: (context, constraints) {
+      final digitPainter = TextPainter(
+          text: TextSpan(text: '${code.text.split('\n').length}', style: style),
+          textDirection: TextDirection.ltr,
+          textScaler: scaler)
+        ..layout();
+      final gutterWidth = math.max(30.0, digitPainter.width + 10);
+      digitPainter.dispose();
+      final textViewport = math.max(1.0, constraints.maxWidth - gutterWidth);
+      const horizontalPadding = 14.0;
+      final wrapWidth = math.max(1.0, textViewport - horizontalPadding);
+      lastWrapWidth = wrapWidth;
+      final labels = buildEditorLineLabels(
+        code.text,
+        style,
+        scaler,
+        wrapWidth: softWrap ? wrapWidth : null,
+      );
+      final editorWidth = softWrap
+          ? textViewport
+          : math.max(
+              textViewport,
+              editorLongestLineWidth(code.text, style, scaler) +
+                  horizontalPadding);
+      final strut = StrutStyle(
+        fontFamily: 'monospace',
+        fontSize: editorFontSize,
+        height: 1.5,
+        forceStrutHeight: true,
+      );
+      return Stack(children: [
+        Listener(
+          key: const ValueKey('editor-zoom-area'),
+          behavior: HitTestBehavior.opaque,
+          onPointerDown: _pointerDown,
+          onPointerMove: _pointerMove,
+          onPointerUp: _pointerEnd,
+          onPointerCancel: _pointerEnd,
+          child: SingleChildScrollView(
+            controller: editorScroll,
+            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Container(
+                key: const ValueKey('editor-line-numbers'),
+                width: gutterWidth,
+                padding: const EdgeInsets.fromLTRB(2, 12, 4, 12),
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                child: Text(
+                  labels,
+                  style: style,
+                  strutStyle: strut,
+                  textAlign: TextAlign.right,
+                  softWrap: false,
+                ),
+              ),
+              Expanded(
+                child: SingleChildScrollView(
+                  controller: horizontalScroll,
+                  scrollDirection: Axis.horizontal,
+                  physics:
+                      softWrap ? const NeverScrollableScrollPhysics() : null,
+                  child: SizedBox(
+                    width: editorWidth,
+                    child: TextField(
+                      key: const ValueKey('sftp-editor-field'),
+                      controller: code,
+                      undoController: undo,
+                      maxLines: null,
+                      autocorrect: false,
+                      enableSuggestions: false,
+                      style: style,
+                      strutStyle: strut,
+                      keyboardType: TextInputType.multiline,
+                      decoration: const InputDecoration(
+                        border: InputBorder.none,
+                        enabledBorder: InputBorder.none,
+                        focusedBorder: InputBorder.none,
+                        disabledBorder: InputBorder.none,
+                        errorBorder: InputBorder.none,
+                        focusedErrorBorder: InputBorder.none,
+                        filled: false,
+                        isDense: true,
+                        contentPadding: EdgeInsets.fromLTRB(6, 12, 8, 12),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ]),
+          ),
+        ),
+        if (pinching)
+          Positioned(
+            right: 12,
+            bottom: 12,
+            child: IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.inverseSurface,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  child: Text(
+                    '${editorFontSize.toStringAsFixed(1)} pt',
+                    key: const ValueKey('editor-font-size'),
+                    style: TextStyle(
+                        color: Theme.of(context).colorScheme.onInverseSurface),
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ]);
+    });
   }
 
   Widget _searchPanel() {
