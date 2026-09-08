@@ -433,7 +433,7 @@ class _SftpEditorState extends ConsumerState<SftpEditor> {
         match.start,
         editorStyle,
         scaler,
-        wrapWidth: softWrap ? lastWrapWidth : null,
+        wrapWidth: lastWrapWidth,
       );
       final lineHeight = editorFontSize * 1.5;
       if (editorScroll.hasClients) {
@@ -583,20 +583,35 @@ class _SftpEditorState extends ConsumerState<SftpEditor> {
       digitPainter.dispose();
       final textViewport = math.max(1.0, constraints.maxWidth - gutterWidth);
       const horizontalPadding = 14.0;
-      final wrapWidth = math.max(1.0, textViewport - horizontalPadding);
-      lastWrapWidth = wrapWidth;
-      final labels = buildEditorLineLabels(
-        code.text,
-        style,
-        scaler,
-        wrapWidth: softWrap ? wrapWidth : null,
-      );
+      // EditableText reserves a small trailing area for the caret. Without
+      // accounting for it, a line measured to exactly fit can still produce a
+      // visual continuation row, especially with font fallback or text scale.
+      const caretLayoutReserve = 4.0;
+      const noWrapSafetyMargin = 2.0;
+      final longestLineWidth = editorLongestLineWidth(code.text, style, scaler);
       final editorWidth = softWrap
           ? textViewport
           : math.max(
               textViewport,
-              editorLongestLineWidth(code.text, style, scaler) +
-                  horizontalPadding);
+              longestLineWidth +
+                  horizontalPadding +
+                  caretLayoutReserve +
+                  noWrapSafetyMargin,
+            );
+      // TextField has no softWrap switch. It always lays text out against its
+      // finite content width, so the gutter must follow that real width even
+      // when horizontal scrolling is the selected behavior.
+      final textLayoutWidth = math.max(
+        1.0,
+        editorWidth - horizontalPadding - caretLayoutReserve,
+      );
+      lastWrapWidth = textLayoutWidth;
+      final labels = buildEditorLineLabels(
+        code.text,
+        style,
+        scaler,
+        wrapWidth: textLayoutWidth,
+      );
       final strut = StrutStyle(
         fontFamily: 'monospace',
         fontSize: editorFontSize,

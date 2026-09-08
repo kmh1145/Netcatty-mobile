@@ -182,6 +182,14 @@ void main() {
     expect(
         tester.getSize(find.byKey(const ValueKey('editor-line-numbers'))).width,
         lessThan(40));
+    final initialEditorWidth =
+        tester.getSize(find.byKey(const ValueKey('sftp-editor-field'))).width;
+    final measuredLongestLine = editorLongestLineWidth(
+      content,
+      const TextStyle(fontFamily: 'monospace', fontSize: 14, height: 1.5),
+      TextScaler.noScaling,
+    );
+    expect(initialEditorWidth, greaterThan(measuredLongestLine + 14));
 
     await tester.tap(find.byKey(const ValueKey('editor-wrap-toggle')));
     await tester.pumpAndSettle();
