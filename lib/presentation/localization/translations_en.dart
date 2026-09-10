@@ -1,4 +1,26 @@
 const englishTranslations = <String, String>{
+  '缺少可信同步基线，无法安全合并本地数据与云端 v2 保险库。请先导出本地备份，并在桌面端确认数据后重试；本次未写入云端':
+      'No trusted sync baseline is available to safely merge local data with this v2 vault. Export a local backup and reconcile on desktop before retrying. Nothing was written to the cloud',
+  '确认大量删除': 'Confirm bulk deletion',
+  '确认删除并同步': 'Confirm deletions and sync',
+  r'$error\n\n仅当你确认这些删除是本人操作时才继续。':
+      r'$error\n\nContinue only if you intentionally made these deletions.',
+  '仅当你确认这些删除是本人操作时才继续。':
+      'Continue only if you intentionally made these deletions.',
+  '云端同步完成；同步期间的本地修改已保留，待下次同步':
+      'Cloud sync complete; edits made during sync are preserved for the next sync',
+  '已同步的云端保险库暂时不可见，已停止写入；请检查存储路径或权限后重试':
+      'The previously synced vault is unavailable. Writes stopped; check the storage path and permissions',
+  '云端同步格式已降级，已停止写入以保护删除记录，请先在桌面端确认恢复':
+      'The remote sync format was downgraded. Writes stopped to protect deletion history; confirm recovery on desktop first',
+  '同步配置已改变，本次同步已停止，请使用新配置重试':
+      'Sync configuration changed. This run stopped; retry with the new configuration',
+  '本地同步基线无法读取，已停止写入以保护数据，请先检查同步密码':
+      'The local sync baseline cannot be read. Writes stopped to protect data; check the sync password',
+  r'检测到 $collection 从 $before 项减少到 $after 项，已阻止上传以保护数据。':
+      r'$collection decreased from $before to $after items. Upload blocked to protect data.',
+  '请确认这些删除是否符合预期，再手动确认同步。':
+      'Check that these deletions are intentional before confirming sync.',
   '自动换行': 'Word wrap',
   '在文件中搜索': 'Find in file',
   '搜索打开的文件': 'Search the open file',
@@ -544,6 +566,18 @@ const englishTranslations = <String, String>{
 /// Ordered fragments cover dynamic values and infrastructure errors that are
 /// ultimately rendered by a localized text widget.
 const englishReplacements = <(String, String)>[
+  (
+    '仅当你确认这些删除是本人操作时才继续。',
+    'Continue only if you intentionally made these deletions.'
+  ),
+  (
+    '请确认这些删除是否符合预期，再手动确认同步。',
+    'Check that these deletions are intentional before confirming sync.'
+  ),
+  ('项减少到', 'items decreased to'),
+  ('项，已阻止上传以保护数据。', 'items. Upload blocked to protect data.'),
+  ('检测到', 'Detected'),
+  (' 从 ', ' from '),
   (
     '服务器移动未确认完成，请检查源目录和目标目录后再重试：',
     'Server move could not be confirmed. Check the source and destination before retrying: '

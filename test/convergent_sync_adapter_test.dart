@@ -1,10 +1,179 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'fixtures/desktop_v2_vault.dart';
 import 'package:netcatty_mobile/domain/models/host.dart';
 import 'package:netcatty_mobile/domain/models/vault.dart';
 import 'package:netcatty_mobile/infrastructure/sync/convergent_sync_adapter.dart';
-import 'package:netcatty_mobile/infrastructure/sync/netcatty_crypto.dart';
+import 'package:netcatty_mobile/infrastructure/sync/sync_safety.dart';
 
 void main() {
+  test('v2 preserves API settings and handles atomic-to-object setting changes',
+      () {
+    final initial = _desktopV2Vault();
+    final base = updateConvergentSyncPayload(
+        remote: initial,
+        desired: initial.copyWith(extras: {
+          'settings': {
+            'appearance': 'dark',
+            'ai': {
+              'providers': [
+                {'id': 'api-provider', 'model': 'model-a'}
+              ]
+            }
+          }
+        }),
+        deviceId: 'settings-seed',
+        timestamp: 150);
+    final nested = applyConvergentLocalChanges(
+        replica: base,
+        baseline: base,
+        local: base.copyWith(extras: {
+          'settings': {
+            'appearance': {'theme': 'light'},
+            'ai': {
+              'providers': [
+                {'id': 'api-provider', 'model': 'model-a'}
+              ]
+            }
+          }
+        }),
+        deviceId: 'phone',
+        timestamp: 200);
+    expect(
+        (nested.extras['settings'] as Map)['appearance'], {'theme': 'light'});
+    final desktop = applyConvergentLocalChanges(
+        replica: base,
+        baseline: base,
+        local: base.copyWith(extras: {
+          'settings': {
+            'appearance': 'dark',
+            'ai': {
+              'providers': [
+                {'id': 'api-provider', 'model': 'model-b'}
+              ]
+            }
+          }
+        }),
+        deviceId: 'pc',
+        timestamp: 250);
+    final joined = mergeConvergentPayloads(nested, desktop);
+    expect(joined.extras['settings'], {
+      'appearance': {'theme': 'light'},
+      'ai': {
+        'providers': [
+          {'id': 'api-provider', 'model': 'model-b'}
+        ]
+      }
+    });
+    validateConvergentSyncPayload(joined);
+  });
+
+  test('v2 concurrent different fields survive a causal join', () {
+    final base = _desktopV2Vault();
+    final a = applyConvergentLocalChanges(
+        replica: base,
+        baseline: base,
+        local: base.copyWith(hosts: [
+          HostProfile({'id': 'host-1', 'label': 'Mobile'})
+        ]),
+        deviceId: 'phone',
+        timestamp: 200);
+    final b = applyConvergentLocalChanges(
+        replica: base,
+        baseline: base,
+        local: base.copyWith(hosts: [
+          HostProfile({'id': 'host-1', 'label': 'Desktop', 'port': 2222})
+        ]),
+        deviceId: 'pc',
+        timestamp: 300);
+    final joined = mergeConvergentPayloads(a, b);
+    expect(joined.hosts.single.label, 'Mobile');
+    expect(joined.hosts.single.data['port'], 2222);
+    expect(convergentPayloadDominates(joined, a), isTrue);
+    expect(convergentPayloadDominates(joined, b), isTrue);
+    expect(mergeConvergentPayloads(b, a).toJson(), joined.toJson());
+    expect(mergeConvergentPayloads(joined, joined).toJson(), joined.toJson());
+  });
+
+  test('v2 unchanged old snapshot never revives a remotely deleted host', () {
+    final base = _desktopV2Vault();
+    final deleted = updateConvergentSyncPayload(
+        remote: base,
+        desired: base.copyWith(hosts: []),
+        deviceId: 'pc',
+        timestamp: 200);
+    final unchanged = applyConvergentLocalChanges(
+        replica: base,
+        baseline: base,
+        local: base,
+        deviceId: 'phone',
+        timestamp: 300);
+    expect(mergeConvergentPayloads(unchanged, deleted).hosts, isEmpty);
+    final repeated = applyConvergentLocalChanges(
+        replica: deleted,
+        baseline: base,
+        local: base,
+        deviceId: 'phone',
+        timestamp: 400);
+    expect(repeated.hosts, isEmpty);
+    expect(repeated.extras['convergentSync'], deleted.extras['convergentSync']);
+  });
+
+  test('v2 unresolved conflicts are retained, not rewritten by unchanged sync',
+      () {
+    final base = _desktopV2Vault();
+    VaultData edit(String device, String label) => applyConvergentLocalChanges(
+        replica: base,
+        baseline: base,
+        local: base.copyWith(hosts: [
+          HostProfile({'id': 'host-1', 'label': label})
+        ]),
+        deviceId: device,
+        timestamp: 200);
+    final joined = mergeConvergentPayloads(edit('a', 'A'), edit('b', 'B'));
+    final untouched = applyConvergentLocalChanges(
+        replica: joined,
+        baseline: joined,
+        local: joined,
+        deviceId: 'phone',
+        timestamp: 300);
+    expect(untouched.extras['convergentSync'], joined.extras['convergentSync']);
+    final state = (joined.extras['convergentSync'] as Map)['state'] as Map;
+    expect(
+        state['collections']['hosts']['entities']['host-1']['fields']['label']
+            ['candidates'],
+        hasLength(2));
+  });
+
+  test('v2 rejects an envelope that hides an extra materialized host', () {
+    final base = _desktopV2Vault();
+    final corrupt = base.copyWith(hosts: [
+      ...base.hosts,
+      HostProfile({'id': 'hidden', 'label': 'Hidden'})
+    ]);
+    expect(() => validateConvergentSyncPayload(corrupt), throwsFormatException);
+  });
+
+  test('shrink protection uses desktop thresholds and group safeguards', () {
+    VaultData hosts(int count) => VaultData.empty().copyWith(hosts: [
+          for (var i = 0; i < count; i++) HostProfile({'id': '$i'})
+        ]);
+    expect(() => assertSafeSyncShrink(hosts(2), hosts(5), null),
+        throwsA(isA<SyncShrinkException>()));
+    expect(() => assertSafeSyncShrink(hosts(89), hosts(100), null),
+        throwsA(isA<SyncShrinkException>()));
+    expect(
+        () => assertSafeSyncShrink(hosts(3), hosts(5), null), returnsNormally);
+    expect(() => assertSafeSyncShrink(hosts(0), null, hosts(5)),
+        throwsA(isA<SyncShrinkException>()));
+    final base = hosts(1).copyWith(extras: {
+      'groupConfigs': [
+        {'path': 'group'}
+      ]
+    });
+    expect(() => assertSafeSyncShrink(hosts(1), base, null),
+        throwsA(isA<SyncShrinkException>()));
+  });
+
   test('updates a desktop v2 payload without downgrading its envelope',
       () async {
     final remote = _desktopV2Vault();
@@ -26,18 +195,8 @@ void main() {
     expect(updated.extras['convergentSync'], isA<Map>());
     validateConvergentSyncPayload(updated);
 
-    final encrypted = await NetcattyCrypto.encrypt(
-      vault: updated,
-      password: 'password',
-      deviceId: 'mobile-device',
-      deviceName: 'Mobile',
-      appVersion: '1.4.1',
-      previousVersion: 4,
-    );
-    expect(encrypted.meta['syncSchemaVersion'], 2);
-    final roundTrip = await NetcattyCrypto.decrypt(encrypted, 'password');
-    expect(roundTrip.hosts.single.label, 'Mobile');
-    validateConvergentSyncPayload(roundTrip);
+    // Encryption interoperability is exercised by netcatty_crypto_test and
+    // provider round-trip tests; this suite only tests causal state semantics.
   });
 
   test('records a mobile deletion in the desktop v2 causal state', () {
@@ -65,73 +224,4 @@ void main() {
   });
 }
 
-VaultData _desktopV2Vault() => VaultData.fromJson({
-      'hosts': [
-        {'id': 'host-1', 'label': 'Desktop'},
-      ],
-      'keys': <dynamic>[],
-      'snippets': <dynamic>[],
-      'customGroups': <dynamic>[],
-      'proxyProfiles': <dynamic>[],
-      'syncedAt': 100,
-      'convergentSync': {
-        'schemaVersion': 2,
-        'encoding': 'materialized-winner-v1',
-        'state': {
-          'vector': {'desktop-device': 3},
-          'dotOrigins': {
-            'desktop-device': {
-              '1': '["entity-presence","hosts","host-1"]',
-              '2': '["entity-position","hosts","host-1"]',
-              '3': '["entity-field","hosts","host-1","label"]',
-            },
-          },
-          'hlc': {'wallTime': 100, 'logical': 2},
-          'collections': {
-            'hosts': {
-              'entities': {
-                'host-1': {
-                  'presence': {
-                    'candidates': [
-                      {
-                        'dot': {'deviceId': 'desktop-device', 'counter': 1},
-                        'context': <dynamic>[],
-                        'hlc': {'wallTime': 100, 'logical': 0},
-                        'value': true,
-                      },
-                    ],
-                  },
-                  'position': {
-                    'candidates': [
-                      {
-                        'dot': {'deviceId': 'desktop-device', 'counter': 2},
-                        'context': <dynamic>[],
-                        'hlc': {'wallTime': 100, 'logical': 1},
-                        'value': 0,
-                      },
-                    ],
-                  },
-                  'fields': {
-                    'label': {
-                      'candidates': [
-                        {
-                          'dot': {
-                            'deviceId': 'desktop-device',
-                            'counter': 3,
-                          },
-                          'context': <dynamic>[],
-                          'hlc': {'wallTime': 100, 'logical': 2},
-                          'materialized': true,
-                        },
-                      ],
-                    },
-                  },
-                },
-              },
-            },
-          },
-          'settings': <String, dynamic>{},
-          'stringCollections': <String, dynamic>{},
-        },
-      },
-    });
+VaultData _desktopV2Vault() => desktopV2Vault();

@@ -20,6 +20,7 @@ import '../../infrastructure/storage/vault_repository.dart';
 import '../../infrastructure/storage/vault_export_service.dart';
 import '../../infrastructure/http_client_provider.dart';
 import '../../infrastructure/sync/cloud_sync_service.dart';
+import '../../infrastructure/sync/sync_safety.dart';
 import '../../infrastructure/sync/github_auth_service.dart';
 import '../../infrastructure/update_check_service.dart';
 import '../theme.dart';
@@ -1228,8 +1229,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         repository,
         client: ref.read(httpClientProvider),
       );
-      final vault = ref.read(vaultControllerProvider).data ??
-          await repository.loadVault();
+      final vault = await ref.read(vaultControllerProvider.notifier).ready();
       final versions = await service.inspectVersions(vault);
       final updatedConnection = await repository.loadSyncConnection();
       if (mounted) {
@@ -1315,25 +1315,37 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _message('已退出 GitHub');
   }
 
-  Future<void> _sync() async {
+  Future<void> _sync({bool confirmShrink = false}) async {
     setState(() => _busy = true);
     try {
       await _saveSync();
-      final service = CloudSyncService(
-        ref.read(vaultRepositoryProvider),
-        client: ref.read(httpClientProvider),
-      );
-      final vault = ref.read(vaultControllerProvider).data ?? VaultData.empty();
-      final result = await service.synchronize(vault);
-      await ref
-          .read(vaultControllerProvider.notifier)
-          .replace(result.vault, remote: true);
+      final result = await ref
+          .read(autoSyncControllerProvider.notifier)
+          .synchronizeNow(confirmShrink: confirmShrink);
       _syncVersions = result.versions;
       final updatedConnection =
           await ref.read(vaultRepositoryProvider).loadSyncConnection();
       resourceId.text = updatedConnection?.resourceId ?? resourceId.text;
       if (mounted) setState(() {});
       _message(result.message);
+    } on SyncShrinkException catch (error) {
+      if (!mounted) return;
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('确认大量删除'),
+          content: Text('$error\n\n仅当你确认这些删除是本人操作时才继续。'),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('取消')),
+            TextButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('确认删除并同步')),
+          ],
+        ),
+      );
+      if (confirmed == true && mounted) await _sync(confirmShrink: true);
     } catch (error) {
       _message('$error');
     } finally {

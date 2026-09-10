@@ -50,6 +50,7 @@ VaultData mergeVaults({
   required VaultData local,
   required VaultData remote,
   int? timestamp,
+  bool rebaseLocalEdits = false,
 }) {
   final baseJson = base == null
       ? _emptyPayload()
@@ -67,6 +68,7 @@ VaultData mergeVaults({
       localTombstones: _deletedIds(localJson, collection),
       remoteTombstones: _deletedIds(remoteJson, collection),
       idKey: collection == 'groupConfigs' ? 'path' : 'id',
+      rebaseLocalEdits: rebaseLocalEdits,
     );
   }
 
@@ -278,6 +280,7 @@ List<Map<String, dynamic>> _mergeEntities(
   required Set<String> localTombstones,
   required Set<String> remoteTombstones,
   required String idKey,
+  bool rebaseLocalEdits = false,
 }) {
   Map<String, Map<String, dynamic>> index(
     List<Map<String, dynamic>> values,
@@ -318,6 +321,22 @@ List<Map<String, dynamic>> _mergeEntities(
         merged.add(_copyMap(baseItem));
       } else if (!localChanged && remoteChanged) {
         merged.add(_copyMap(remoteItem));
+      } else if (rebaseLocalEdits && localChanged && remoteChanged) {
+        // Edits made while a request was in flight are a local delta, not a
+        // whole-record replacement of the freshly downloaded server record.
+        final value = _copyMap(remoteItem);
+        for (final key in {...baseItem.keys, ...localItem.keys}) {
+          if (_fingerprint(baseItem[key]) == _fingerprint(localItem[key]) &&
+              baseItem.containsKey(key) == localItem.containsKey(key)) {
+            continue;
+          }
+          if (localItem.containsKey(key)) {
+            value[key] = localItem[key];
+          } else {
+            value.remove(key);
+          }
+        }
+        merged.add(_copyMap(value));
       } else {
         merged.add(_copyMap(localItem));
       }

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -56,11 +57,13 @@ final autoSyncControllerProvider =
     localChanges: repository.localChanges,
     loadVault: vaultController.ready,
     synchronize: service.synchronize,
+    synchronizeConfirmed: (vault) =>
+        service.synchronize(vault, overrideShrink: true),
     applyVault: (vault) => vaultController.replace(vault, remote: true),
   );
 });
 
-/// Mirrors desktop Netcatty's automatic sync schedule: a three-second
+/// Shared manual/automatic coordinator with a ten-second
 /// debounce after local edits, a startup/foreground refresh, and a periodic
 /// remote check while the app is alive. Every operation still goes through
 /// [CloudSyncService.synchronize], preserving its version and conflict guards.
@@ -69,6 +72,7 @@ class AutoSyncController extends StateNotifier<AutoSyncState> {
     required Stream<VaultData> localChanges,
     required AutoSyncVaultLoader loadVault,
     required AutoSyncOperation synchronize,
+    AutoSyncOperation? synchronizeConfirmed,
     required AutoSyncVaultApplier applyVault,
     this.changeDebounce = autoSyncChangeDebounce,
     this.remoteInterval = autoSyncRemoteInterval,
@@ -80,6 +84,7 @@ class AutoSyncController extends StateNotifier<AutoSyncState> {
     ],
   })  : _loadVault = loadVault,
         _synchronize = synchronize,
+        _synchronizeConfirmed = synchronizeConfirmed,
         _applyVault = applyVault,
         super(const AutoSyncState()) {
     _localChangesSubscription = localChanges.listen(_onLocalChange);
@@ -87,6 +92,7 @@ class AutoSyncController extends StateNotifier<AutoSyncState> {
 
   final AutoSyncVaultLoader _loadVault;
   final AutoSyncOperation _synchronize;
+  final AutoSyncOperation? _synchronizeConfirmed;
   final AutoSyncVaultApplier _applyVault;
   final Duration changeDebounce;
   final Duration remoteInterval;
@@ -98,6 +104,7 @@ class AutoSyncController extends StateNotifier<AutoSyncState> {
   Timer? _retryTimer;
   VaultData? _pendingLocalVault;
   bool _running = false;
+  Future<CloudSyncResult>? _activeSync;
   bool _queued = false;
   int _retryIndex = 0;
 
@@ -108,7 +115,7 @@ class AutoSyncController extends StateNotifier<AutoSyncState> {
       _changeTimer?.cancel();
       _periodicTimer?.cancel();
       _retryTimer?.cancel();
-      _pendingLocalVault = null;
+      if (!_running) _pendingLocalVault = null;
       _queued = false;
       return;
     }
@@ -124,8 +131,9 @@ class AutoSyncController extends StateNotifier<AutoSyncState> {
   }
 
   void _onLocalChange(VaultData vault) {
-    if (!state.enabled) return;
+    if (!state.enabled && !_running) return;
     _pendingLocalVault = vault;
+    if (!state.enabled) return;
     _changeTimer?.cancel();
     _changeTimer = Timer(changeDebounce, _requestSync);
   }
@@ -141,19 +149,28 @@ class AutoSyncController extends StateNotifier<AutoSyncState> {
       _queued = true;
       return;
     }
-    unawaited(_runSync());
+    unawaited(synchronizeNow()
+        .then<void>((_) {}, onError: (Object _, StackTrace __) {}));
   }
 
-  Future<void> _runSync() async {
-    if (!state.enabled || _running) return;
+  /// Manual sync joins an existing run; it never starts a competing writer.
+  Future<CloudSyncResult> synchronizeNow({bool confirmShrink = false}) =>
+      _activeSync ??= _runSync(confirmShrink: confirmShrink);
+
+  Future<CloudSyncResult> _runSync({required bool confirmShrink}) async {
     _running = true;
     _queued = false;
     _retryTimer?.cancel();
     state = state.copyWith(syncing: true, clearError: true);
     try {
-      final local = _pendingLocalVault ?? await _loadVault();
+      // Always hydrate credentials, including when a metadata edit was queued.
       _pendingLocalVault = null;
-      final result = await _synchronize(local);
+      final local = VaultData.fromJson(
+          jsonDecode(jsonEncode((await _loadVault()).toJson()))
+              as Map<String, dynamic>);
+      final result = await (confirmShrink
+          ? _synchronizeConfirmed ?? _synchronize
+          : _synchronize)(local);
       var merged = result.vault;
       var rebaseBase = local;
 
@@ -167,11 +184,13 @@ class AutoSyncController extends StateNotifier<AutoSyncState> {
           base: rebaseBase,
           local: pending,
           remote: merged,
+          rebaseLocalEdits: true,
         );
         rebaseBase = pending;
         _queued = true;
       }
       merged = await _retainLatestDeviceLocalData(merged, rebaseBase);
+      await result.validateBeforeApply?.call();
       await _applyVault(merged);
       while (_pendingLocalVault != null) {
         final pending = _pendingLocalVault!;
@@ -180,24 +199,40 @@ class AutoSyncController extends StateNotifier<AutoSyncState> {
           base: rebaseBase,
           local: pending,
           remote: merged,
+          rebaseLocalEdits: true,
         );
         rebaseBase = pending;
         merged = await _retainLatestDeviceLocalData(merged, rebaseBase);
+        await result.validateBeforeApply?.call();
         await _applyVault(merged);
         _queued = true;
       }
 
+      await result.acknowledge?.call();
       _retryIndex = 0;
       state = state.copyWith(
         syncing: false,
         lastSyncedAt: DateTime.now(),
         clearError: true,
       );
+      final changed = !cloudSyncPayloadsEqual(merged, result.vault);
+      return CloudSyncResult(
+        vault: merged,
+        message: changed ? '云端同步完成；同步期间的本地修改已保留，待下次同步' : result.message,
+        versions: CloudSyncVersions(
+          localVersion: result.versions.localVersion + (changed ? 1 : 0),
+          cloudVersion: result.versions.cloudVersion,
+          baseVersion: result.versions.baseVersion,
+          hasLocalChanges: changed,
+        ),
+      );
     } on Object catch (error) {
       state = state.copyWith(syncing: false, lastError: error);
       _scheduleRetry();
+      rethrow;
     } finally {
       _running = false;
+      _activeSync = null;
       if (_queued && state.enabled) {
         _queued = false;
         _scheduleSync(changeDebounce);

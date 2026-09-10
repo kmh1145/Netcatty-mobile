@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../domain/models/settings.dart';
 import '../../domain/models/vault.dart';
@@ -10,6 +11,7 @@ import '../storage/vault_repository.dart';
 import 'convergent_sync_adapter.dart';
 import 'netcatty_crypto.dart';
 import 's3_sync_client.dart';
+import 'sync_safety.dart';
 import 'vault_merge_service.dart';
 
 class CloudSyncResult {
@@ -17,10 +19,16 @@ class CloudSyncResult {
     required this.vault,
     required this.message,
     required this.versions,
+    this.acknowledge,
+    this.validateBeforeApply,
   });
   final VaultData vault;
   final String message;
   final CloudSyncVersions versions;
+
+  /// Clear recovery state only after the coordinator has safely applied it.
+  final Future<void> Function()? acknowledge;
+  final Future<void> Function()? validateBeforeApply;
 }
 
 class CloudSyncVersions {
@@ -91,8 +99,12 @@ class CloudSyncService {
 
   /// Performs the same download, three-way merge and round-trip used by the
   /// desktop client. Both automatic and manual sync call this single path.
-  Future<CloudSyncResult> synchronize(VaultData local) async =>
-      _synchronize(local);
+  Future<CloudSyncResult> synchronize(VaultData local,
+          {bool overrideShrink = false}) async =>
+      _synchronize(
+          VaultData.fromJson(
+              jsonDecode(jsonEncode(local.toJson())) as Map<String, dynamic>),
+          overrideShrink: overrideShrink);
 
   Future<CloudSyncVersions> inspectVersions(VaultData local) async {
     final setup = await _setup();
@@ -107,99 +119,172 @@ class CloudSyncService {
   Future<void> testS3Connection(SyncConnection connection) =>
       _withTimeout(S3SyncClient(client: _client).testConnection(connection));
 
-  Future<CloudSyncResult> _synchronize(VaultData local) async {
-    final setup = await _setup();
+  Future<CloudSyncResult> _synchronize(VaultData local,
+      {required bool overrideShrink}) async {
+    var setup = await _setup();
+    final base = await _loadSyncBase(setup.connection, setup.password);
+    final deviceId =
+        _injectedDeviceId ?? await repository.readOrCreateDeviceId();
+    VaultData? candidate;
+    VaultData? pendingBaseline;
+    final pending = await repository.loadPendingSyncReplica();
+    if (pending != null && pending['target'] == _syncTarget(setup.connection)) {
+      final bundle = await NetcattyCrypto.decrypt(
+          SyncedVaultFile.fromJson(
+              Map<String, dynamic>.from(pending['file'] as Map)),
+          setup.password);
+      candidate = VaultData.fromJson(
+          Map<String, dynamic>.from(bundle.extras['replica'] as Map));
+      pendingBaseline = VaultData.fromJson(
+          Map<String, dynamic>.from(bundle.extras['baseline'] as Map));
+    }
+    var localApplied = false;
     for (var attempt = 0; attempt < 3; attempt++) {
       final remote = await _download(setup.connection);
-      if (remote == null) {
-        try {
-          final deviceId =
-              _injectedDeviceId ?? await repository.readOrCreateDeviceId();
-          final outgoing = withSyncReliabilityMeta(
-            sanitizeVaultForSync(local),
-            null,
-            deviceId: deviceId,
-          );
-          final encrypted = await _encrypt(outgoing, setup.password);
-          final uploaded = await _upload(setup.connection, encrypted);
-          final applied = retainLocalDeviceData(outgoing, local);
-          await repository.saveVault(applied, remote: true);
-          await _saveCheckpoint(
-            outgoing,
-            uploaded.connection,
-            uploaded.version,
-            encrypted,
-          );
-          return CloudSyncResult(
-            vault: applied,
-            message: '已创建加密云端保险库',
-            versions: CloudSyncVersions(
-              localVersion: uploaded.version,
-              cloudVersion: uploaded.version,
-              baseVersion: uploaded.version,
-              hasLocalChanges: false,
-            ),
-          );
-        } on CloudSyncConflictException {
-          if (attempt == 2) rethrow;
-          continue;
-        }
+      if (remote == null && base != null) {
+        throw StateError('已同步的云端保险库暂时不可见，已停止写入；请检查存储路径或权限后重试');
       }
-      _assertSupportedSyncSchema(remote.file);
-      final downloaded = await NetcattyCrypto.decrypt(
-        remote.file,
-        setup.password,
-      );
-      final remoteSchema = _syncSchema(remote.file);
-      if (remoteSchema == 2) _validateConvergentPayload(downloaded);
-      final base = await _loadSyncBase(
-        setup.connection,
-        setup.password,
-      );
-      final merged = mergeVaults(
-        base: base,
-        local: local,
-        remote: downloaded,
-      );
-      try {
-        var finalVersion = _fileVersion(remote.file);
-        final deviceId =
-            _injectedDeviceId ?? await repository.readOrCreateDeviceId();
-        final outgoing = withSyncReliabilityMeta(
-          merged,
-          base,
-          deviceId: deviceId,
-        );
-        var baseFile = remote.file;
-        if (!cloudSyncPayloadsEqual(outgoing, downloaded) ||
-            hasUnpublishedSyncDeletions(outgoing, downloaded)) {
-          final wireVault = remoteSchema == 2
-              ? _updateConvergentPayload(downloaded, outgoing, deviceId)
-              : outgoing;
-          final encrypted = await _encrypt(
-            wireVault,
-            setup.password,
-            previousVersion: finalVersion,
-          );
-          final uploaded = await _upload(
-            setup.connection,
-            encrypted,
-            expectedRevision: remote.revision,
-          );
-          finalVersion = uploaded.version;
-          baseFile = encrypted;
+      if (remote != null) _assertSupportedSyncSchema(remote.file);
+      final downloaded = remote == null
+          ? VaultData.empty()
+          : await NetcattyCrypto.decrypt(remote.file, setup.password);
+      final isV2 = remote != null && _syncSchema(remote.file) == 2;
+      if (isV2) _validateConvergentPayload(downloaded);
+      if (!isV2 && hasConvergentSyncEnvelope(downloaded)) {
+        throw StateError('云端保险库的同步格式标记无效，已停止写入以保护数据');
+      }
+      if (!isV2 &&
+          ((candidate != null && hasConvergentSyncEnvelope(candidate)) ||
+              (base != null && hasConvergentSyncEnvelope(base)))) {
+        throw StateError('云端同步格式已降级，已停止写入以保护删除记录，请先在桌面端确认恢复');
+      }
+      final legacyMerged =
+          mergeVaults(base: base, local: local, remote: downloaded);
+      if (isV2) {
+        if (!localApplied) {
+          if (candidate != null ||
+              (base != null && hasConvergentSyncEnvelope(base))) {
+            candidate = applyConvergentLocalChanges(
+                replica: candidate ?? base!,
+                baseline: pendingBaseline ?? base!,
+                local: sanitizeVaultForSync(local),
+                deviceId: deviceId);
+          } else {
+            // Desktop migration.ts: a fresh empty device adopts v2; a nonempty
+            // legacy snapshot MUST have a trusted base before it can write a
+            // delta. An ID union here would resurrect desktop tombstones.
+            final localJson = sanitizeVaultForSync(local).toJson();
+            final hasEntities = localJson.values
+                .any((value) => value is List && value.isNotEmpty);
+            if (base == null) {
+              if (hasEntities && !cloudSyncPayloadsEqual(local, downloaded)) {
+                throw StateError(
+                    '缺少可信同步基线，无法安全合并本地数据与云端 v2 保险库。请先导出本地备份，并在桌面端确认数据后重试；本次未写入云端');
+              }
+              candidate = downloaded;
+            } else {
+              candidate = applyConvergentLocalChanges(
+                  replica: downloaded,
+                  baseline: base,
+                  local: sanitizeVaultForSync(local),
+                  deviceId: deviceId);
+            }
+          }
+          localApplied = true;
         }
-        final applied = retainLocalDeviceData(outgoing, local);
-        await repository.saveVault(applied, remote: true);
-        await _saveCheckpoint(
-          outgoing,
-          setup.connection,
-          finalVersion,
-          baseFile,
-        );
+        candidate = mergeConvergentPayloads(candidate!, downloaded);
+        // Plugin sidecars are opaque host data, outside desktop CRDT registers.
+        candidate = candidate.copyWith(extras: {
+          ...candidate.extras,
+          if (legacyMerged.extras.containsKey('pluginSidecars'))
+            'pluginSidecars': legacyMerged.extras['pluginSidecars'],
+        });
+      } else {
+        candidate = remote == null ? sanitizeVaultForSync(local) : legacyMerged;
+      }
+      try {
+        final metadata =
+            withSyncReliabilityMeta(candidate, base, deviceId: deviceId);
+        final outgoing = isV2
+            ? metadata.copyWith(extras: {
+                ...metadata.extras,
+                'convergentSync': candidate.extras['convergentSync'],
+              })
+            : metadata;
+        var verifiedFile = remote?.file;
+        var verifiedVault = downloaded;
+        final needsWrite = remote == null ||
+            !cloudSyncPayloadsEqual(outgoing, downloaded) ||
+            hasUnpublishedSyncDeletions(outgoing, downloaded) ||
+            (isV2 && !convergentPayloadDominates(downloaded, outgoing));
+        if (needsWrite) {
+          if (!overrideShrink) assertSafeSyncShrink(outgoing, base, downloaded);
+          await _assertSetupUnchanged(setup.connection, setup.password);
+          if (isV2) {
+            // Persist before sending: interrupted uploads retain their original
+            // dots and local baseline instead of inventing fresh writes on retry.
+            final recovery = await _encrypt(
+                VaultData.empty().copyWith(extras: {
+                  'replica': outgoing.toJson(),
+                  'baseline': local.toJson(),
+                }),
+                setup.password);
+            await repository.savePendingSyncReplica({
+              'target': _syncTarget(setup.connection),
+              'file': recovery.toJson(),
+            });
+          }
+          final encrypted = await _encrypt(outgoing, setup.password,
+              previousVersion: remote == null ? 0 : _fileVersion(remote.file));
+          await _assertSetupUnchanged(setup.connection, setup.password);
+          final uploaded = await _upload(setup.connection, encrypted,
+              expectedRevision: remote?.revision);
+          setup = (connection: uploaded.connection, password: setup.password);
+          final verified = await _download(setup.connection);
+          if (verified == null) throw const CloudSyncConflictException();
+          _assertSupportedSyncSchema(verified.file);
+          verifiedVault =
+              await NetcattyCrypto.decrypt(verified.file, setup.password);
+          if (isV2) {
+            if (_syncSchema(verified.file) != 2) {
+              throw const CloudSyncConflictException();
+            }
+            _validateConvergentPayload(verifiedVault);
+            if (!convergentPayloadDominates(verifiedVault, outgoing)) {
+              candidate = mergeConvergentPayloads(outgoing, verifiedVault);
+              throw const CloudSyncConflictException();
+            }
+            // Also validate dot payloads, not only version-vector counters.
+            mergeConvergentPayloads(outgoing, verifiedVault);
+            if (!cloudSyncPayloadsEqual(
+                VaultData.empty().copyWith(extras: {
+                  'pluginSidecars': verifiedVault.extras['pluginSidecars']
+                }),
+                VaultData.empty().copyWith(extras: {
+                  'pluginSidecars': outgoing.extras['pluginSidecars']
+                }))) {
+              throw const CloudSyncConflictException();
+            }
+          } else if (!cloudSyncPayloadsEqual(outgoing, verifiedVault) ||
+              hasUnpublishedSyncDeletions(outgoing, verifiedVault)) {
+            throw const CloudSyncConflictException();
+          }
+          verifiedFile = verified.file;
+        }
+        await _assertSetupUnchanged(setup.connection, setup.password);
+        final finalVersion = _fileVersion(verifiedFile!);
+        final applied = retainLocalDeviceData(verifiedVault, local);
         return CloudSyncResult(
           vault: applied,
           message: '同步完成',
+          validateBeforeApply: () =>
+              _assertSetupUnchanged(setup.connection, setup.password),
+          acknowledge: () async {
+            await _assertSetupUnchanged(setup.connection, setup.password);
+            await _saveCheckpoint(
+                verifiedVault, setup.connection, finalVersion, verifiedFile!);
+            await repository.clearPendingSyncReplica();
+          },
           versions: CloudSyncVersions(
             localVersion: finalVersion,
             cloudVersion: finalVersion,
@@ -212,6 +297,18 @@ class CloudSyncService {
       }
     }
     throw const CloudSyncConflictException();
+  }
+
+  Future<void> _assertSetupUnchanged(
+      SyncConnection connection, String password) async {
+    final current = await repository.loadSyncConnection();
+    if (current == null ||
+        jsonEncode(current.toJson()) != jsonEncode(connection.toJson()) ||
+        current.secret != connection.secret ||
+        current.sessionToken != connection.sessionToken ||
+        await repository.readMasterPassword() != password) {
+      throw StateError('同步配置已改变，本次同步已停止，请使用新配置重试');
+    }
   }
 
   Future<({SyncConnection connection, String password})> _setup() async {
@@ -457,7 +554,8 @@ class CloudSyncService {
     String body,
   ) async {
     final target = _webdavUri(connection);
-    final temporary = target.replace(path: '${target.path}.tmp');
+    final temporary =
+        target.replace(path: '${target.path}.${const Uuid().v4()}.tmp');
     final expected = utf8.encode(body);
 
     // Match desktop Netcatty's WebDAV replacement strategy. Some lightweight
@@ -479,6 +577,9 @@ class CloudSyncService {
       await _moveWebdav(connection, temporary, target);
       final moved = await _readWebdavBytes(connection, target);
       if (moved != null && _matchesWebdavBody(moved, expected)) return;
+      throw const CloudSyncConflictException();
+    } on CloudSyncConflictException {
+      rethrow;
     } on Object {
       // MOVE is optional in WebDAV deployments. Fall back to the same padded
       // in-place PUT used by desktop Netcatty.
@@ -487,18 +588,13 @@ class CloudSyncService {
 
     var minimumLength = await _webdavLength(connection, target);
     if (minimumLength < expected.length) minimumLength = expected.length;
-    for (var attempt = 0; attempt < 3; attempt++) {
-      final payload = _padWebdavBody(expected, minimumLength);
-      await _putWebdav(connection, target, payload);
-      final remote = await _readWebdavBytes(connection, target);
-      if (remote != null && _matchesWebdavBody(remote, expected)) return;
-      minimumLength = remote == null
-          ? expected.length
-          : remote.length > expected.length
-              ? remote.length
-              : expected.length;
-    }
-    throw StateError('WebDAV 上传校验失败：远端文件与上传内容不一致');
+    final payload = _padWebdavBody(expected, minimumLength);
+    await _putWebdav(connection, target, payload);
+    final remote = await _readWebdavBytes(connection, target);
+    if (remote != null && _matchesWebdavBody(remote, expected)) return;
+    // Re-read and MERGE in the outer loop; never blindly overwrite a competing
+    // device's newer value with the same stale payload three times.
+    throw const CloudSyncConflictException();
   }
 
   Future<int> _webdavLength(
@@ -692,11 +788,9 @@ class CloudSyncService {
       _assertSupportedSyncSchema(file);
       final decrypted = await NetcattyCrypto.decrypt(file, password);
       if (_syncSchema(file) == 2) _validateConvergentPayload(decrypted);
-      return sanitizeVaultForSync(decrypted);
+      return decrypted;
     } on Object {
-      // Match desktop behavior: a missing/corrupt local base degrades to a
-      // tombstone-aware first merge instead of blocking access to the vault.
-      return null;
+      throw StateError('本地同步基线无法读取，已停止写入以保护数据，请先检查同步密码');
     }
   }
 
@@ -720,24 +814,6 @@ class CloudSyncService {
   void _validateConvergentPayload(VaultData vault) {
     try {
       validateConvergentSyncPayload(vault);
-    } on FormatException {
-      throw StateError(
-        '云端保险库的同步格式无效，已停止写入以保护数据',
-      );
-    }
-  }
-
-  VaultData _updateConvergentPayload(
-    VaultData remote,
-    VaultData desired,
-    String deviceId,
-  ) {
-    try {
-      return updateConvergentSyncPayload(
-        remote: remote,
-        desired: desired,
-        deviceId: deviceId,
-      );
     } on FormatException {
       throw StateError(
         '云端保险库的同步格式无效，已停止写入以保护数据',

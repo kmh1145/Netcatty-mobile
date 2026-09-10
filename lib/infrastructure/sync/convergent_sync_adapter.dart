@@ -47,8 +47,7 @@ VaultData updateConvergentSyncPayload({
     timestamp ?? DateTime.now().millisecondsSinceEpoch,
   );
   editor.applySnapshot(remoteJson, desiredJson);
-  desiredJson['convergentSync'] = _compactEnvelope(state, desiredJson);
-  return VaultData.fromJson(desiredJson);
+  return _payload(state, desiredJson);
 }
 
 bool hasConvergentSyncEnvelope(VaultData vault) =>
@@ -57,7 +56,256 @@ bool hasConvergentSyncEnvelope(VaultData vault) =>
 void validateConvergentSyncPayload(VaultData vault) {
   final json = vault.toJson();
   final envelope = _requiredMap(json['convergentSync'], 'convergentSync');
-  _hydrateEnvelope(envelope, json);
+  final state = _hydrateEnvelope(envelope, json);
+  final expected = _materialize(state, json);
+  for (final key in [
+    ..._entityCollections,
+    ..._stringCollections,
+    'settings'
+  ]) {
+    if (!_jsonEqual(expected[key] ?? (key == 'settings' ? {} : []),
+        json[key] ?? (key == 'settings' ? {} : []))) {
+      throw FormatException('Convergent snapshot mismatch: $key');
+    }
+  }
+}
+
+/// Desktop legacy.diffLegacySyncPayload: apply only actual local differences
+/// to the previously observed replica, BEFORE joining a remote replica.
+VaultData applyConvergentLocalChanges({
+  required VaultData replica,
+  required VaultData baseline,
+  required VaultData local,
+  required String deviceId,
+  int? timestamp,
+}) {
+  validateConvergentSyncPayload(replica);
+  final json = replica.toJson();
+  final state = _hydrateEnvelope(_map(json['convergentSync']), json);
+  _StateEditor(
+          state, deviceId, timestamp ?? DateTime.now().millisecondsSinceEpoch)
+      .applySnapshot(baseline.toJson(legacySyncSnapshot: true),
+          local.toJson(legacySyncSnapshot: true));
+  return _payload(state, json);
+}
+
+/// Join multi-value registers by their causal contexts, not snapshot priority.
+/// Ported from desktop domain/convergentSync/{register,state}.ts.
+VaultData mergeConvergentPayloads(VaultData left, VaultData right) {
+  validateConvergentSyncPayload(left);
+  validateConvergentSyncPayload(right);
+  final a =
+      _hydrateEnvelope(_map(left.extras['convergentSync']), left.toJson());
+  final b =
+      _hydrateEnvelope(_map(right.extras['convergentSync']), right.toJson());
+  Map<String, dynamic> mergeRecord(
+      Object? x, Object? y, Object? Function(dynamic, dynamic) merge) {
+    final lm = x == null ? <String, dynamic>{} : _map(x);
+    final rm = y == null ? <String, dynamic>{} : _map(y);
+    final keys = {...lm.keys, ...rm.keys}.toList()..sort();
+    return {for (final key in keys) key: merge(lm[key], rm[key])}
+      ..removeWhere((_, value) => value == null);
+  }
+
+  Map<String, dynamic>? joinRegister(dynamic x, dynamic y) {
+    final lc = _candidateList(x == null ? null : _map(x)).map(_map).toList();
+    final rc = _candidateList(y == null ? null : _map(y)).map(_map).toList();
+    Set<String> context(List<Map<String, dynamic>> candidates) => {
+          for (final c in candidates) _dotKey(_map(c['dot'])),
+          for (final c in candidates)
+            for (final d in _list(c['context'])) _dotKey(_map(d)),
+        };
+    final lctx = context(lc), rctx = context(rc);
+    final candidates = <String, Map<String, dynamic>>{};
+    for (final c in lc) {
+      final key = _dotKey(_map(c['dot']));
+      final same = rc.where((r) => _sameDot(c, r));
+      Object fingerprint(Map<String, dynamic> candidate) => {
+            ...candidate,
+            'context': _list(candidate['context'])
+                .map((dot) => _dotKey(_map(dot)))
+                .toList()
+              ..sort(),
+          };
+      if (same.isNotEmpty &&
+          !_jsonEqual(fingerprint(c), fingerprint(same.first))) {
+        throw const FormatException('Conflicting causal dot payloads');
+      }
+      if (same.isNotEmpty || !rctx.contains(key)) candidates[key] = c;
+    }
+    for (final c in rc) {
+      final key = _dotKey(_map(c['dot']));
+      if (!lctx.contains(key)) candidates[key] = c;
+    }
+    final dominated = <String>{
+      for (final c in candidates.values)
+        for (final d in _list(c['context'])) _dotKey(_map(d)),
+    };
+    candidates.removeWhere((key, _) => dominated.contains(key));
+    if (candidates.isEmpty) return null;
+    final values = candidates.values.toList()
+      ..sort((l, r) {
+        final ld = _map(l['dot']), rd = _map(r['dot']);
+        final cmp =
+            (ld['deviceId'] as String).compareTo(rd['deviceId'] as String);
+        return cmp != 0
+            ? cmp
+            : (ld['counter'] as int).compareTo(rd['counter'] as int);
+      });
+    return {'candidates': values};
+  }
+
+  Object? joinEntry(dynamic x, dynamic y, {bool fields = false}) {
+    final l = x == null ? <String, dynamic>{} : _map(x);
+    final r = y == null ? <String, dynamic>{} : _map(y);
+    final presence = joinRegister(l['presence'], r['presence']);
+    if (presence == null) return null;
+    final position = joinRegister(l['position'], r['position']);
+    return {
+      'presence': presence,
+      if (position != null) 'position': position,
+      if (fields) 'fields': mergeRecord(l['fields'], r['fields'], joinRegister)
+    };
+  }
+
+  final state = <String, dynamic>{
+    'schemaVersion': 2,
+    'vector': mergeRecord(a['vector'], b['vector'],
+        (x, y) => (x as int? ?? 0) > (y as int? ?? 0) ? x : y),
+    'dotOrigins': mergeRecord(
+        a['dotOrigins'],
+        b['dotOrigins'],
+        (x, y) => mergeRecord(x, y, (l, r) {
+              if (l != null && r != null && l != r) {
+                throw const FormatException('Conflicting causal dot origins');
+              }
+              return l ?? r;
+            })),
+    'hlc': _maxClock(_map(a['hlc']), _map(b['hlc'])),
+    'collections': mergeRecord(
+        a['collections'],
+        b['collections'],
+        (x, y) => {
+              'entities': mergeRecord(x?['entities'], y?['entities'],
+                  (l, r) => joinEntry(l, r, fields: true)),
+            }),
+    'stringCollections': mergeRecord(
+        a['stringCollections'],
+        b['stringCollections'],
+        (x, y) => {
+              'entries': mergeRecord(x?['entries'], y?['entries'], joinEntry),
+            }),
+    'settings': mergeRecord(a['settings'], b['settings'], joinRegister),
+  };
+  _validateState(state);
+  return _payload(state, right.toJson());
+}
+
+bool convergentPayloadDominates(VaultData actual, VaultData expected) {
+  validateConvergentSyncPayload(actual);
+  validateConvergentSyncPayload(expected);
+  final a = _map(_map(actual.extras['convergentSync'])['state']);
+  final b = _map(_map(expected.extras['convergentSync'])['state']);
+  return _map(b['vector']).entries.every(
+      (e) => (_map(a['vector'])[e.key] as num? ?? 0) >= (e.value as num));
+}
+
+Map<String, dynamic> _maxClock(
+        Map<String, dynamic> a, Map<String, dynamic> b) =>
+    (a['wallTime'] as num) > (b['wallTime'] as num) ||
+            (a['wallTime'] == b['wallTime'] &&
+                (a['logical'] as num) > (b['logical'] as num))
+        ? a
+        : b;
+
+VaultData _payload(Map<String, dynamic> state, Map<String, dynamic> metadata) {
+  final json = _materialize(state, metadata);
+  json['convergentSync'] = _compactEnvelope(state, json);
+  return VaultData.fromJson(json);
+}
+
+Map<String, dynamic> _materialize(
+    Map<String, dynamic> state, Map<String, dynamic> metadata) {
+  Object? value(dynamic register) {
+    if (register == null) return null;
+    final candidate = _winner(_map(register));
+    return candidate == null || candidate['tombstone'] == true
+        ? null
+        : candidate['value'];
+  }
+
+  int position(dynamic l, dynamic r) {
+    if (l == null) return r == null ? 0 : 1;
+    if (r == null) return -1;
+    if (l is num && r is num) return l.compareTo(r);
+    if (l is num) return -1;
+    if (r is num) return 1;
+    return l.toString().compareTo(r.toString());
+  }
+
+  List<MapEntry<String, dynamic>> ordered(Object? entries) {
+    final list = (entries == null ? <String, dynamic>{} : _map(entries))
+        .entries
+        .where((e) => _registerIsPresent(_map(_map(e.value)['presence'])))
+        .toList();
+    list.sort((l, r) {
+      final cmp = position(
+          value(_map(l.value)['position']), value(_map(r.value)['position']));
+      return cmp != 0 ? cmp : l.key.compareTo(r.key);
+    });
+    return list;
+  }
+
+  final json = <String, dynamic>{
+    'syncedAt': metadata['syncedAt'] ?? 0,
+    if (metadata['syncMeta'] != null)
+      'syncMeta': _deepCopy(metadata['syncMeta']),
+    if (metadata['pluginSidecars'] != null)
+      'pluginSidecars': _deepCopy(metadata['pluginSidecars']),
+  };
+  for (final name in _entityCollections) {
+    final collection = _map(state['collections'])[name];
+    json[name] = [
+      for (final entry in ordered(collection?['entities']))
+        {
+          if (name != 'groupConfigs') 'id': entry.key,
+          for (final field in _map(_map(entry.value)['fields']).entries)
+            if (_winner(_map(field.value))?['tombstone'] != true)
+              field.key: _deepCopy(value(field.value)),
+        }
+    ];
+  }
+  for (final name in _stringCollections) {
+    final collection = _map(state['stringCollections'])[name];
+    json[name] = [
+      for (final entry in ordered(collection?['entries'])) entry.key
+    ];
+  }
+  // Desktop resolves overlapping atomic/object settings by candidate priority,
+  // while retaining all losing candidates in the replica for later resolution.
+  final settings = <String, dynamic>{};
+  final entries = _map(state['settings'])
+      .entries
+      .where((e) => _winner(_map(e.value))?['tombstone'] != true)
+      .toList()
+    ..sort((l, r) {
+      final cmp =
+          _compareCandidates(_winner(_map(r.value))!, _winner(_map(l.value))!);
+      return cmp != 0 ? cmp : l.key.compareTo(r.key);
+    });
+  final selected = <List<String>>[];
+  for (final entry in entries) {
+    final path = _decodeSettingPath(entry.key);
+    if (selected.any((p) => _isPrefix(p, path) || _isPrefix(path, p))) continue;
+    selected.add(path);
+    var target = settings;
+    for (final segment in path.take(path.length - 1)) {
+      target = _map(target.putIfAbsent(segment, () => <String, dynamic>{}));
+    }
+    target[path.last] = _deepCopy(value(entry.value));
+  }
+  if (settings.isNotEmpty) json['settings'] = settings;
+  return json;
 }
 
 Map<String, dynamic> _hydrateEnvelope(
@@ -341,6 +589,7 @@ class _StateEditor {
     Map<String, dynamic> desired,
   ) {
     for (final collection in _entityCollections) {
+      if (!desired.containsKey(collection)) continue;
       final currentEntities = _entityIndex(current, collection);
       final desiredEntities = _entityIndex(desired, collection);
       final desiredList = _list(desired[collection]);
@@ -350,6 +599,13 @@ class _StateEditor {
         final entity = Map<String, dynamic>.from(value);
         final id = _entityId(collection, entity);
         if (id == null) continue;
+        final before = currentEntities[id];
+        if (_jsonEqual(before, entity) &&
+            _list(current[collection]).indexWhere(
+                    (v) => v is Map && _entityId(collection, _map(v)) == id) ==
+                position) {
+          continue;
+        }
         _upsertEntity(collection, id, entity, position);
       }
       for (final id in currentEntities.keys) {
@@ -358,26 +614,35 @@ class _StateEditor {
     }
 
     for (final collection in _stringCollections) {
+      if (!desired.containsKey(collection)) continue;
       final currentValues = _stringValues(current[collection]);
       final desiredValues = _stringValues(desired[collection]);
       for (var position = 0; position < desiredValues.length; position++) {
-        _addString(collection, desiredValues[position], position);
+        if (currentValues.indexOf(desiredValues[position]) != position) {
+          _addString(collection, desiredValues[position], position);
+        }
       }
       for (final value in currentValues) {
         if (!desiredValues.contains(value)) _deleteString(collection, value);
       }
     }
 
+    if (!desired.containsKey('settings')) return;
     final currentSettings = <String, Object?>{};
     final desiredSettings = <String, Object?>{};
     _flattenSettings(current['settings'], const [], currentSettings);
     _flattenSettings(desired['settings'], const [], desiredSettings);
-    for (final entry in desiredSettings.entries) {
-      _setSetting(_decodeSettingPath(entry.key), entry.value);
-    }
-    for (final path in currentSettings.keys) {
+    // Desktop diffLegacySyncPayload orders the combined paths. In particular,
+    // delete an atomic parent BEFORE introducing a nested child, otherwise
+    // the parent deletion would erase the freshly created child register.
+    final paths = {...currentSettings.keys, ...desiredSettings.keys}.toList()
+      ..sort();
+    for (final path in paths) {
       if (!desiredSettings.containsKey(path)) {
         _deleteSetting(_decodeSettingPath(path));
+      } else if (!currentSettings.containsKey(path) ||
+          !_jsonEqual(currentSettings[path], desiredSettings[path])) {
+        _setSetting(_decodeSettingPath(path), desiredSettings[path]);
       }
     }
     _validateState(state);

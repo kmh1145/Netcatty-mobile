@@ -93,6 +93,26 @@ Windows 无法完成原生 iOS 编译；涉及 Swift、Info.plist 或 iOS Plugin
 
 ## 测试矩阵
 
+### 测试保留与运行范围
+
+测试按风险而不是数量删减。主机/密钥删除、桌面端未知字段及 Agent 设置、凭据加载、同步期间编辑、文件移动源删除条件、键盘与行号等回归用例必须保留。Gist、WebDAV、S3 的 v2 往返看似相似，但分别保护 JSON 包装、临时 MOVE/覆盖、签名与对象路径，不能只保留一个。
+
+同步测试中的共同桌面 v2 样例集中于 `test/fixtures/desktop_v2_vault.dart`。协议算法测试不重复运行真实加密；真实 AES-GCM/PBKDF2 的固定桌面向量和错误密码验证保留在 `netcatty_crypto_test.dart`，各存储测试保留真实端到端编解码。云同步测试文件允许最多 3 分钟/例，避免慢机器上的 600000 次 PBKDF2 加密触发默认 30 秒误超时，不降低生产密钥派生强度。
+
+日常协议修改先跑快速用例：
+
+```bash
+flutter test test/convergent_sync_adapter_test.dart test/vault_merge_service_test.dart test/auto_sync_controller_test.dart
+```
+
+涉及网络、恢复或加密再跑：
+
+```bash
+flutter test test/cloud_sync_service_test.dart test/netcatty_crypto_test.dart test/vault_loading_test.dart
+```
+
+大规模同步重构及发布仍跑完整套件。模拟 HTTP 通过不等于所有真实 WebDAV/S3 部署都已验证；还需使用专门的测试保险库做两设备并发、断网重试和退出重进验证，不使用真实用户凭据或生产保险库。
+
 | 测试文件 | 重点覆盖 |
 | --- | --- |
 | `vault_model_test.dart` | Vault 字段、未知字段无损往返和模型迁移 |
