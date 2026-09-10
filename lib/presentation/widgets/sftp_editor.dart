@@ -1,10 +1,102 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../application/settings_controller.dart';
 import '../localization/localized_widgets.dart';
 
 enum EditorSearchMode { text, wholeWord, regularExpression }
+
+/// Paint numbers from the input's actual layout, not a second approximation of
+/// its wrapping width, inherited font metrics, or platform caret reserve.
+class EditorLineNumbers extends SingleChildRenderObjectWidget {
+  const EditorLineNumbers(
+      {super.key,
+      required this.text,
+      required this.style,
+      required this.scaler,
+      required this.gutterWidth,
+      required this.color,
+      required super.child});
+
+  final String text;
+  final TextStyle style;
+  final TextScaler scaler;
+  final double gutterWidth;
+  final Color color;
+
+  @override
+  RenderEditorLineNumbers createRenderObject(BuildContext context) =>
+      RenderEditorLineNumbers(this);
+
+  @override
+  void updateRenderObject(
+      BuildContext context, RenderEditorLineNumbers renderObject) {
+    renderObject.configuration = this;
+  }
+}
+
+class RenderEditorLineNumbers extends RenderProxyBox {
+  RenderEditorLineNumbers(this._configuration);
+  EditorLineNumbers _configuration;
+  set configuration(EditorLineNumbers value) {
+    _configuration = value;
+    markNeedsPaint();
+  }
+
+  // Also useful to verify gutter coordinates against real RenderEditable layout.
+  final Map<int, double> lineOffsets = {};
+
+  RenderEditable? _findEditable(RenderObject object) {
+    if (object is RenderEditable) return object;
+    RenderEditable? result;
+    object.visitChildren((child) {
+      result ??= _findEditable(child);
+    });
+    return result;
+  }
+
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    super.paint(context, offset);
+    lineOffsets.clear();
+    final editable = _findEditable(this);
+    if (editable == null || !editable.hasSize) return;
+    final config = _configuration;
+    final origin =
+        MatrixUtils.transformPoint(editable.getTransformTo(this), Offset.zero);
+    final firstCaret =
+        editable.getLocalRectForCaret(const TextPosition(offset: 0));
+    context.canvas.save();
+    context.canvas.clipRect(offset & Size(config.gutterWidth, size.height));
+    context.canvas.drawRect(offset & Size(config.gutterWidth, size.height),
+        Paint()..color = config.color);
+    var textOffset = 0;
+    var number = 1;
+    final painter = TextPainter(
+        textDirection: TextDirection.ltr,
+        textScaler: config.scaler,
+        strutStyle: editable.strutStyle);
+    while (true) {
+      final caret =
+          editable.getLocalRectForCaret(TextPosition(offset: textOffset));
+      // With the editor's forced strut, caret deltas are exact visual-row
+      // offsets, without iOS/Android-specific caret centering and pixel snaps.
+      final y = origin.dy + caret.top - firstCaret.top;
+      lineOffsets[number] = y;
+      painter.text = TextSpan(text: '$number', style: config.style);
+      painter.layout();
+      painter.paint(context.canvas,
+          offset + Offset(config.gutterWidth - 4 - painter.width, y));
+      final newline = config.text.indexOf('\n', textOffset);
+      if (newline < 0) break;
+      textOffset = newline + 1;
+      number++;
+    }
+    painter.dispose();
+    context.canvas.restore();
+  }
+}
 
 class EditorSearchResult {
   const EditorSearchResult(this.matches, {this.error, this.truncated = false});
@@ -606,12 +698,6 @@ class _SftpEditorState extends ConsumerState<SftpEditor> {
         editorWidth - horizontalPadding - caretLayoutReserve,
       );
       lastWrapWidth = textLayoutWidth;
-      final labels = buildEditorLineLabels(
-        code.text,
-        style,
-        scaler,
-        wrapWidth: textLayoutWidth,
-      );
       final strut = StrutStyle(
         fontFamily: 'monospace',
         fontSize: editorFontSize,
@@ -628,54 +714,55 @@ class _SftpEditorState extends ConsumerState<SftpEditor> {
           onPointerCancel: _pointerEnd,
           child: SingleChildScrollView(
             controller: editorScroll,
-            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Container(
-                key: const ValueKey('editor-line-numbers'),
-                width: gutterWidth,
-                padding: const EdgeInsets.fromLTRB(2, 12, 4, 12),
+            child: EditorLineNumbers(
+                text: code.text,
+                style: style,
+                scaler: scaler,
+                gutterWidth: gutterWidth,
                 color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                child: Text(
-                  labels,
-                  style: style,
-                  strutStyle: strut,
-                  textAlign: TextAlign.right,
-                  softWrap: false,
-                ),
-              ),
-              Expanded(
-                child: SingleChildScrollView(
-                  controller: horizontalScroll,
-                  scrollDirection: Axis.horizontal,
-                  physics:
-                      softWrap ? const NeverScrollableScrollPhysics() : null,
-                  child: SizedBox(
-                    width: editorWidth,
-                    child: TextField(
-                      key: const ValueKey('sftp-editor-field'),
-                      controller: code,
-                      undoController: undo,
-                      maxLines: null,
-                      autocorrect: false,
-                      enableSuggestions: false,
-                      style: style,
-                      strutStyle: strut,
-                      keyboardType: TextInputType.multiline,
-                      decoration: const InputDecoration(
-                        border: InputBorder.none,
-                        enabledBorder: InputBorder.none,
-                        focusedBorder: InputBorder.none,
-                        disabledBorder: InputBorder.none,
-                        errorBorder: InputBorder.none,
-                        focusedErrorBorder: InputBorder.none,
-                        filled: false,
-                        isDense: true,
-                        contentPadding: EdgeInsets.fromLTRB(6, 12, 8, 12),
+                child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SizedBox(
+                        key: const ValueKey('editor-line-numbers'),
+                        width: gutterWidth,
                       ),
-                    ),
-                  ),
-                ),
-              ),
-            ]),
+                      Expanded(
+                        child: SingleChildScrollView(
+                          controller: horizontalScroll,
+                          scrollDirection: Axis.horizontal,
+                          physics: softWrap
+                              ? const NeverScrollableScrollPhysics()
+                              : null,
+                          child: SizedBox(
+                            width: editorWidth,
+                            child: TextField(
+                              key: const ValueKey('sftp-editor-field'),
+                              controller: code,
+                              undoController: undo,
+                              maxLines: null,
+                              autocorrect: false,
+                              enableSuggestions: false,
+                              style: style,
+                              strutStyle: strut,
+                              keyboardType: TextInputType.multiline,
+                              decoration: const InputDecoration(
+                                border: InputBorder.none,
+                                enabledBorder: InputBorder.none,
+                                focusedBorder: InputBorder.none,
+                                disabledBorder: InputBorder.none,
+                                errorBorder: InputBorder.none,
+                                focusedErrorBorder: InputBorder.none,
+                                filled: false,
+                                isDense: true,
+                                contentPadding:
+                                    EdgeInsets.fromLTRB(6, 12, 8, 12),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ])),
           ),
         ),
         if (pinching)
