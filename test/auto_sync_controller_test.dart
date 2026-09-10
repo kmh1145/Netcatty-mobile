@@ -14,6 +14,84 @@ void main() {
     hasLocalChanges: false,
   );
 
+  test(
+      'manual sync hydrates, joins concurrent requests and preserves in-flight edits with auto disabled',
+      () async {
+    final changes = StreamController<VaultData>.broadcast(sync: true);
+    final hydrated = Completer<VaultData>();
+    final network = Completer<CloudSyncResult>();
+    var current = VaultData.empty();
+    var calls = 0;
+    var acknowledged = false;
+    final controller = AutoSyncController(
+      localChanges: changes.stream,
+      loadVault: () =>
+          hydrated.isCompleted ? Future.value(current) : hydrated.future,
+      synchronize: (vault) {
+        calls++;
+        return network.future;
+      },
+      applyVault: (vault) async {
+        current = vault;
+      },
+      retryDelays: const [],
+    );
+    final first = controller.synchronizeNow();
+    final second = controller.synchronizeNow();
+    expect(identical(first, second), isTrue);
+    expect(calls, 0);
+    final original = VaultData.empty().copyWith(hosts: [
+      HostProfile({'id': 'h', 'label': 'Old', 'port': 22, 'password': 'secret'})
+    ]);
+    current = original;
+    hydrated.complete(original);
+    await Future<void>.delayed(Duration.zero);
+    expect(calls, 1);
+    current = original.copyWith(hosts: [
+      HostProfile(
+          {'id': 'h', 'label': 'Edited', 'port': 22, 'password': 'secret'})
+    ]);
+    changes.add(current);
+    network.complete(CloudSyncResult(
+      vault: original.copyWith(hosts: [
+        HostProfile(
+            {'id': 'h', 'label': 'Old', 'port': 2222, 'password': 'secret'})
+      ]),
+      message: 'ok',
+      versions: versions,
+      acknowledge: () async {
+        expect(current.hosts.single.label, 'Edited');
+        acknowledged = true;
+      },
+    ));
+    final result = await first;
+    expect(current.hosts.single.label, 'Edited');
+    expect(current.hosts.single.data['port'], 2222);
+    expect(result.versions.hasLocalChanges, isTrue);
+    expect(acknowledged, isTrue);
+    controller.dispose();
+    await changes.close();
+  });
+
+  test('failed credential hydration prevents manual network writes', () async {
+    final changes = StreamController<VaultData>.broadcast();
+    var calls = 0;
+    final controller = AutoSyncController(
+      localChanges: changes.stream,
+      loadVault: () async => throw StateError('keychain unavailable'),
+      synchronize: (vault) async {
+        calls++;
+        return CloudSyncResult(vault: vault, message: 'ok', versions: versions);
+      },
+      applyVault: (_) async {},
+      retryDelays: const [],
+    );
+    await expectLater(controller.synchronizeNow(), throwsStateError);
+    expect(calls, 0);
+    controller.dispose();
+    await changes.close();
+  });
+
   test('local changes use a ten second default debounce', () {
     expect(autoSyncChangeDebounce, const Duration(seconds: 10));
     expect(autoSyncRemoteInterval, const Duration(minutes: 5));
@@ -23,9 +101,10 @@ void main() {
     final changes = StreamController<VaultData>.broadcast();
     var syncCount = 0;
     final applied = <VaultData>[];
+    var current = VaultData.empty();
     final controller = AutoSyncController(
       localChanges: changes.stream,
-      loadVault: () async => VaultData.empty(),
+      loadVault: () async => current,
       synchronize: (vault) async {
         syncCount += 1;
         return CloudSyncResult(
@@ -48,6 +127,7 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 25));
     expect(syncCount, 1);
 
+    current = _vaultWithSnippet('latest');
     changes
       ..add(_vaultWithSnippet('first'))
       ..add(_vaultWithSnippet('latest'));

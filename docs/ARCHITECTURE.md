@@ -155,15 +155,16 @@ FileTransferService
 
 ## 系统管理
 
-`SystemManagementService` 将远程命令输出转换为 `domain/models/system_management.dart` 中的模型。UI 由 `SystemManagementSheet` 和五组 Panel 组成：
+`SystemManagementService` 将远程命令输出转换为 `domain/models/system_management.dart` 中的模型。UI 由 `SystemManagementSheet` 和六组 Panel 组成：
 
 - `ProcessManagerPanel`
 - `DockerManagerPanel`
 - `DockerComposePanel`
 - `ServiceManagerPanel`
+- `CaddyManagerPanel`
 - `TmuxManagerPanel`
 
-Docker 与服务管理调用会探测直接访问、免密 sudo 和需要密码的 sudo。服务面板自动识别 systemd/OpenRC，并提供启动、停止、重启和开机自启管理。破坏性操作（KILL、删除容器/镜像、Compose Down 等）必须保留二次确认。远程命令参数要经过 Shell 转义，解析逻辑应配套单元测试。
+Docker、服务与 Caddy 管理调用会探测直接访问、免密 sudo 和需要密码的 sudo。服务面板自动识别 systemd/OpenRC，并提供启动、停止、重启和开机自启管理。Caddy 面板先通过 `command -v caddy` 检测安装状态；Netcatty 创建的站点直接写入主 Caddyfile，每段配置使用 `netcatty-begin` / `netcatty-end` 标记和元数据，用户可在同一个文件中查看或继续手动维护。增删操作使用主配置备份和同目录临时文件，依次执行 `caddy fmt`、`caddy validate` 和 `caddy reload`，任一步失败都会恢复完整主配置后尝试重新加载旧配置。列表仅解析带 Netcatty 标记的配置块，不解析或删除用户已有的复杂手写站点。破坏性操作（KILL、删除容器/镜像、Compose Down、删除反代站点等）必须保留二次确认。远程命令参数要经过 Shell 转义，解析逻辑应配套单元测试。
 
 ## 云同步
 
@@ -179,15 +180,23 @@ Docker 与服务管理调用会探测直接访问、免密 sudo 和需要密码�
 
 仓库包含由另一运行时产生的兼容向量。修改 KDF、Nonce、Tag 拼接方式、JSON 结构或字符编码时，必须保留旧格式解密能力并补充跨运行时测试。
 
-移动端与桌面端共用 Git 风格的三方合并语义：`base` 是上次成功同步的共同快照，`local` 是手机当前数据，`remote` 是本次下载的云端数据。实体按 ID（`groupConfigs` 按 path）逐项比较；单侧删除且另一侧未修改时删除生效，删除与编辑冲突时保留编辑，双方同时编辑时按桌面端规则优先本地。首次同步没有可信 base 时按 ID 并集合并，并使用桌面端 `syncMeta.deletions` 墓碑抑制旧设备残留。
+旧版 v1 使用桌面端 Git 风格三方合并：`base` 为上次成功同步的快照，`local` 为手机当前数据，`remote` 为本次云端数据。实体按 ID（`groupConfigs` 按 path）比较；单侧删除且另一侧未修改时删除生效，删除与编辑冲突保留编辑，双方同时编辑时优先本地。v1 首次同步没有 base 时按 ID 并集合并，并使用 `syncMeta.deletions` 抑制旧设备残留。
 
-共同 base 以完整加密保险库写入本地同步检查点，不保存明文凭据。每次上传重新生成桌面兼容的 `syncMeta`，记录删除实体并携带仍有效的历史墓碑。`lastConnectedAt` 和 `knownHosts` 属于设备本地状态，不进入云端比较或上传；旧版 `_netcattyMobileSync` 私有时钟也会在同步时清理。WebDAV 使用临时 PUT + MOVE/覆盖校验，GitHub Gist 与 S3 在写入前重新读取并核对修订标识。远端在同步窗口中变化时最多重新拉取合并三次，避免最后写入者静默覆盖。
+已有桌面端 v2 云端时使用 `convergent_sync_adapter.dart` 的真实因果合并：从本地已观察副本产生本地增量，再按寄存器候选的 dot/context 合并远端副本，不先做整条记录覆盖。胜出值采用桌面端的非墓碑优先、HLC、deviceId、counter 排序；未胜出冲突候选仍保留在加密副本中。设置的父/子路径冲突与实体位置也按桌面端规则物化。副本格式参考桌面端提交 `8be56264fc6a3b93aacdc91277a11d0753c822f4` 的 `domain/convergentSync/{legacy,register,state,payload}.ts`。插件 sidecar 是寄存器之外的宿主数据，仍使用其三方合并规则。
+
+首次接入 v2：空的新设备直接采用云端；已有非空本地数据且与云端不同、又没有可信基线时，按照桌面端迁移规则阻止自动合并。不能把旧数据并集当成新写入，否则会恢复云端已删除的主机/密钥。损坏或无法解密的已有本地基线也停止写入，不静默降级为首次同步。
+
+共同 base 以完整加密保险库保存；v2 在发起写入前还持久化加密的待确认副本与本地基线，上传响应丢失后复用原有 dot，避免把重试当作新修改。服务只返回结果，不能直接覆盖本地保险库；协调器成功应用后才调用 `acknowledge` 更新检查点并清理待确认副本。`lastConnectedAt` 和 `knownHosts` 始终留在本设备，不进入云端比较或上传。
+
+Gist、WebDAV、S3 都在上传后重新读取验证。v2 验证远端版本向量包含本次写入，并检查 dot 内容与 sidecar；v1 验证物化数据及删除记录。失败最多重新读取合并三轮，不推进成功检查点。WebDAV 使用独立随机临时文件执行 PUT/MOVE；校验不一致交给外层重新合并，不原样重复覆盖。Gist PATCH 不携带不受支持的 `If-Match`。预检与回读不是跨设备事务锁，不能宣称消除了不支持条件写入服务的所有竞争窗口。
+
+`sync_safety.dart` 复刻桌面端缩减保护：一次减少至少 10 项，或至少 3 项且达到 50%，以及有其他数据时清空已有分组配置，会阻止上传。自动同步不自动批准；手动同步明确展示确认弹窗。同步配置变化时也中止当前操作，避免把旧目标的结果应用为新目标的成功同步。
 
 保险库加载采用快照优先策略：主机元数据、分组和命令片段从 SharedPreferences 内存快照同步提供给 UI，密码、私钥和代理凭据随后从系统安全存储并行补齐。`VaultController.ready()` 是连接、编辑、导出和持久化操作的同步屏障；只读列表不得等待逐项 Keychain/Keystore 查询，也不得用尚未补齐敏感字段的快照覆盖完整保险库。
 
 客户端在本地保存最近一次成功同步的版本号、云端数据指纹与加密共同 base。设置页读取加密文件公开的 `meta.version` 作为云端版本，并通过忽略同步时间、可靠性元数据和连接时间的桌面端数据投影判断本地是否存在待同步修改；检查点不保存明文保险库或同步密码。
 
-`AutoSyncController` 和设置页唯一的“立即同步”按钮复用同一个 `CloudSyncService.synchronize` 流程。自动同步默认关闭；开启后会在本地 Vault 修改约 10 秒后同步，在应用启动、返回前台及每 5 分钟检查云端。存储层区分本地修改与云端应用事件，避免下载结果再次触发上传循环；同步请求期间出现的新本地修改会以请求开始时的快照为 base 再做一次三方合并，然后排队补充同步。每次应用合并结果前都会从最新本地快照重新附加 `knownHosts` 和 `lastConnectedAt` 等设备本地字段，防止连接期间与自动同步并发时丢失服务器指纹信任记录。
+设置页“立即同步”调用同一个 `AutoSyncController.synchronizeNow()` 协调器，手动与自动请求共享进行中的 Future。无论自动同步是否启用，都先等待 `VaultController.ready()` 补齐凭据，再拍摄独立快照；期间的新编辑按字段增量重新应用，保留远端其他字段的修改。应用结果前重新附加最新的 `knownHosts` 与 `lastConnectedAt`。自动同步默认关闭，开启后维持 10 秒编辑防抖、启动/前台刷新及每 5 分钟远端检查；云端应用事件不触发本地修改循环。
 
 ## 更新检查
 

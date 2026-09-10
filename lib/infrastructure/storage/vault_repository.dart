@@ -35,6 +35,7 @@ class VaultRepository {
   static const _settingsKey = 'netcatty_mobile_settings_v1';
   static const _syncKey = 'netcatty_mobile_sync_v1';
   static const _syncVersionKey = 'netcatty_mobile_sync_version_v1';
+  static const _syncReplicaKey = 'netcatty_mobile_pending_sync_v2';
   static const _masterPasswordKey = 'netcatty.mobile.sync.masterPassword';
   static const _aiApiKey = 'netcatty.mobile.ai.apiKey';
   static const _deviceIdKey = 'netcatty_mobile_device_id_v1';
@@ -365,6 +366,20 @@ class VaultRepository {
 
   Future<void> clearSyncVersionCheckpoint() =>
       _preferences.remove(_syncVersionKey);
+
+  // Contains only an encrypted replica/baseline bundle, never plaintext secrets.
+  Future<Map<String, dynamic>?> loadPendingSyncReplica() async {
+    final raw = _preferences.getString(_syncReplicaKey);
+    return raw == null
+        ? null
+        : Map<String, dynamic>.from(jsonDecode(raw) as Map);
+  }
+
+  Future<void> savePendingSyncReplica(Map<String, dynamic> value) =>
+      _preferences.setString(_syncReplicaKey, jsonEncode(value));
+
+  Future<void> clearPendingSyncReplica() =>
+      _preferences.remove(_syncReplicaKey);
 
   Future<String?> readMasterPassword() =>
       _secureStorage.read(key: _masterPasswordKey);

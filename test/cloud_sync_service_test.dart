@@ -1,6 +1,10 @@
+@Timeout(Duration(minutes: 3))
+library;
+
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'fixtures/desktop_v2_vault.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -51,6 +55,131 @@ void main() {
         .setMockMethodCallHandler(secureStorageChannel, null);
   });
 
+  test('unretained Gist writes never report success or advance the checkpoint',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    final repository = await VaultRepository.open();
+    await repository.saveSyncConnection(const SyncConnection(
+        type: SyncProviderType.githubGist,
+        endpoint: '',
+        secret: 'test-token',
+        resourceId: 'lost-write'));
+    await repository.saveMasterPassword('sync-password');
+    final file = await NetcattyCrypto.encrypt(
+        vault: VaultData.empty(),
+        password: 'sync-password',
+        deviceId: 'pc',
+        deviceName: 'PC',
+        appVersion: 'test');
+    var writes = 0;
+    final client = MockClient((request) async {
+      if (request.method == 'PATCH') {
+        writes++;
+        return http.Response('{}', 200);
+      }
+      return http.Response(
+          jsonEncode({
+            'files': {
+              'netcatty-vault.json': {
+                'content': jsonEncode(file.toJson()),
+                'truncated': false,
+              }
+            }
+          }),
+          200); // No ETag, and the provider silently loses every write.
+    });
+    final service = CloudSyncService(repository,
+        client: client, deviceId: 'phone', appVersion: 'test');
+    await expectLater(
+        service.synchronize(VaultData.empty().copyWith(customGroups: ['New'])),
+        throwsA(isA<CloudSyncConflictException>()));
+    expect(writes, 3);
+    expect(await repository.loadSyncVersionCheckpoint(), isNull);
+    expect((await repository.loadVault()).customGroups, isEmpty);
+  });
+
+  test(
+      'a corrupt baseline stops writes rather than treating old data as a first sync',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    final repository = await VaultRepository.open();
+    await repository.saveSyncConnection(const SyncConnection(
+        type: SyncProviderType.githubGist,
+        endpoint: '',
+        secret: 'test-token',
+        resourceId: 'corrupt-base'));
+    await repository.saveMasterPassword('sync-password');
+    await repository.saveSyncVersionCheckpoint(const SyncVersionCheckpoint(
+      target: 'github:corrupt-base',
+      version: 1,
+      vaultFingerprint: 'test',
+      encryptedBase: {'meta': {}, 'payload': 'invalid'},
+    ));
+    var requests = 0;
+    final service =
+        CloudSyncService(repository, client: MockClient((request) async {
+      requests++;
+      return http.Response('{}', 200);
+    }), deviceId: 'phone', appVersion: 'test');
+    await expectLater(service.synchronize(VaultData.empty()), throwsStateError);
+    expect(requests, 0);
+  });
+
+  test('v2 retry reuses durable causal writes after a lost upload response',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    final repository = await VaultRepository.open();
+    await repository.saveSyncConnection(const SyncConnection(
+        type: SyncProviderType.githubGist,
+        endpoint: '',
+        secret: 'test-token',
+        resourceId: 'recovery'));
+    await repository.saveMasterPassword('sync-password');
+    var file = await NetcattyCrypto.encrypt(
+        vault: _desktopV2Vault(),
+        password: 'sync-password',
+        deviceId: 'pc',
+        deviceName: 'PC',
+        appVersion: 'test');
+    await _seedCheckpoint(repository, file, 'github:recovery');
+    var writes = 0;
+    final client = MockClient((request) async {
+      if (request.method == 'PATCH') {
+        writes++;
+        final json = jsonDecode(request.body) as Map;
+        file = SyncedVaultFile.fromJson(
+            jsonDecode(json['files']['netcatty-vault.json']['content'])
+                as Map<String, dynamic>);
+        throw http.ClientException('response lost');
+      }
+      return http.Response(
+          jsonEncode({
+            'files': {
+              'netcatty-vault.json': {
+                'content': jsonEncode(file.toJson()),
+                'truncated': false,
+              }
+            }
+          }),
+          200,
+          headers: {'etag': '"revision-$writes"'});
+    });
+    final local = _desktopV2Vault().copyWith(customGroups: ['Added']);
+    final service = CloudSyncService(repository,
+        client: client, deviceId: 'phone', appVersion: 'test');
+    await expectLater(
+        service.synchronize(local), throwsA(isA<http.ClientException>()));
+    expect(await repository.loadPendingSyncReplica(), isNotNull);
+    expect((await repository.loadSyncVersionCheckpoint())?.version, 1);
+    final result = await service.synchronize(local);
+    expect(writes, 1,
+        reason: 'Same changes must not mint new dots or upload again');
+    expect(result.vault.customGroups, ['Added']);
+    await result.acknowledge!();
+    expect(await repository.loadPendingSyncReplica(), isNull);
+    expect(await repository.loadSyncVersionCheckpoint(), isNotNull);
+  });
+
   test('Gist update verifies the revision without If-Match on PATCH', () async {
     SharedPreferences.setMockInitialValues({});
     final repository = await VaultRepository.open();
@@ -72,7 +201,7 @@ void main() {
       appVersion: '1.3.0',
       previousVersion: 3,
     );
-    final gistResponse = jsonEncode({
+    var gistResponse = jsonEncode({
       'files': {
         'netcatty-vault.json': {
           'content': jsonEncode(remoteFile.toJson()),
@@ -101,6 +230,7 @@ void main() {
               as String,
         ) as Map<String, dynamic>;
         expect((vaultFile['meta'] as Map<String, dynamic>)['version'], 5);
+        gistResponse = jsonEncode({'files': files});
         return http.Response('{}', 200);
       }
       fail('Unexpected ${request.method} request to ${request.url}');
@@ -121,15 +251,67 @@ void main() {
       appVersion: '1.3.1',
     ).push(local);
 
-    expect(getCount, 2, reason: 'download plus revision preflight');
+    expect(getCount, 3,
+        reason: 'download, revision preflight, read-back verification');
     expect(patchCount, 1);
     expect(result.versions.localVersion, 5);
     expect(result.versions.cloudVersion, 5);
     expect(result.versions.hasLocalChanges, isFalse);
+    expect(await repository.loadSyncVersionCheckpoint(), isNull,
+        reason: 'Do not checkpoint before local apply succeeds');
+    await result.acknowledge!();
     final checkpoint = await repository.loadSyncVersionCheckpoint();
     expect(checkpoint?.target, 'github:gist-1');
     expect(checkpoint?.version, 5);
     expect(checkpoint?.encryptedBase, isNotNull);
+  });
+
+  test(
+      'first v2 contact adopts an empty device but blocks stale nonempty data without a base',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    final repository = await VaultRepository.open();
+    await repository.saveSyncConnection(const SyncConnection(
+        type: SyncProviderType.githubGist,
+        endpoint: '',
+        secret: 'test-token',
+        resourceId: 'bootstrap'));
+    await repository.saveMasterPassword('sync-password');
+    final original = _desktopV2Vault();
+    final deleted = updateConvergentSyncPayload(
+        remote: original,
+        desired: original.copyWith(hosts: []),
+        deviceId: 'desktop-device',
+        timestamp: 200);
+    final file = await NetcattyCrypto.encrypt(
+        vault: deleted,
+        password: 'sync-password',
+        deviceId: 'pc',
+        deviceName: 'PC',
+        appVersion: 'test');
+    var writes = 0;
+    final service = CloudSyncService(repository,
+        deviceId: 'phone',
+        appVersion: 'test', client: MockClient((request) async {
+      if (request.method != 'GET') writes++;
+      return http.Response(
+          jsonEncode({
+            'files': {
+              'netcatty-vault.json': {
+                'content': jsonEncode(file.toJson()),
+                'truncated': false
+              }
+            }
+          }),
+          200);
+    }));
+    await expectLater(service.synchronize(original), throwsStateError);
+    expect(await repository.loadSyncVersionCheckpoint(), isNull);
+    final adopted = await service.synchronize(VaultData.empty());
+    expect(adopted.vault.hosts, isEmpty);
+    expect(writes, 0);
+    await adopted.acknowledge!();
+    expect(await repository.loadSyncVersionCheckpoint(), isNotNull);
   });
 
   test('version inspection marks a local edit as the next pending version',
@@ -186,6 +368,7 @@ void main() {
       appVersion: '1.3.1',
     );
     final synchronized = await service.pullAndMerge(original);
+    await synchronized.acknowledge!();
     final edited = synchronized.vault.copyWith(customGroups: ['Production']);
 
     final versions = await service.inspectVersions(edited);
@@ -301,7 +484,7 @@ void main() {
       appVersion: '1.4.0',
       previousVersion: 4,
     );
-    final gistResponse = jsonEncode({
+    var gistResponse = jsonEncode({
       'files': {
         'netcatty-vault.json': {
           'content': jsonEncode(remoteFile.toJson()),
@@ -331,6 +514,7 @@ void main() {
           encrypted,
           'sync-password',
         );
+        gistResponse = jsonEncode({'files': files});
         return http.Response('{}', 200);
       }
       fail('Unexpected ${request.method} request to ${request.url}');
@@ -374,7 +558,7 @@ void main() {
       appVersion: '1.4.1',
       previousVersion: 4,
     );
-    final gistResponse = jsonEncode({
+    var gistResponse = jsonEncode({
       'files': {
         'netcatty-vault.json': {
           'content': jsonEncode(remoteFile.toJson()),
@@ -402,6 +586,7 @@ void main() {
                 as String,
           ) as Map<String, dynamic>,
         );
+        gistResponse = jsonEncode({'files': files});
         return http.Response('{}', 200);
       }
       fail('Unexpected ${request.method} request to ${request.url}');
@@ -411,6 +596,8 @@ void main() {
       'customGroups': ['Mobile'],
     });
 
+    await _seedCheckpoint(repository, remoteFile, 'github:gist-desktop-v2');
+
     final result = await CloudSyncService(
       repository,
       client: client,
@@ -418,7 +605,8 @@ void main() {
       appVersion: '1.4.1',
     ).synchronize(local);
 
-    expect(getCount, 2, reason: 'download plus revision preflight');
+    expect(getCount, 3,
+        reason: 'download, revision preflight, read-back verification');
     expect(result.vault.customGroups, contains('Mobile'));
     expect(uploaded?.meta['syncSchemaVersion'], 2);
     final roundTrip = await NetcattyCrypto.decrypt(
@@ -561,6 +749,9 @@ void main() {
       'customGroups': ['Mobile'],
     });
 
+    await _seedCheckpoint(repository, remoteFile,
+        'webdav:https://dav.example.com/netcatty/netcatty-vault.json');
+
     final result = await CloudSyncService(
       repository,
       client: client,
@@ -674,7 +865,12 @@ void main() {
       expect(
           request.headers['x-amz-security-token'], 'temporary-session-token');
       expect(request.headers['x-amz-content-sha256'], isNotEmpty);
-      if (request.method == 'GET') return http.Response('', 404);
+      if (request.method == 'GET') {
+        return uploaded == null
+            ? http.Response('', 404)
+            : http.Response(uploaded!.body, 200,
+                headers: {'etag': '"s3-revision"'});
+      }
       if (request.method == 'PUT') {
         uploaded = request;
         return http.Response('', 200, headers: {'etag': '"s3-revision"'});
@@ -696,6 +892,7 @@ void main() {
     );
     expect(encrypted.meta['version'], 1);
     expect(result.versions.cloudVersion, 1);
+    await result.acknowledge!();
     expect(
       (await repository.loadSyncVersionCheckpoint())?.target,
       's3:https://minio.example.com/storage|netcatty|/vaults/user/',
@@ -734,7 +931,7 @@ void main() {
     final client = MockClient((request) async {
       if (request.method == 'GET') {
         return http.Response(
-          jsonEncode(remoteFile.toJson()),
+          jsonEncode((uploaded ?? remoteFile).toJson()),
           200,
           headers: {'etag': '"desktop-v2"'},
         );
@@ -751,6 +948,9 @@ void main() {
       ..._desktopV2Vault().toJson(legacySyncSnapshot: true),
       'customGroups': ['Mobile'],
     });
+
+    await _seedCheckpoint(
+        repository, remoteFile, 's3:https://minio.example.com|netcatty|');
 
     final result = await CloudSyncService(
       repository,
@@ -794,73 +994,13 @@ void main() {
   });
 }
 
-VaultData _desktopV2Vault() => VaultData.fromJson({
-      'hosts': [
-        {'id': 'host-1', 'label': 'Desktop'},
-      ],
-      'keys': <dynamic>[],
-      'snippets': <dynamic>[],
-      'customGroups': <dynamic>[],
-      'proxyProfiles': <dynamic>[],
-      'syncedAt': 100,
-      'convergentSync': {
-        'schemaVersion': 2,
-        'encoding': 'materialized-winner-v1',
-        'state': {
-          'vector': {'desktop-device': 3},
-          'dotOrigins': {
-            'desktop-device': {
-              '1': '["entity-presence","hosts","host-1"]',
-              '2': '["entity-position","hosts","host-1"]',
-              '3': '["entity-field","hosts","host-1","label"]',
-            },
-          },
-          'hlc': {'wallTime': 100, 'logical': 2},
-          'collections': {
-            'hosts': {
-              'entities': {
-                'host-1': {
-                  'presence': {
-                    'candidates': [
-                      {
-                        'dot': {'deviceId': 'desktop-device', 'counter': 1},
-                        'context': <dynamic>[],
-                        'hlc': {'wallTime': 100, 'logical': 0},
-                        'value': true,
-                      },
-                    ],
-                  },
-                  'position': {
-                    'candidates': [
-                      {
-                        'dot': {'deviceId': 'desktop-device', 'counter': 2},
-                        'context': <dynamic>[],
-                        'hlc': {'wallTime': 100, 'logical': 1},
-                        'value': 0,
-                      },
-                    ],
-                  },
-                  'fields': {
-                    'label': {
-                      'candidates': [
-                        {
-                          'dot': {
-                            'deviceId': 'desktop-device',
-                            'counter': 3,
-                          },
-                          'context': <dynamic>[],
-                          'hlc': {'wallTime': 100, 'logical': 2},
-                          'materialized': true,
-                        },
-                      ],
-                    },
-                  },
-                },
-              },
-            },
-          },
-          'settings': <String, dynamic>{},
-          'stringCollections': <String, dynamic>{},
-        },
-      },
-    });
+Future<void> _seedCheckpoint(
+        VaultRepository repository, SyncedVaultFile file, String target) =>
+    repository.saveSyncVersionCheckpoint(SyncVersionCheckpoint(
+      target: target,
+      version: file.meta['version'] as int,
+      vaultFingerprint: 'fixture-baseline',
+      encryptedBase: file.toJson(),
+    ));
+
+VaultData _desktopV2Vault() => desktopV2Vault();

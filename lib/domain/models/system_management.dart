@@ -24,6 +24,30 @@ class RemoteService {
   bool get isRunning => state == RemoteServiceState.running;
 }
 
+class CaddyStatus {
+  const CaddyStatus({
+    required this.installed,
+    this.version = '',
+    this.configPath = '/etc/caddy/Caddyfile',
+  });
+
+  final bool installed;
+  final String version;
+  final String configPath;
+}
+
+class CaddySite {
+  const CaddySite({
+    required this.id,
+    required this.address,
+    required this.upstreams,
+  });
+
+  final String id;
+  final String address;
+  final List<String> upstreams;
+}
+
 class RemoteProcess {
   const RemoteProcess({
     required this.pid,

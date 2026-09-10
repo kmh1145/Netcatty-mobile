@@ -1,4 +1,26 @@
 const englishTranslations = <String, String>{
+  '缺少可信同步基线，无法安全合并本地数据与云端 v2 保险库。请先导出本地备份，并在桌面端确认数据后重试；本次未写入云端':
+      'No trusted sync baseline is available to safely merge local data with this v2 vault. Export a local backup and reconcile on desktop before retrying. Nothing was written to the cloud',
+  '确认大量删除': 'Confirm bulk deletion',
+  '确认删除并同步': 'Confirm deletions and sync',
+  r'$error\n\n仅当你确认这些删除是本人操作时才继续。':
+      r'$error\n\nContinue only if you intentionally made these deletions.',
+  '仅当你确认这些删除是本人操作时才继续。':
+      'Continue only if you intentionally made these deletions.',
+  '云端同步完成；同步期间的本地修改已保留，待下次同步':
+      'Cloud sync complete; edits made during sync are preserved for the next sync',
+  '已同步的云端保险库暂时不可见，已停止写入；请检查存储路径或权限后重试':
+      'The previously synced vault is unavailable. Writes stopped; check the storage path and permissions',
+  '云端同步格式已降级，已停止写入以保护删除记录，请先在桌面端确认恢复':
+      'The remote sync format was downgraded. Writes stopped to protect deletion history; confirm recovery on desktop first',
+  '同步配置已改变，本次同步已停止，请使用新配置重试':
+      'Sync configuration changed. This run stopped; retry with the new configuration',
+  '本地同步基线无法读取，已停止写入以保护数据，请先检查同步密码':
+      'The local sync baseline cannot be read. Writes stopped to protect data; check the sync password',
+  r'检测到 $collection 从 $before 项减少到 $after 项，已阻止上传以保护数据。':
+      r'$collection decreased from $before to $after items. Upload blocked to protect data.',
+  '请确认这些删除是否符合预期，再手动确认同步。':
+      'Check that these deletions are intentional before confirming sync.',
   '自动换行': 'Word wrap',
   '在文件中搜索': 'Find in file',
   '搜索打开的文件': 'Search the open file',
@@ -393,6 +415,37 @@ const englishTranslations = <String, String>{
   '退出全屏': 'Exit fullscreen',
   '性能监控': 'Performance monitor',
   '系统管理': 'System management',
+  '未检测到 Caddy，请先安装 Caddy 后再重试。':
+      'Caddy was not detected. Install Caddy and try again.',
+  '搜索站点或上游地址': 'Search sites or upstreams',
+  '新增反向代理': 'Add reverse proxy',
+  '编辑反向代理': 'Edit reverse proxy',
+  'Caddy 配置已更新并重新加载': 'Caddy configuration updated and reloaded',
+  '删除反向代理站点？': 'Delete reverse proxy site?',
+  '删除后 Caddy 会立即重新加载配置，此操作无法撤销。':
+      'Caddy will reload immediately after deletion. This cannot be undone.',
+  '反向代理站点已删除': 'Reverse proxy site deleted',
+  '站点地址': 'Site address',
+  '可使用域名、IP、端口或 http:// 地址': 'Use a domain, IP, port, or http:// address',
+  '上游地址': 'Upstream address',
+  '多个上游地址使用换行或逗号分隔': 'Separate multiple upstreams with new lines or commas',
+  '保存并重新加载': 'Save and reload',
+  'Netcatty 创建的反向代理会直接保存到该 Caddyfile。':
+      'Reverse proxies created by Netcatty are saved directly in this Caddyfile.',
+  '配置入口': 'Configuration entry',
+  '配置入口：': 'Configuration entry: ',
+  '还没有由 Netcatty 管理的反向代理站点': 'No Netcatty-managed reverse proxy sites yet',
+  '没有符合条件的反向代理站点': 'No matching reverse proxy sites',
+  '无法读取 Caddy 配置': 'Unable to read Caddy configuration',
+  'Caddy 操作失败': 'Caddy operation failed',
+  'Caddy 配置路径无效': 'Invalid Caddy configuration path',
+  'Caddy 站点标识无效': 'Invalid Caddy site identifier',
+  '请输入有效的站点地址': 'Enter a valid site address',
+  '请至少填写一个有效的上游地址': 'Enter at least one valid upstream address',
+  '管理 Caddy 配置需要管理员权限，且 sudo 需要密码。':
+      'Managing Caddy configuration requires administrator access and a sudo password.',
+  r'管理 Caddy 配置需要管理员权限，且 sudo 需要密码。\n${error.message}':
+      r'Managing Caddy configuration requires administrator access and a sudo password.\n${error.message}',
   '进程': 'Processes',
   '服务': 'Services',
   'OpenRC 服务': 'OpenRC services',
@@ -513,6 +566,18 @@ const englishTranslations = <String, String>{
 /// Ordered fragments cover dynamic values and infrastructure errors that are
 /// ultimately rendered by a localized text widget.
 const englishReplacements = <(String, String)>[
+  (
+    '仅当你确认这些删除是本人操作时才继续。',
+    'Continue only if you intentionally made these deletions.'
+  ),
+  (
+    '请确认这些删除是否符合预期，再手动确认同步。',
+    'Check that these deletions are intentional before confirming sync.'
+  ),
+  ('项减少到', 'items decreased to'),
+  ('项，已阻止上传以保护数据。', 'items. Upload blocked to protect data.'),
+  ('检测到', 'Detected'),
+  (' 从 ', ' from '),
   (
     '服务器移动未确认完成，请检查源目录和目标目录后再重试：',
     'Server move could not be confirmed. Check the source and destination before retrying: '

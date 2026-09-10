@@ -93,6 +93,26 @@ Windows 无法完成原生 iOS 编译；涉及 Swift、Info.plist 或 iOS Plugin
 
 ## 测试矩阵
 
+### 测试保留与运行范围
+
+测试按风险而不是数量删减。主机/密钥删除、桌面端未知字段及 Agent 设置、凭据加载、同步期间编辑、文件移动源删除条件、键盘与行号等回归用例必须保留。Gist、WebDAV、S3 的 v2 往返看似相似，但分别保护 JSON 包装、临时 MOVE/覆盖、签名与对象路径，不能只保留一个。
+
+同步测试中的共同桌面 v2 样例集中于 `test/fixtures/desktop_v2_vault.dart`。协议算法测试不重复运行真实加密；真实 AES-GCM/PBKDF2 的固定桌面向量和错误密码验证保留在 `netcatty_crypto_test.dart`，各存储测试保留真实端到端编解码。云同步测试文件允许最多 3 分钟/例，避免慢机器上的 600000 次 PBKDF2 加密触发默认 30 秒误超时，不降低生产密钥派生强度。
+
+日常协议修改先跑快速用例：
+
+```bash
+flutter test test/convergent_sync_adapter_test.dart test/vault_merge_service_test.dart test/auto_sync_controller_test.dart
+```
+
+涉及网络、恢复或加密再跑：
+
+```bash
+flutter test test/cloud_sync_service_test.dart test/netcatty_crypto_test.dart test/vault_loading_test.dart
+```
+
+大规模同步重构及发布仍跑完整套件。模拟 HTTP 通过不等于所有真实 WebDAV/S3 部署都已验证；还需使用专门的测试保险库做两设备并发、断网重试和退出重进验证，不使用真实用户凭据或生产保险库。
+
 | 测试文件 | 重点覆盖 |
 | --- | --- |
 | `vault_model_test.dart` | Vault 字段、未知字段无损往返和模型迁移 |
@@ -104,7 +124,7 @@ Windows 无法完成原生 iOS 编译；涉及 Swift、Info.plist 或 iOS Plugin
 | `host_editor_layout_test.dart` | 键盘弹出、滚动和窄屏表单布局 |
 | `terminal_connection_dialog_test.dart` | Pending 标签、连接弹窗和会话隔离 |
 | `sftp_terminal_usability_test.dart` | SFTP 递归传输、进度、零拷贝、快捷键与 PiP 文本 |
-| `system_management_service_test.dart` | 进程、Docker、Compose、tmux 命令与解析 |
+| `system_management_service_test.dart` | 进程、Docker、Compose、服务、Caddy、tmux 命令与解析 |
 | `mobile_v1_features_test.dart` | 关键移动端功能回归 |
 
 协议解析、Shell 参数转义、模型序列化和控制器状态转换优先写单元测试。触屏布局问题应补充固定窗口尺寸的 Widget Test，并使用 `tester.takeException()` 检查 RenderFlex Overflow。
@@ -117,7 +137,7 @@ Windows 无法完成原生 iOS 编译；涉及 Swift、Info.plist 或 iOS Plugin
 - 同一主机打开两个以上标签，关闭确认和分屏
 - 中文输入、文本选择、拖动选区、复制与粘贴
 - 性能面板与系统识别
-- 进程、Docker/Compose 和 tmux 操作的确认弹窗
+- 进程、Docker/Compose、Caddy 和 tmux 操作的确认弹窗
 - WebDAV、GitHub Gist 与 S3 的统一立即同步及条件写入
 - 桌面端兼容的三方合并、加密共同 base、删除墓碑和 PC 删除数据不复活回归
 - 自动同步开关、修改防抖、前台刷新、失败重试及同步期间继续编辑

@@ -33,7 +33,17 @@ class ServiceSudoPasswordRequired implements Exception {
   String toString() => message;
 }
 
+class CaddySudoPasswordRequired implements Exception {
+  const CaddySudoPasswordRequired(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
 const tmuxNotFoundMessage = '未找到 tmux 命令，请先安装 tmux 后再重试。';
+const caddyNotFoundMessage = '未检测到 Caddy，请先安装 Caddy 后再重试。';
 
 enum ProcessSignal { stop, cont, term, kill }
 
@@ -60,6 +70,8 @@ class SystemManagementService {
   final _serviceManagers = <String, ServiceManager>{};
   final _servicePrivileges = <String, _ServicePrivilege>{};
   final _serviceSudoPasswords = <String, String>{};
+  final _caddyPrivileges = <String, _ServicePrivilege>{};
+  final _caddySudoPasswords = <String, String>{};
 
   Future<List<RemoteProcess>> listProcesses(
     ActiveTerminalSession session,
@@ -288,6 +300,185 @@ class SystemManagementService {
     if (password.isEmpty) return;
     _serviceSudoPasswords[session.id] = password;
     _servicePrivileges.remove(session.id);
+  }
+
+  Future<CaddyStatus> caddyStatus(ActiveTerminalSession session) async {
+    final result = await _executeSession(session, _caddyStatusCommand);
+    return parseCaddyStatus(result.stdout);
+  }
+
+  CaddyStatus parseCaddyStatus(String raw) {
+    final lines = const LineSplitter().convert(raw);
+    if (lines.isEmpty || lines.first.trim() != 'installed') {
+      return const CaddyStatus(installed: false);
+    }
+    return CaddyStatus(
+      installed: true,
+      version: lines.length > 1 ? lines[1].trim() : '',
+      configPath: lines.length > 2 && lines[2].trim().isNotEmpty
+          ? lines[2].trim()
+          : '/etc/caddy/Caddyfile',
+    );
+  }
+
+  Future<List<CaddySite>> listCaddySites(
+    ActiveTerminalSession session,
+    CaddyStatus status,
+  ) async {
+    if (!status.installed) throw UnsupportedError(caddyNotFoundMessage);
+    _validateCaddyConfigPath(status.configPath);
+    final command = 'config=${shellQuote(status.configPath)}; '
+        '[ -f "\$config" ] && { base64 < "\$config" | tr -d "\\r\\n"; printf "\\n"; } || true';
+    final result = await _executeCaddyCommand(session, command);
+    final encoded = result.stdout.trim();
+    if (encoded.isEmpty) return const [];
+    try {
+      return parseCaddySites(utf8.decode(base64Decode(encoded)));
+    } on FormatException {
+      throw const FormatException('无法读取 Caddy 配置');
+    }
+  }
+
+  List<CaddySite> parseCaddySites(String caddyfile) {
+    final sites = <CaddySite>[];
+    String? id;
+    String? encodedAddress;
+    String? encodedUpstreams;
+    for (final line in const LineSplitter().convert(caddyfile)) {
+      final beginMatch = _caddyBeginPattern.firstMatch(line);
+      if (beginMatch != null) {
+        id = beginMatch.group(1);
+        encodedAddress = null;
+        encodedUpstreams = null;
+        continue;
+      }
+      if (id == null) continue;
+      if (line.startsWith(_caddyAddressPrefix)) {
+        encodedAddress = line.substring(_caddyAddressPrefix.length);
+        continue;
+      }
+      if (line.startsWith(_caddyUpstreamsPrefix)) {
+        encodedUpstreams = line.substring(_caddyUpstreamsPrefix.length);
+        continue;
+      }
+      final endMatch = _caddyEndPattern.firstMatch(line);
+      if (endMatch == null) continue;
+      final endId = endMatch.group(1);
+      if (endId != id || encodedAddress == null || encodedUpstreams == null) {
+        id = null;
+        continue;
+      }
+      final currentId = id;
+      final currentAddress = encodedAddress;
+      final currentUpstreams = encodedUpstreams;
+      id = null;
+      try {
+        final address = utf8.decode(base64Decode(currentAddress)).trim();
+        final decoded = jsonDecode(
+          utf8.decode(base64Decode(currentUpstreams)),
+        );
+        if (decoded is! List) continue;
+        final upstreams = decoded
+            .map((value) => value.toString().trim())
+            .where((value) => value.isNotEmpty)
+            .toList(growable: false);
+        _validateCaddyAddress(address);
+        _validateCaddyUpstreams(upstreams);
+        sites.add(
+          CaddySite(id: currentId, address: address, upstreams: upstreams),
+        );
+      } on Object {
+        // Ignore malformed or manually edited metadata blocks.
+      }
+    }
+    return sites..sort((a, b) => a.address.compareTo(b.address));
+  }
+
+  String buildCaddySiteSnippet(CaddySite site) {
+    _validateCaddySite(site);
+    final address = site.address.trim();
+    final upstreams = site.upstreams.map((value) => value.trim()).toList();
+    final encodedAddress = base64Encode(utf8.encode(address));
+    final encodedUpstreams = base64Encode(utf8.encode(jsonEncode(upstreams)));
+    return '# netcatty-begin: ${site.id}\n'
+        '# Managed by Netcatty Mobile.\n'
+        '# netcatty-address: $encodedAddress\n'
+        '# netcatty-upstreams: $encodedUpstreams\n'
+        '$address {\n'
+        '    reverse_proxy ${upstreams.join(' ')}\n'
+        '}\n'
+        '# netcatty-end: ${site.id}\n';
+  }
+
+  String saveCaddySiteCommand(CaddyStatus status, CaddySite site) {
+    if (!status.installed) throw UnsupportedError(caddyNotFoundMessage);
+    _validateCaddyConfigPath(status.configPath);
+    _validateCaddySite(site);
+    final config = status.configPath;
+    final begin = '# netcatty-begin: ${site.id}';
+    final end = '# netcatty-end: ${site.id}';
+    final content = base64Encode(utf8.encode(buildCaddySiteSnippet(site)));
+    return 'set -eu; '
+        'config=${shellQuote(config)}; begin=${shellQuote(begin)}; end=${shellQuote(end)}; '
+        'config_backup="\$config.netcatty-backup.\$\$"; staged="\$config.netcatty-staged.\$\$"; '
+        'config_had=0; success=0; mkdir -p "\$(dirname "\$config")"; '
+        'if [ -f "\$config" ]; then cp -p "\$config" "\$config_backup"; config_had=1; else : > "\$config"; fi; '
+        'rollback() { [ "\$success" -eq 1 ] && return; '
+        'rm -f "\$staged"; if [ "\$config_had" -eq 1 ]; then mv -f "\$config_backup" "\$config"; else rm -f "\$config" "\$config_backup"; fi; '
+        'caddy reload --config "\$config" --adapter caddyfile >/dev/null 2>&1 || true; }; '
+        'trap rollback EXIT HUP INT TERM; '
+        "awk -v begin=\"\$begin\" -v end=\"\$end\" 'BEGIN { skip=0 } \$0 == begin { skip=1; next } skip && \$0 == end { skip=0; next } !skip { print } END { if (skip) exit 42 }' \"\$config\" > \"\$staged\"; "
+        "printf '\\n' >> \"\$staged\"; printf '%s' ${shellQuote(content)} | base64 -d >> \"\$staged\"; "
+        'mv -f "\$staged" "\$config"; caddy fmt --overwrite "\$config"; '
+        'caddy validate --config "\$config" --adapter caddyfile; '
+        'caddy reload --config "\$config" --adapter caddyfile; '
+        'success=1; trap - EXIT HUP INT TERM; rm -f "\$config_backup" "\$staged"';
+  }
+
+  String deleteCaddySiteCommand(CaddyStatus status, CaddySite site) {
+    if (!status.installed) throw UnsupportedError(caddyNotFoundMessage);
+    _validateCaddyConfigPath(status.configPath);
+    _validateCaddySite(site);
+    final config = status.configPath;
+    final begin = '# netcatty-begin: ${site.id}';
+    final end = '# netcatty-end: ${site.id}';
+    return 'set -eu; config=${shellQuote(config)}; begin=${shellQuote(begin)}; end=${shellQuote(end)}; '
+        'config_backup="\$config.netcatty-backup.\$\$"; staged="\$config.netcatty-staged.\$\$"; success=0; '
+        '[ -f "\$config" ] || { printf "Caddyfile not found\\n" >&2; exit 1; }; '
+        'cp -p "\$config" "\$config_backup"; '
+        'rollback() { [ "\$success" -eq 1 ] && return; rm -f "\$staged"; mv -f "\$config_backup" "\$config"; '
+        'caddy reload --config "\$config" --adapter caddyfile >/dev/null 2>&1 || true; }; '
+        'trap rollback EXIT HUP INT TERM; '
+        "awk -v begin=\"\$begin\" -v end=\"\$end\" 'BEGIN { skip=0; found=0 } \$0 == begin { skip=1; found=1; next } skip && \$0 == end { skip=0; next } !skip { print } END { if (skip) exit 42; if (!found) exit 44 }' \"\$config\" > \"\$staged\"; "
+        'mv -f "\$staged" "\$config"; caddy fmt --overwrite "\$config"; '
+        'caddy validate --config "\$config" --adapter caddyfile; '
+        'caddy reload --config "\$config" --adapter caddyfile; '
+        'success=1; trap - EXIT HUP INT TERM; rm -f "\$config_backup" "\$staged"';
+  }
+
+  Future<void> saveCaddySite(
+    ActiveTerminalSession session,
+    CaddyStatus status,
+    CaddySite site,
+  ) async {
+    await _executeCaddyCommand(session, saveCaddySiteCommand(status, site));
+  }
+
+  Future<void> deleteCaddySite(
+    ActiveTerminalSession session,
+    CaddyStatus status,
+    CaddySite site,
+  ) async {
+    await _executeCaddyCommand(session, deleteCaddySiteCommand(status, site));
+  }
+
+  void setCaddySudoPassword(
+    ActiveTerminalSession session,
+    String password,
+  ) {
+    if (password.isEmpty) return;
+    _caddySudoPasswords[session.id] = password;
+    _caddyPrivileges.remove(session.id);
   }
 
   Future<List<DockerContainerInfo>> listDockerContainers(
@@ -1052,6 +1243,77 @@ class SystemManagementService {
           ),
       };
 
+  Future<_RemoteResult> _executeCaddyCommand(
+    ActiveTerminalSession session,
+    String command,
+  ) async {
+    final cached = _caddyPrivileges[session.id];
+    var triedDirect = false;
+    if (cached != null) {
+      triedDirect = cached == _ServicePrivilege.direct;
+      try {
+        return await _executeCaddyMode(session, command, cached);
+      } on RemoteCommandException catch (error) {
+        if (cached != _ServicePrivilege.sudoPassword) {
+          if (!_isServicePermissionError(error.message)) rethrow;
+          _caddyPrivileges.remove(session.id);
+        } else {
+          _caddyPrivileges.remove(session.id);
+          _caddySudoPasswords.remove(session.id);
+          throw CaddySudoPasswordRequired(
+            'sudo 密码验证失败，请重新输入。\n${error.message}',
+          );
+        }
+      }
+    }
+    if (!triedDirect) {
+      try {
+        final result = await _executeSession(session, command);
+        _caddyPrivileges[session.id] = _ServicePrivilege.direct;
+        return result;
+      } on RemoteCommandException catch (error) {
+        if (!_isServicePermissionError(error.message)) rethrow;
+      }
+    }
+    try {
+      final result = await _executeSession(
+          session, 'sudo -n sh -c ${shellQuote(command)}');
+      _caddyPrivileges[session.id] = _ServicePrivilege.sudoNoPassword;
+      return result;
+    } on RemoteCommandException catch (error) {
+      if (_caddySudoPasswords[session.id] == null) {
+        throw CaddySudoPasswordRequired(
+          '管理 Caddy 配置需要管理员权限，且 sudo 需要密码。\n${error.message}',
+        );
+      }
+    }
+    final result = await _executeCaddyMode(
+      session,
+      command,
+      _ServicePrivilege.sudoPassword,
+    );
+    _caddyPrivileges[session.id] = _ServicePrivilege.sudoPassword;
+    return result;
+  }
+
+  Future<_RemoteResult> _executeCaddyMode(
+    ActiveTerminalSession session,
+    String command,
+    _ServicePrivilege mode,
+  ) =>
+      switch (mode) {
+        _ServicePrivilege.direct => _executeSession(session, command),
+        _ServicePrivilege.sudoNoPassword => _executeSession(
+            session,
+            'sudo -n sh -c ${shellQuote(command)}',
+          ),
+        _ServicePrivilege.sudoPassword => _executeSession(
+            session,
+            "sudo -S -p '' sh -c ${shellQuote(command)}",
+            stdinText: '${_caddySudoPasswords[session.id] ?? ''}\n',
+          ),
+      };
+
   Future<_RemoteResult> _executeSession(
     ActiveTerminalSession session,
     String command, {
@@ -1110,6 +1372,7 @@ class SystemManagementService {
         value.contains('authentication is required') ||
         value.contains('interactive authentication required') ||
         value.contains('must be root') ||
+        value.contains('a password is required') ||
         value.contains('operation not permitted') ||
         value.contains('superuser privileges');
   }
@@ -1257,6 +1520,45 @@ class SystemManagementService {
       throw const FormatException('服务名称无效');
     }
   }
+
+  static void _validateCaddyConfigPath(String value) {
+    if (!value.startsWith('/') ||
+        value.length > 1024 ||
+        value.contains(RegExp(r'[\x00\r\n\t]'))) {
+      throw const FormatException('Caddy 配置路径无效');
+    }
+  }
+
+  static void _validateCaddySite(CaddySite site) {
+    if (!_validCaddyId.hasMatch(site.id)) {
+      throw const FormatException('Caddy 站点标识无效');
+    }
+    _validateCaddyAddress(site.address);
+    _validateCaddyUpstreams(site.upstreams);
+  }
+
+  static void _validateCaddyAddress(String value) {
+    final address = value.trim();
+    if (address.isEmpty ||
+        address.length > 255 ||
+        address.contains(RegExp(r'[\s{}#;]'))) {
+      throw const FormatException('请输入有效的站点地址');
+    }
+  }
+
+  static void _validateCaddyUpstreams(List<String> values) {
+    if (values.isEmpty || values.length > 16) {
+      throw const FormatException('请至少填写一个有效的上游地址');
+    }
+    for (final value in values) {
+      final upstream = value.trim();
+      if (upstream.isEmpty ||
+          upstream.length > 512 ||
+          upstream.contains(RegExp(r'[\s{}#;]'))) {
+        throw const FormatException('请至少填写一个有效的上游地址');
+      }
+    }
+  }
 }
 
 bool isTmuxCommandMissing(String message, {int? exitCode}) {
@@ -1288,6 +1590,23 @@ const _processListCommand =
 
 const _serviceListMarker = '__NETCATTY_SERVICE_METADATA__';
 final _validServiceName = RegExp(r'^[a-zA-Z0-9_.:@+\-]{1,160}$');
+final _validCaddyId = RegExp(r'^[a-z0-9][a-z0-9-]{0,63}$');
+final _caddyBeginPattern = RegExp(
+  r'^# netcatty-begin: ([a-z0-9][a-z0-9-]{0,63})$',
+);
+final _caddyEndPattern = RegExp(
+  r'^# netcatty-end: ([a-z0-9][a-z0-9-]{0,63})$',
+);
+const _caddyAddressPrefix = '# netcatty-address: ';
+const _caddyUpstreamsPrefix = '# netcatty-upstreams: ';
+
+const _caddyStatusCommand =
+    'if ! command -v caddy >/dev/null 2>&1; then printf "missing\\n"; exit 0; fi; '
+    'version=\$(caddy version 2>/dev/null | head -n 1 || true); config=""; '
+    'for candidate in "\${CADDYFILE:-}" /etc/caddy/Caddyfile /usr/local/etc/caddy/Caddyfile; do '
+    '[ -n "\$candidate" ] && [ -f "\$candidate" ] && { config="\$candidate"; break; }; done; '
+    '[ -n "\$config" ] || config=/etc/caddy/Caddyfile; '
+    'printf "installed\\n%s\\n%s\\n" "\$version" "\$config"';
 const _systemdServiceListCommand =
     "LC_ALL=C systemctl list-units --all --type=service --no-legend --no-pager --plain 2>/dev/null; printf '\\n$_serviceListMarker\\n'; LC_ALL=C systemctl list-unit-files --type=service --no-legend --no-pager 2>/dev/null";
 const _openRcServiceListCommand =

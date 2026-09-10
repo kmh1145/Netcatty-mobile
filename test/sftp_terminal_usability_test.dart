@@ -550,6 +550,54 @@ void main() {
     expect(find.byTooltip('画中画'), findsOneWidget);
   });
 
+  testWidgets(
+      'direction keys repeat while held and stop immediately on release',
+      (tester) async {
+    final sent = <String>[];
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          home: Scaffold(
+            body: TerminalSpecialKeys(
+              order: defaultTerminalQuickKeys,
+              customKeys: const [],
+              inputController: TerminalInputController(),
+              onSend: (value, {bool enter = false}) => sent.add(value),
+              onAi: _ignore,
+              onPortForward: null,
+              onSystemManagement: null,
+              pictureInPicture: false,
+              onPictureInPicture: _ignore,
+              fullscreen: false,
+              onFullscreen: _ignore,
+              split: false,
+              onSplit: null,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final up = find.text('↑');
+    final gesture = await tester.startGesture(tester.getCenter(up));
+    await tester.pump(const Duration(milliseconds: 399));
+    expect(sent, isEmpty);
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(sent, ['\x1b[A']);
+    await tester.pump(const Duration(milliseconds: 210));
+    expect(sent.length, greaterThanOrEqualTo(4));
+
+    final repeatedCount = sent.length;
+    await gesture.up();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 210));
+    expect(sent.length, repeatedCount);
+
+    await tester.tap(up);
+    await tester.pump();
+    expect(sent.length, repeatedCount + 1);
+  });
+
   test('terminal PiP text keeps only the most recent visible lines', () {
     final terminal = Terminal(maxLines: 100);
     terminal.write('one\r\ntwo\r\nthree\r\nfour');

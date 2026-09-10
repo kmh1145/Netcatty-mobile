@@ -90,7 +90,9 @@ Netcatty-mobile/
 | `storage/background_image_service.dart` | 自定义背景复制、便携路径引用、旧 App 容器绝对路径迁移和清理 |
 | `storage/vault_export_service.dart` | 保险库 JSON 选择路径、保存和取消处理 |
 | `sync/netcatty_crypto.dart` | 桌面兼容 PBKDF2 + AES-GCM 加密格式 |
-| `sync/cloud_sync_service.dart` | WebDAV/Gist/S3 统一立即/自动同步、加密共同 base、条件写入与 Gist 发现 |
+| `sync/cloud_sync_service.dart` | WebDAV/Gist/S3 读写与回读验证、加密基线/待确认副本、Gist 发现；返回结果由统一协调器应用 |
+| `sync/convergent_sync_adapter.dart` | 桌面 v2 副本的增量写入、因果寄存器合并、物化与格式一致性验证 |
+| `sync/sync_safety.dart` | 与桌面端相同的数据异常缩减保护 |
 | `sync/vault_merge_service.dart` | 与桌面端一致的 base/local/remote 三方合并、删除墓碑、同步投影与本地遥测保留 |
 | `sync/github_auth_service.dart` | GitHub OAuth Device Flow、轮询、网络重试和用户信息读取 |
 | `http_client_provider.dart` | 共享 HTTP Client、统一请求超时和连接复用 |
@@ -135,12 +137,13 @@ Netcatty-mobile/
 
 ```text
 presentation/widgets/system_management/
-├─ system_management_sheet.dart   进程 / Docker / 服务 / tmux 顶层 Tab
+├─ system_management_sheet.dart   进程 / Docker / 服务 / Caddy / tmux 顶层 Tab
 ├─ process_manager_panel.dart      进程筛选、排序、详情与信号操作
 ├─ docker_manager_panel.dart       容器 / 镜像管理
 ├─ docker_compose_panel.dart       Compose 项目与常用操作
 ├─ docker_image_badge.dart         镜像品牌识别与图标
 ├─ service_manager_panel.dart      systemd / OpenRC 服务筛选与操作
+├─ caddy_manager_panel.dart        Caddy 检测、反向代理站点增删改与安全重载
 ├─ management_filter_chip.dart     系统管理页共用状态筛选标签
 └─ tmux_manager_panel.dart         Session / Window / Client 管理
 ```
@@ -190,6 +193,8 @@ assets/
 ## Tests
 
 `test/` 中每个文件对应一个边界：
+
+公共合成样例放在 `test/fixtures/`，不重复维护同一桌面端 v2 JSON，也不存放真实保险库或凭据。快速协议测试与较慢的网络/加密测试分层运行，详见 [DEVELOPMENT.md](DEVELOPMENT.md)。
 
 - 模型与 Vault 无损往返
 - 桌面端加密兼容

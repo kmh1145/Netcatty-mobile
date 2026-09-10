@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:netcatty_mobile/presentation/localization/localized_widgets.dart';
 import 'package:flutter/services.dart';
@@ -47,6 +49,17 @@ class TerminalSpecialKeys extends ConsumerStatefulWidget {
 }
 
 class _TerminalSpecialKeysState extends ConsumerState<TerminalSpecialKeys> {
+  Timer? _repeatDelay;
+  Timer? _repeatTimer;
+  int? _repeatPointer;
+  bool _suppressNextTap = false;
+
+  @override
+  void dispose() {
+    _stopRepeating(clearTapSuppression: true);
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     final definitions = <String, _QuickKey>{
@@ -201,36 +214,92 @@ class _TerminalSpecialKeysState extends ConsumerState<TerminalSpecialKeys> {
     return Semantics(
       button: true,
       selected: selected,
-      child: TextButton(
-        onPressed: () => _press(key),
-        style: TextButton.styleFrom(
-          minimumSize: Size.zero,
-          padding: const EdgeInsets.symmetric(horizontal: 4),
-          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          backgroundColor:
-              selected ? Theme.of(context).colorScheme.primaryContainer : null,
-          foregroundColor: selected
-              ? Theme.of(context).colorScheme.onPrimaryContainer
-              : Theme.of(context).colorScheme.onSurface,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(7),
+      child: Listener(
+        behavior: HitTestBehavior.opaque,
+        onPointerDown: key.repeatable
+            ? (event) => _startRepeating(event.pointer, key)
+            : null,
+        onPointerUp:
+            key.repeatable ? (event) => _endRepeating(event.pointer) : null,
+        onPointerCancel:
+            key.repeatable ? (event) => _endRepeating(event.pointer) : null,
+        child: TextButton(
+          onPressed: () => _handleTap(key),
+          style: TextButton.styleFrom(
+            minimumSize: Size.zero,
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            backgroundColor: selected
+                ? Theme.of(context).colorScheme.primaryContainer
+                : null,
+            foregroundColor: selected
+                ? Theme.of(context).colorScheme.onPrimaryContainer
+                : Theme.of(context).colorScheme.onSurface,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(7),
+            ),
           ),
-        ),
-        child: key.icon == null
-            ? FittedBox(
-                fit: BoxFit.scaleDown,
-                child: LText(
-                  key.label,
-                  maxLines: 1,
-                  textAlign: TextAlign.center,
+          child: key.icon == null
+              ? FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: LText(
+                    key.label,
+                    maxLines: 1,
+                    textAlign: TextAlign.center,
+                  ),
+                )
+              : Tooltip(
+                  message: key.label,
+                  child: Icon(key.icon, size: 20),
                 ),
-              )
-            : Tooltip(
-                message: key.label,
-                child: Icon(key.icon, size: 20),
-              ),
+        ),
       ),
     );
+  }
+
+  void _handleTap(_QuickKey key) {
+    if (key.repeatable && _suppressNextTap) {
+      _suppressNextTap = false;
+      return;
+    }
+    _press(key);
+  }
+
+  void _startRepeating(int pointer, _QuickKey key) {
+    if (_repeatPointer != null) return;
+    _repeatPointer = pointer;
+    _repeatDelay = Timer(const Duration(milliseconds: 400), () {
+      if (!mounted || _repeatPointer != pointer) return;
+      _suppressNextTap = true;
+      _press(key);
+      _repeatTimer = Timer.periodic(
+        const Duration(milliseconds: 70),
+        (_) {
+          if (mounted && _repeatPointer == pointer) _press(key);
+        },
+      );
+    });
+  }
+
+  void _endRepeating(int pointer) {
+    if (_repeatPointer != pointer) return;
+    final suppressTap = _suppressNextTap;
+    _stopRepeating(clearTapSuppression: false);
+    if (suppressTap) {
+      // TextButton resolves its tap after the pointer-up dispatch. Clear the
+      // guard on the next event-loop turn in case the long press was cancelled
+      // and no tap callback is produced.
+      Timer.run(() => _suppressNextTap = false);
+    }
+  }
+
+  void _stopRepeating({required bool clearTapSuppression}) {
+    _repeatDelay?.cancel();
+    _repeatTimer?.cancel();
+    _repeatDelay = null;
+    _repeatTimer = null;
+    _repeatPointer = null;
+    if (clearTapSuppression) _suppressNextTap = false;
   }
 
   Future<void> _press(_QuickKey key) async {
@@ -464,6 +533,7 @@ class _QuickKey {
     this.type = _QuickKeyType.text,
     this.modifierId,
     this.icon,
+    this.repeatable = false,
   });
 
   final String label;
@@ -471,6 +541,7 @@ class _QuickKey {
   final _QuickKeyType type;
   final String? modifierId;
   final IconData? icon;
+  final bool repeatable;
 }
 
 const _quickKeys = <String, _QuickKey>{
@@ -494,10 +565,10 @@ const _quickKeys = <String, _QuickKey>{
     modifierId: 'shift',
   ),
   'tab': _QuickKey('Tab', '\t'),
-  'arrowUp': _QuickKey('↑', '\x1b[A'),
-  'arrowDown': _QuickKey('↓', '\x1b[B'),
-  'arrowLeft': _QuickKey('←', '\x1b[D'),
-  'arrowRight': _QuickKey('→', '\x1b[C'),
+  'arrowUp': _QuickKey('↑', '\x1b[A', repeatable: true),
+  'arrowDown': _QuickKey('↓', '\x1b[B', repeatable: true),
+  'arrowLeft': _QuickKey('←', '\x1b[D', repeatable: true),
+  'arrowRight': _QuickKey('→', '\x1b[C', repeatable: true),
   'home': _QuickKey('Home', '\x1b[H'),
   'end': _QuickKey('End', '\x1b[F'),
   'paste': _QuickKey(
