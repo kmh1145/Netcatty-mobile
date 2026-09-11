@@ -179,7 +179,9 @@ class _TerminalPane extends StatefulWidget {
 }
 
 class _TerminalPaneState extends State<_TerminalPane> {
-  final _controller = TerminalController();
+  final _controller = TerminalController(
+    pointerInputs: const PointerInputs({PointerInput.scroll}),
+  );
   var _terminalViewKey = GlobalKey<TerminalViewState>();
   final _terminalStackKey = GlobalKey();
   final _scrollController = ScrollController();
@@ -225,6 +227,10 @@ class _TerminalPaneState extends State<_TerminalPane> {
   }
 
   void _onTerminalChanged() {
+    if (_controller.selection != null &&
+        _controller.selectionFor(widget.session.terminal.buffer) == null) {
+      _controller.clearSelection();
+    }
     if (!widget.pictureInPicture || _pictureInPictureUpdateTimer != null) {
       return;
     }
@@ -287,7 +293,9 @@ class _TerminalPaneState extends State<_TerminalPane> {
       child: AnimatedBuilder(
         animation: Listenable.merge([_controller, _scrollController]),
         builder: (context, _) {
-          final selection = _controller.selection?.normalized;
+          final selection = _controller
+              .selectionFor(widget.session.terminal.buffer)
+              ?.normalized;
           final startHandle = selection == null
               ? null
               : _selectionHandlePosition(selection.begin);
@@ -299,25 +307,37 @@ class _TerminalPaneState extends State<_TerminalPane> {
             fit: StackFit.expand,
             clipBehavior: Clip.none,
             children: [
-              TerminalView(
-                widget.session.terminal,
-                key: _terminalViewKey,
-                controller: _controller,
-                scrollController: _scrollController,
-                theme: terminalTheme,
-                backgroundOpacity: widget.transparentBackground ? 0 : 1,
-                keyboardAppearance: Theme.of(context).brightness,
-                keyboardType: widget.secureKeyboard
-                    ? TextInputType.visiblePassword
-                    : TextInputType.emailAddress,
-                deleteDetection: true,
-                autofocus: !widget.pictureInPicture,
-                padding: const EdgeInsets.all(8),
-                textStyle: TerminalStyle(
-                  fontSize: widget.fontSize,
-                  fontFamily: 'monospace',
-                ),
-              ),
+              Listener(
+                  onPointerDown: (event) {
+                    // Touch belongs to local selection; only physical mouse
+                    // clicks should be forwarded to tmux/TUI applications.
+                    _controller.setPointerInputs(PointerInputs({
+                      PointerInput.scroll,
+                      if (event.kind == PointerDeviceKind.mouse)
+                        PointerInput.tap,
+                    }));
+                  },
+                  child: TerminalView(
+                    widget.session.terminal,
+                    // Never turn a finger swipe into shell history navigation.
+                    simulateScroll: false,
+                    key: _terminalViewKey,
+                    controller: _controller,
+                    scrollController: _scrollController,
+                    theme: terminalTheme,
+                    backgroundOpacity: widget.transparentBackground ? 0 : 1,
+                    keyboardAppearance: Theme.of(context).brightness,
+                    keyboardType: widget.secureKeyboard
+                        ? TextInputType.visiblePassword
+                        : TextInputType.emailAddress,
+                    deleteDetection: true,
+                    autofocus: !widget.pictureInPicture,
+                    padding: const EdgeInsets.all(8),
+                    textStyle: TerminalStyle(
+                      fontSize: widget.fontSize,
+                      fontFamily: 'monospace',
+                    ),
+                  )),
               if (!widget.pictureInPicture && startHandle != null)
                 _TerminalSelectionHandle(
                   key: const ValueKey('terminal-selection-handle-start'),
@@ -438,7 +458,7 @@ class _TerminalPaneState extends State<_TerminalPane> {
   }
 
   Future<void> _copySelection() async {
-    final selection = _controller.selection;
+    final selection = _controller.selectionFor(widget.session.terminal.buffer);
     if (selection == null) return;
     final text = widget.session.terminal.buffer.getText(selection);
     if (text.isEmpty) return;

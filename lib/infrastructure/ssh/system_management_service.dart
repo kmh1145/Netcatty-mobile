@@ -964,7 +964,9 @@ class SystemManagementService {
       ).then((_) {});
 
   String tmuxAttachCommand(String name) =>
-      'tmux attach-session -t ${shellQuote(name)}';
+      'tmux set-option -t ${shellQuote('=$name')} mouse on '
+      r'\; '
+      'attach-session -t ${shellQuote('=$name')}';
 
   Future<_RemoteResult> _executeTmuxSession(
     ActiveTerminalSession session,

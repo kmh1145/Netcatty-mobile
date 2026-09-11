@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:netcatty_mobile/application/session_controller.dart';
@@ -311,6 +312,49 @@ void main() {
         find.byKey(const ValueKey('copy-terminal-selection')),
         findsOneWidget,
       );
+
+      // tmux uses the alternate screen. A swipe must never become arrow keys,
+      // including when the remote application has not enabled mouse reporting.
+      final sent = <String>[];
+      existing.terminal.onOutput = sent.add;
+      existing.terminal.write('\x1b[?1049h\x1b[Halpha beta gamma');
+      await tester.pump();
+      sent.clear();
+      await tester.drag(find.byType(TerminalView), const Offset(0, -100));
+      await tester.pump();
+      expect(sent, isEmpty);
+
+      // With tmux mouse reporting enabled, scroll events still reach tmux,
+      // but touching text does not send a remote click that disrupts selection.
+      existing.terminal.write('\x1b[?1000h\x1b[?1006h');
+      await tester.pump();
+      await tester.drag(find.byType(TerminalView), const Offset(0, -100));
+      await tester.pump();
+      expect(sent, isNotEmpty);
+      expect(sent.every((event) => event.startsWith('\x1b[<')), isTrue);
+      sent.clear();
+      await tester.longPressAt(wordPosition);
+      await tester.pump();
+      expect(sent, isEmpty);
+      expect(find.byKey(const ValueKey('copy-terminal-selection')),
+          findsOneWidget);
+      String? copiedText;
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async {
+          if (call.method == 'Clipboard.setData') {
+            copiedText = (call.arguments as Map)['text'] as String;
+          }
+          return null;
+        },
+      );
+      addTearDown(() => tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null));
+      await tester.tap(find.byKey(const ValueKey('copy-terminal-selection')));
+      await tester.pump();
+      expect(copiedText, 'alpha');
+      existing.terminal.write('\x1b[?1000l\x1b[?1006l\x1b[?1049l');
+      await tester.pump();
 
       expect(
         find.byKey(const ValueKey('terminal-tab-strip')),
