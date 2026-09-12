@@ -328,14 +328,22 @@ void main() {
       // but touching text does not send a remote click that disrupts selection.
       existing.terminal.write('\x1b[?1000h\x1b[?1006h');
       await tester.pump();
+      final viewBeforeScroll =
+          tester.widget<TerminalView>(find.byType(TerminalView));
       await tester.drag(find.byType(TerminalView), const Offset(0, -100));
       await tester.pump();
+      expect(tester.widget<TerminalView>(find.byType(TerminalView)),
+          same(viewBeforeScroll));
       expect(sent, isNotEmpty);
       expect(sent.every((event) => event.startsWith('\x1b[<')), isTrue);
       expect(
           find.byKey(const ValueKey('terminal-copy-snapshot')), findsNothing);
       sent.clear();
-      await tester.longPressAt(wordPosition);
+      final hold = await tester.startGesture(wordPosition);
+      await tester.pump(const Duration(milliseconds: 200));
+      existing.terminal.write('\x1b[Halpha beta updated');
+      await tester.pump(const Duration(milliseconds: 400));
+      await hold.up();
       await tester.pumpAndSettle();
       expect(sent, isEmpty);
       expect(find.byKey(const ValueKey('copy-terminal-selection')),
@@ -356,7 +364,8 @@ void main() {
           find.byKey(const ValueKey('terminal-copy-snapshot')));
       expect(snapshot.readOnly, isTrue);
       final captured = snapshot.controller!.text;
-      expect(captured, contains('alpha beta gamma'));
+      // Snapshot is captured after recognizing a hold, not on every touch-down.
+      expect(captured, contains('alpha beta updated'));
       // A tmux redraw must not change the text being selected/copied.
       existing.terminal.write('\x1b[2J\x1b[Hnew tmux output');
       await tester.pump();

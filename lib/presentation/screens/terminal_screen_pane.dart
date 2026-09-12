@@ -303,7 +303,8 @@ class _TerminalPaneState extends State<_TerminalPane> {
       color: paneBackground,
       child: AnimatedBuilder(
         animation: Listenable.merge([_controller, _scrollController]),
-        builder: (context, _) {
+        child: _terminalContent(terminalTheme),
+        builder: (context, terminalContent) {
           final selection = _controller
               .selectionFor(widget.session.terminal.buffer)
               ?.normalized;
@@ -318,55 +319,7 @@ class _TerminalPaneState extends State<_TerminalPane> {
             fit: StackFit.expand,
             clipBehavior: Clip.none,
             children: [
-              Listener(
-                  onPointerDown: (event) {
-                    // Touch belongs to local selection; only physical mouse
-                    // clicks should be forwarded to tmux/TUI applications.
-                    _controller.setPointerInputs(PointerInputs({
-                      PointerInput.scroll,
-                      if (event.kind == PointerDeviceKind.mouse)
-                        PointerInput.tap,
-                    }));
-                    _copyHoldTimer?.cancel();
-                    if (_alternateScreen &&
-                        !widget.pictureInPicture &&
-                        event.kind == PointerDeviceKind.touch) {
-                      _copyHoldOrigin = event.position;
-                      final snapshot = widget.session.terminal.buffer.getText();
-                      _copyHoldTimer = Timer(const Duration(milliseconds: 550),
-                          () => _showCopySnapshot(snapshot));
-                    }
-                  },
-                  onPointerMove: (event) {
-                    if (_copyHoldOrigin != null &&
-                        (event.position - _copyHoldOrigin!).distance >
-                            kTouchSlop) {
-                      _copyHoldTimer?.cancel();
-                    }
-                  },
-                  onPointerUp: (_) => _copyHoldTimer?.cancel(),
-                  onPointerCancel: (_) => _copyHoldTimer?.cancel(),
-                  child: TerminalView(
-                    widget.session.terminal,
-                    // Never turn a finger swipe into shell history navigation.
-                    simulateScroll: false,
-                    key: _terminalViewKey,
-                    controller: _controller,
-                    scrollController: _scrollController,
-                    theme: terminalTheme,
-                    backgroundOpacity: widget.transparentBackground ? 0 : 1,
-                    keyboardAppearance: Theme.of(context).brightness,
-                    keyboardType: widget.secureKeyboard
-                        ? TextInputType.visiblePassword
-                        : TextInputType.emailAddress,
-                    deleteDetection: true,
-                    autofocus: !widget.pictureInPicture,
-                    padding: const EdgeInsets.all(8),
-                    textStyle: TerminalStyle(
-                      fontSize: widget.fontSize,
-                      fontFamily: 'monospace',
-                    ),
-                  )),
+              terminalContent!,
               if (!widget.pictureInPicture && startHandle != null)
                 _TerminalSelectionHandle(
                   key: const ValueKey('terminal-selection-handle-start'),
@@ -406,11 +359,63 @@ class _TerminalPaneState extends State<_TerminalPane> {
     );
   }
 
-  Future<void> _showCopySnapshot([String? snapshot]) async {
+  Widget _terminalContent(TerminalTheme theme) => Listener(
+        onPointerDown: (event) {
+          final mouse = event.kind == PointerDeviceKind.mouse;
+          // Switching input devices changes policy; repeated finger gestures do not.
+          if (_controller.pointerInput.inputs.contains(PointerInput.tap) !=
+              mouse) {
+            _controller.setPointerInputs(PointerInputs({
+              PointerInput.scroll,
+              if (mouse) PointerInput.tap,
+            }));
+          }
+          _copyHoldTimer?.cancel();
+          if (_alternateScreen &&
+              !widget.pictureInPicture &&
+              event.kind == PointerDeviceKind.touch) {
+            _copyHoldOrigin = event.position;
+            // Extract text only after the hold is recognized, never on a swipe.
+            _copyHoldTimer =
+                Timer(const Duration(milliseconds: 550), _showCopySnapshot);
+          }
+        },
+        onPointerMove: (event) {
+          if (_copyHoldOrigin != null &&
+              (event.position - _copyHoldOrigin!).distance > kTouchSlop) {
+            _copyHoldTimer?.cancel();
+            _copyHoldOrigin = null;
+          }
+        },
+        onPointerUp: (_) => _copyHoldTimer?.cancel(),
+        onPointerCancel: (_) => _copyHoldTimer?.cancel(),
+        child: RepaintBoundary(
+          child: TerminalView(
+            widget.session.terminal,
+            simulateScroll: false,
+            key: _terminalViewKey,
+            controller: _controller,
+            scrollController: _scrollController,
+            theme: theme,
+            backgroundOpacity: widget.transparentBackground ? 0 : 1,
+            keyboardAppearance: Theme.of(context).brightness,
+            keyboardType: widget.secureKeyboard
+                ? TextInputType.visiblePassword
+                : TextInputType.emailAddress,
+            deleteDetection: true,
+            autofocus: !widget.pictureInPicture,
+            padding: const EdgeInsets.all(8),
+            textStyle: TerminalStyle(
+                fontSize: widget.fontSize, fontFamily: 'monospace'),
+          ),
+        ),
+      );
+
+  Future<void> _showCopySnapshot() async {
     if (!mounted || _copySnapshotOpen) return;
     _copyHoldTimer?.cancel();
     _copySnapshotOpen = true;
-    final text = snapshot ?? widget.session.terminal.buffer.getText();
+    final text = widget.session.terminal.buffer.getText();
     try {
       await showModalBottomSheet<void>(
         context: context,
