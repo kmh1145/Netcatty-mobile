@@ -497,6 +497,8 @@ const englishTranslations = <String, String>{
   '粘贴': 'Paste',
   '复制': 'Copy',
   '已复制终端文本': 'Terminal text copied',
+  '选择并复制': 'Select and copy',
+  '复制全部': 'Copy all',
   '正在建立安全连接…': 'Establishing a secure connection…',
   '终止连接': 'Cancel connection',
   '连接已由用户终止': 'Connection cancelled by the user',

@@ -5,6 +5,26 @@ import 'package:netcatty_mobile/domain/models/system_management.dart';
 import 'package:netcatty_mobile/infrastructure/ssh/system_management_service.dart';
 
 void main() {
+  test(
+      'tmux attach enables only target session mouse support with exact target',
+      () {
+    final command = SystemManagementService().tmuxAttachCommand('work');
+    expect(command,
+        "tmux set-option -t '=work:' mouse on \\; attach-session -t '=work:'");
+    expect(command, isNot(contains(' -g ')));
+    expect(command, isNot(contains('.tmux.conf')));
+  });
+  test('tmux attach disambiguates session names from pane and window targets',
+      () {
+    final service = SystemManagementService();
+    for (final name in ['nq', '0', 'work', 'work-long', 'two words']) {
+      final command = service.tmuxAttachCommand(name);
+      expect(command,
+          "tmux set-option -t '=$name:' mouse on \\; attach-session -t '=$name:'");
+    }
+    final quoted = service.tmuxAttachCommand("user's session");
+    expect(quoted, contains("'=user'\\''s session:'"));
+  });
   late SystemManagementService service;
 
   setUp(() => service = SystemManagementService());

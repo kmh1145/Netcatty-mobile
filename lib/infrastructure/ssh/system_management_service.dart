@@ -963,8 +963,15 @@ class SystemManagementService {
         'tmux kill-session -t ${shellQuote(name)}',
       ).then((_) {});
 
-  String tmuxAttachCommand(String name) =>
-      'tmux attach-session -t ${shellQuote(name)}';
+  String tmuxAttachCommand(String name) {
+    // set-option resolves a target-pane, not a target-session. The colon is
+    // essential: without it "=name" is parsed as a pane/window name and the
+    // exact-session marker is never stripped before the session fallback.
+    final target = shellQuote('=$name:');
+    return 'tmux set-option -t $target mouse on '
+        r'\; '
+        'attach-session -t $target';
+  }
 
   Future<_RemoteResult> _executeTmuxSession(
     ActiveTerminalSession session,
