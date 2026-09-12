@@ -332,9 +332,11 @@ void main() {
       await tester.pump();
       expect(sent, isNotEmpty);
       expect(sent.every((event) => event.startsWith('\x1b[<')), isTrue);
+      expect(
+          find.byKey(const ValueKey('terminal-copy-snapshot')), findsNothing);
       sent.clear();
       await tester.longPressAt(wordPosition);
-      await tester.pump();
+      await tester.pumpAndSettle();
       expect(sent, isEmpty);
       expect(find.byKey(const ValueKey('copy-terminal-selection')),
           findsOneWidget);
@@ -350,9 +352,33 @@ void main() {
       );
       addTearDown(() => tester.binding.defaultBinaryMessenger
           .setMockMethodCallHandler(SystemChannels.platform, null));
-      await tester.tap(find.byKey(const ValueKey('copy-terminal-selection')));
+      final snapshot = tester.widget<TextField>(
+          find.byKey(const ValueKey('terminal-copy-snapshot')));
+      expect(snapshot.readOnly, isTrue);
+      final captured = snapshot.controller!.text;
+      expect(captured, contains('alpha beta gamma'));
+      // A tmux redraw must not change the text being selected/copied.
+      existing.terminal.write('\x1b[2J\x1b[Hnew tmux output');
       await tester.pump();
+      expect(snapshot.controller!.text, captured);
+      snapshot.controller!.selection =
+          const TextSelection(baseOffset: 0, extentOffset: 5);
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('copy-terminal-snapshot')));
+      await tester.pumpAndSettle();
       expect(copiedText, 'alpha');
+      // Explicit entry also works without an xterm selection, and supports copy all.
+      await tester.tap(find.byKey(const ValueKey('copy-terminal-selection')));
+      await tester.pumpAndSettle();
+      final updated = tester
+          .widget<TextField>(
+              find.byKey(const ValueKey('terminal-copy-snapshot')))
+          .controller!
+          .text;
+      expect(updated, contains('new tmux output'));
+      await tester.tap(find.byKey(const ValueKey('copy-terminal-snapshot')));
+      await tester.pumpAndSettle();
+      expect(copiedText, updated);
       existing.terminal.write('\x1b[?1000l\x1b[?1006l\x1b[?1049l');
       await tester.pump();
 

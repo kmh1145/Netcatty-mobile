@@ -187,10 +187,15 @@ class _TerminalPaneState extends State<_TerminalPane> {
   final _scrollController = ScrollController();
   Offset? _dragPointerToAnchor;
   Timer? _pictureInPictureUpdateTimer;
+  Timer? _copyHoldTimer;
+  Offset? _copyHoldOrigin;
+  bool _copySnapshotOpen = false;
+  late bool _alternateScreen;
 
   @override
   void initState() {
     super.initState();
+    _alternateScreen = widget.session.terminal.isUsingAltBuffer;
     widget.session.terminal.addListener(_onTerminalChanged);
     if (widget.pictureInPicture) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _sendPipUpdate());
@@ -221,12 +226,18 @@ class _TerminalPaneState extends State<_TerminalPane> {
   void dispose() {
     widget.session.terminal.removeListener(_onTerminalChanged);
     _pictureInPictureUpdateTimer?.cancel();
+    _copyHoldTimer?.cancel();
     _controller.dispose();
     _scrollController.dispose();
     super.dispose();
   }
 
   void _onTerminalChanged() {
+    final alternate = widget.session.terminal.isUsingAltBuffer;
+    if (alternate != _alternateScreen) {
+      _copyHoldTimer?.cancel();
+      setState(() => _alternateScreen = alternate);
+    }
     if (_controller.selection != null &&
         _controller.selectionFor(widget.session.terminal.buffer) == null) {
       _controller.clearSelection();
@@ -316,7 +327,25 @@ class _TerminalPaneState extends State<_TerminalPane> {
                       if (event.kind == PointerDeviceKind.mouse)
                         PointerInput.tap,
                     }));
+                    _copyHoldTimer?.cancel();
+                    if (_alternateScreen &&
+                        !widget.pictureInPicture &&
+                        event.kind == PointerDeviceKind.touch) {
+                      _copyHoldOrigin = event.position;
+                      final snapshot = widget.session.terminal.buffer.getText();
+                      _copyHoldTimer = Timer(const Duration(milliseconds: 550),
+                          () => _showCopySnapshot(snapshot));
+                    }
                   },
+                  onPointerMove: (event) {
+                    if (_copyHoldOrigin != null &&
+                        (event.position - _copyHoldOrigin!).distance >
+                            kTouchSlop) {
+                      _copyHoldTimer?.cancel();
+                    }
+                  },
+                  onPointerUp: (_) => _copyHoldTimer?.cancel(),
+                  onPointerCancel: (_) => _copyHoldTimer?.cancel(),
                   child: TerminalView(
                     widget.session.terminal,
                     // Never turn a finger swipe into shell history navigation.
@@ -356,13 +385,16 @@ class _TerminalPaneState extends State<_TerminalPane> {
                   onPanUpdate: (details) => _updateHandleDrag(false, details),
                   onPanEnd: _endHandleDrag,
                 ),
-              if (!widget.pictureInPicture && selection != null)
+              if (!widget.pictureInPicture &&
+                  (selection != null || _alternateScreen))
                 Positioned(
                   top: 10,
                   right: 10,
                   child: FilledButton.tonalIcon(
                     key: const ValueKey('copy-terminal-selection'),
-                    onPressed: _copySelection,
+                    onPressed: _alternateScreen
+                        ? () => _showCopySnapshot()
+                        : _copySelection,
                     icon: const Icon(Icons.copy_outlined, size: 18),
                     label: const LText('复制'),
                   ),
@@ -372,6 +404,23 @@ class _TerminalPaneState extends State<_TerminalPane> {
         },
       ),
     );
+  }
+
+  Future<void> _showCopySnapshot([String? snapshot]) async {
+    if (!mounted || _copySnapshotOpen) return;
+    _copyHoldTimer?.cancel();
+    _copySnapshotOpen = true;
+    final text = snapshot ?? widget.session.terminal.buffer.getText();
+    try {
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        builder: (_) => _TerminalCopySheet(text: text),
+      );
+    } finally {
+      _copySnapshotOpen = false;
+    }
   }
 
   Offset? _selectionHandlePosition(CellOffset offset) {
@@ -472,6 +521,70 @@ class _TerminalPaneState extends State<_TerminalPane> {
       ),
     );
   }
+}
+
+class _TerminalCopySheet extends StatefulWidget {
+  const _TerminalCopySheet({required this.text});
+  final String text;
+  @override
+  State<_TerminalCopySheet> createState() => _TerminalCopySheetState();
+}
+
+class _TerminalCopySheetState extends State<_TerminalCopySheet> {
+  late final _text = TextEditingController(text: widget.text);
+  @override
+  void dispose() {
+    _text.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => FractionallySizedBox(
+        heightFactor: .8,
+        child: Column(children: [
+          Row(children: [
+            const SizedBox(width: 16),
+            const Expanded(child: LText('选择并复制')),
+            ValueListenableBuilder<TextEditingValue>(
+              valueListenable: _text,
+              builder: (_, value, child) => TextButton(
+                key: const ValueKey('copy-terminal-snapshot'),
+                onPressed: () async {
+                  final selection = value.selection;
+                  final text = selection.isValid && !selection.isCollapsed
+                      ? selection.textInside(value.text)
+                      : value.text;
+                  await Clipboard.setData(ClipboardData(text: text));
+                  if (context.mounted) Navigator.pop(context);
+                },
+                child: LText(
+                    value.selection.isValid && !value.selection.isCollapsed
+                        ? '复制'
+                        : '复制全部'),
+              ),
+            ),
+            IconButton(
+                tooltip: localized('关闭'),
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.close)),
+          ]),
+          Expanded(
+              child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: TextField(
+              key: const ValueKey('terminal-copy-snapshot'),
+              controller: _text,
+              readOnly: true,
+              showCursor: false,
+              expands: true,
+              maxLines: null,
+              minLines: null,
+              style: const TextStyle(fontFamily: 'monospace'),
+              decoration: const InputDecoration(border: InputBorder.none),
+            ),
+          )),
+        ]),
+      );
 }
 
 class _TerminalSelectionHandle extends StatelessWidget {
