@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -11,6 +12,110 @@ import 'package:netcatty_mobile/infrastructure/ai/ai_workspace.dart';
 import 'package:netcatty_mobile/presentation/widgets/ai_chat_sheet.dart';
 
 void main() {
+  testWidgets('preview shows only filtered terminal content and saves edits',
+      (tester) async {
+    String? sent;
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: _testSheet(
+      settings: const AppSettings(aiIncludeTerminalContext: true),
+      initialSummary: 'old-summary',
+      initialMessages: const [
+        AiChatMessage(role: AiChatRole.user, content: 'old-history')
+      ],
+      terminalContext: () => 'terminal-output token=secret123',
+      service: AiService(client: MockClient((r) async {
+        sent = r.body;
+        return _chatResponse('ok');
+      })),
+    ))));
+    await tester.enterText(
+        find.byKey(const ValueKey('ai-chat-input')), 'new-question');
+    await tester.tap(find.byTooltip('服务商与预览'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('预览 / 编辑发送内容'));
+    await tester.pumpAndSettle();
+    final field = find.byKey(const ValueKey('ai-terminal-preview'));
+    final value = tester.widget<TextField>(field).controller!.text;
+    expect(value, contains('terminal-output'));
+    expect(value, isNot(contains('secret123')));
+    final dialogText = tester
+        .widgetList<Text>(find.descendant(
+            of: find.byType(AlertDialog), matching: find.byType(Text)))
+        .map((w) => w.data ?? '')
+        .join('\n');
+    for (final hidden in [
+      'old-history',
+      'old-summary',
+      'new-question',
+      'test.example.com'
+    ]) {
+      expect(dialogText, isNot(contains(hidden)));
+    }
+    await tester.enterText(field, 'edited-terminal');
+    await tester.tap(find.text('完成'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('ai-chat-send')));
+    await tester.pumpAndSettle();
+    expect(sent, contains('edited-terminal'));
+    expect(sent, isNot(contains('terminal-output')));
+    await tester.pump(const Duration(seconds: 1));
+  });
+
+  testWidgets('disabled preview does not read terminal text', (tester) async {
+    var reads = 0;
+    await tester.pumpWidget(MaterialApp(home: Scaffold(body: _testSheet(
+      terminalContext: () {
+        reads++;
+        return 'private';
+      },
+    ))));
+    await tester.tap(find.byTooltip('服务商与预览'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('预览 / 编辑发送内容'));
+    await tester.pumpAndSettle();
+    expect(reads, 0);
+    expect(find.byKey(const ValueKey('ai-terminal-preview')), findsNothing);
+    await tester.tap(find.text('完成'));
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 1));
+  });
+
+  for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+    testWidgets('chat selection uses built-in copy menu on $platform',
+        (tester) async {
+      String? copied;
+      tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        if (call.method == 'Clipboard.setData') {
+          copied = (call.arguments as Map)['text'] as String;
+        }
+        return null;
+      });
+      addTearDown(() => tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null));
+      await tester.pumpWidget(MaterialApp(
+          theme: ThemeData(platform: platform),
+          home: Scaffold(
+              body: _testSheet(
+            initialMessages: const [
+              AiChatMessage(
+                  role: AiChatRole.assistant,
+                  content: 'Selectable reply',
+                  command: 'pwd')
+            ],
+          ))));
+      await tester.longPress(find.text('Selectable reply'));
+      await tester.pumpAndSettle();
+      expect(find.text('Copy'), findsOneWidget);
+      await tester.tap(find.text('Copy'));
+      await tester.pumpAndSettle();
+      expect(copied, isNotEmpty);
+      expect('Selectable reply', contains(copied!));
+      expect(find.byKey(const ValueKey('ai-command-copy')), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  }
   testWidgets(
       'upload selector shares the model row on a narrow screen and persists',
       (tester) async {
@@ -417,6 +522,7 @@ void main() {
 }
 
 AiChatSheet _testSheet({
+  String initialSummary = '',
   List<AiChatMessage> initialMessages = const [],
   AppSettings settings = const AppSettings(),
   AiService? service,
@@ -448,6 +554,7 @@ AiChatSheet _testSheet({
               MockClient((_) async => http.Response('unexpected request', 500)),
         ),
     initialMessages: initialMessages,
+    initialSummary: initialSummary,
     onMessagesChanged: onMessagesChanged ?? (_) {},
     terminalContext: terminalContext ?? () => 'recent terminal output',
     onModelChanged: onModelChanged ?? (_) async {},

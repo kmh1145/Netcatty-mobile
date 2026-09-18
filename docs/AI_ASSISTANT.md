@@ -8,6 +8,9 @@
 - 拖动聊天面板顶部可展开至全屏；模型、思考强度和终端输出上传开关位于输入框上方同一行。
 - 更多菜单可切换服务商、调整隐私、预览和编辑终端上下文、读取终端并分析。切换服务商前提示现有历史也会发送给新服务商。
 - 支持流式回复、停止、JSON/带说明的 JSON/命令数组/Shell Markdown 代码块识别。常见无语言代码块和明确标注的行内命令保守识别；配置代码和普通输出不作为命令。未完整接收的回复不会生成执行按钮。
+- AI 回复支持 Markdown 标题、强调、列表、引用、表格、链接和代码块。代码按语言标记高亮，深浅主题自适应；未知语言与超过 20000 字符的代码块回退为纯文本。聊天和代码均使用标准选择复制菜单，不增加独立复制按钮。用户输入保持原文。
+- Markdown 图片只展示说明，不自动加载远程图片；链接只允许 HTTP/HTTPS，打开前展示地址并确认。渲染不执行 HTML 或代码，也不改变原有命令确认流程。
+- “发送内容预览”仅展示可编辑的、经过隐私处理的终端上下文，不展示历史、摘要或当前问题；只是简化预览，对话请求仍保留聊天上下文。
 
 ## 执行与输出边界
 
@@ -36,6 +39,7 @@
 | `lib/infrastructure/ai/ai_reply_parser.dart` | 完整回复中的结构化命令与 Markdown 命令提取 |
 | `lib/infrastructure/ai/ai_workspace.dart` | 安全存储、迁移、风险确认、历史、脱敏 |
 | `lib/presentation/widgets/ai_chat_sheet.dart` | 聊天、隐私、执行确认和快照分析 |
+| `lib/presentation/widgets/ai_markdown.dart` | Markdown、可选择代码高亮、链接确认与远程图片阻止 |
 | `lib/presentation/widgets/ai_panel.dart` | 首次风险提示、面板拖动和键盘布局 |
 | `lib/presentation/widgets/ai_providers_page.dart` | 服务商新增、编辑、删除和拉取模型 |
 | `lib/presentation/screens/terminal_screen.dart` | 绑定当前终端、配置和历史加载 |
@@ -45,7 +49,7 @@
 ## 验证
 
 ```sh
-flutter test test/ai_phase_one_test.dart test/ai_refinements_test.dart test/ai_chat_service_test.dart test/ai_chat_sheet_test.dart test/ai_settings_test.dart test/terminal_ai_context_test.dart
+flutter test test/ai_phase_one_test.dart test/ai_refinements_test.dart test/ai_chat_service_test.dart test/ai_chat_sheet_test.dart test/ai_markdown_test.dart test/ai_settings_test.dart test/terminal_ai_context_test.dart
 ```
 
 发布前真机验证：第三方接口流式输出、后台/断网停止、非标准端口和跳板机、tmux 当前 pane、交互式命令、历史跨重启、窄屏与大字体、键盘及全屏拖动、拒绝上传。自动测试不使用真实付费模型或用户服务器。

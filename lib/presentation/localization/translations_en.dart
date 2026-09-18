@@ -1,4 +1,5 @@
 const englishTranslations = <String, String>{
+  '打开': 'Open',
   '完成': 'Done',
   '切换': 'Switch',
   '缺少可信同步基线，无法安全合并本地数据与云端 v2 保险库。请先导出本地备份，并在桌面端确认数据后重试；本次未写入云端':
@@ -570,6 +571,8 @@ const englishTranslations = <String, String>{
 /// Ordered fragments cover dynamic values and infrastructure errors that are
 /// ultimately rendered by a localized text widget.
 const englishReplacements = <(String, String)>[
+  ('打开链接？', 'Open link?'),
+  ('无法打开链接', 'Unable to open link'),
   (
     '终端输出上传已关闭，可通过输入框上方的按钮开启。',
     'Terminal sharing is off. Enable it using the button above the input.'

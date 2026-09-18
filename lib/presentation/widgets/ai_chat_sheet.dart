@@ -1,13 +1,13 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../../domain/models/host.dart';
 import '../../domain/models/settings.dart';
 import '../../infrastructure/ai/ai_service.dart';
 import '../../infrastructure/ai/ai_workspace.dart';
 import '../localization/localized_widgets.dart';
+import 'ai_markdown.dart';
 
 class AiChatSheet extends StatefulWidget {
   const AiChatSheet({
@@ -478,37 +478,21 @@ class _AiChatSheetState extends State<AiChatSheet> {
   }
 
   Future<void> _preview() async {
-    final contextInput = TextEditingController(
-        text: _includeContext
-            ? (_contextOverride ?? widget.terminalContext())
-            : '');
+    final contextInput = TextEditingController(text: _context);
     await showDialog<void>(
         context: context,
         builder: (dialog) => AlertDialog(
                 title: const LText('发送内容预览'),
                 content: SizedBox(
                     width: double.maxFinite,
-                    child: SingleChildScrollView(
-                        child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                          LText(
-                              '服务商：${_profile?.name ?? "默认配置"}\n${_settings.aiEndpoint}\n模型：$_selectedModel'),
-                          const LText('下方为经过隐私处理的请求数据；还会附带助手行为说明。'),
-                          LSelectableText(
-                              '服务器：$_sharedHost\n摘要：${_filter(_summary)}\n'
-                              '${_filteredHistory(_messages).map((m) => m.toApiMessage()["content"]).join("\n\n")}\n'
-                              '当前问题：${_filter(_input.text)}\n终端上下文：$_context'),
-                          if (_includeContext) ...[
-                            const Divider(),
-                            const LText('可编辑终端上下文，或替换为选中复制的文字（保存后再次预览）：'),
-                            TextField(
-                                controller: contextInput,
-                                minLines: 3,
-                                maxLines: 8),
-                          ],
-                        ]))),
+                    child: _includeContext
+                        ? TextField(
+                            key: const ValueKey('ai-terminal-preview'),
+                            controller: contextInput,
+                            minLines: 3,
+                            maxLines: 12,
+                          )
+                        : const LText('终端输出上传已关闭')),
                 actions: [
                   TextButton(
                       onPressed: () {
@@ -518,7 +502,9 @@ class _AiChatSheetState extends State<AiChatSheet> {
                       child: const LText('恢复实时上下文')),
                   FilledButton(
                       onPressed: () {
-                        setState(() => _contextOverride = contextInput.text);
+                        if (_includeContext) {
+                          setState(() => _contextOverride = contextInput.text);
+                        }
                         Navigator.pop(dialog);
                       },
                       child: const LText('完成'))
@@ -1076,7 +1062,10 @@ class _MessageBubble extends StatelessWidget {
               ),
               const SizedBox(height: 8),
             ],
-            LSelectableText(message.content),
+            if (user)
+              SelectableText(message.content)
+            else
+              AiMarkdown(message.content),
             if (message.command?.isNotEmpty == true) ...[
               const SizedBox(height: 12),
               _CommandCode(command: message.command!),
@@ -1086,17 +1075,6 @@ class _MessageBubble extends StatelessWidget {
                 spacing: 4,
                 runSpacing: 4,
                 children: [
-                  IconButton(
-                    key: const ValueKey('ai-command-copy'),
-                    tooltip: localized('复制命令'),
-                    visualDensity: VisualDensity.compact,
-                    onPressed: () async {
-                      await Clipboard.setData(
-                        ClipboardData(text: message.command!),
-                      );
-                    },
-                    icon: const Icon(Icons.copy_outlined, size: 19),
-                  ),
                   TextButton.icon(
                     key: const ValueKey('ai-command-paste'),
                     onPressed: onPaste,
@@ -1125,21 +1103,8 @@ class _CommandCode extends StatelessWidget {
   final String command;
 
   @override
-  Widget build(BuildContext context) => Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: .86),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: SelectableText(
-          command,
-          style: const TextStyle(
-            fontFamily: 'monospace',
-            color: Colors.white,
-          ),
-        ),
-      );
+  Widget build(BuildContext context) =>
+      AiCodeBlock(code: command, language: 'bash');
 }
 
 class _ThinkingBubble extends StatelessWidget {
