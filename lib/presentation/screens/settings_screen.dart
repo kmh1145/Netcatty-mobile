@@ -27,6 +27,7 @@ import '../theme.dart';
 import '../localization/localized_widgets.dart';
 import '../widgets/keychain_sheet.dart';
 import '../widgets/custom_background.dart';
+import '../widgets/ai_providers_page.dart';
 
 part 'settings_screen_dialogs.dart';
 
@@ -701,6 +702,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
               ),
               _header('Catty Agent', '使用 OpenAI 兼容接口连续对话，命令执行前始终确认'),
+              ListTile(
+                leading: const Icon(Icons.dns_outlined),
+                title: const LText('管理多个 AI 服务商'),
+                subtitle: const LText('独立地址、密钥、模型与兼容参数，仅保存在本机'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                    builder: (_) => AiProvidersPage(
+                        workspace:
+                            ref.read(vaultRepositoryProvider).aiWorkspace))),
+              ),
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(14),

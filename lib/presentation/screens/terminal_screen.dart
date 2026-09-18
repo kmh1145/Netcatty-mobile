@@ -12,7 +12,7 @@ import '../../application/home_navigation.dart';
 import '../../application/settings_controller.dart';
 import '../../application/vault_controller.dart';
 import '../../infrastructure/ai/ai_service.dart';
-import '../../infrastructure/http_client_provider.dart';
+import '../../infrastructure/ai/ai_command_executor.dart';
 import '../../infrastructure/ssh/ssh_service.dart';
 import '../../infrastructure/ssh/terminal_picture_in_picture_service.dart';
 import '../../infrastructure/storage/vault_repository.dart';
@@ -40,7 +40,6 @@ class TerminalScreen extends ConsumerStatefulWidget {
 class _TerminalScreenState extends ConsumerState<TerminalScreen> {
   var _split = false;
   StreamSubscription<bool>? _pictureInPictureSubscription;
-  final _aiMessagesBySession = <String, List<AiChatMessage>>{};
 
   @override
   void initState() {
@@ -470,7 +469,6 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
         false;
     if (!close || !mounted) return;
     await ref.read(sessionControllerProvider.notifier).close(index);
-    _aiMessagesBySession.remove(session.id);
   }
 
   Future<void> _openManagedTerminal(
@@ -493,15 +491,22 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
   }
 
   Future<void> _openAi(ActiveTerminalSession session) async {
+    // Chat needs its own idle/connect timeouts; the shared sync HTTP client
+    // intentionally imposes a shorter header timeout.
+    final service = AiService();
     try {
       final repository = ref.read(vaultRepositoryProvider);
       final settings = await repository.loadSettings();
-      final apiKey = await repository.readAiApiKey();
-      if (apiKey == null || apiKey.isEmpty) {
-        throw StateError('请先在设置中填写 AI API Key');
-      }
+      final apiKey = await repository.readAiApiKey() ?? '';
+      final workspace = repository.aiWorkspace;
+      final profiles = await workspace.profiles();
+      final activeProfile = await workspace.activeProfile();
+      final preferredModel = activeProfile == null
+          ? null
+          : await workspace.preferredModel(activeProfile);
+      final remember = await workspace.remembersHistory(session.host.id);
+      final history = await workspace.conversation(session.host.id);
       if (!mounted) return;
-      final service = AiService(client: ref.read(httpClientProvider));
       await showModalBottomSheet<void>(
         context: context,
         useSafeArea: true,
@@ -516,10 +521,18 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
               settings: settings,
               apiKey: apiKey,
               service: service,
-              initialMessages: _aiMessagesBySession[session.id] ?? const [],
-              onMessagesChanged: (messages) {
-                _aiMessagesBySession[session.id] = messages;
-              },
+              initialMessages: remember ? history.messages : const [],
+              initialSummary: remember ? history.summary : '',
+              workspace: workspace,
+              profiles: profiles,
+              initialProfileId: activeProfile,
+              initialProfileModel: preferredModel,
+              rememberHistory: remember,
+              onMessagesChanged: (_) {},
+              executeCommand: session.isSsh
+                  ? (command, token) =>
+                      executeAiCommand(session, command, token)
+                  : null,
               terminalContext: () => terminalAiContextText(session.terminal),
               onModelChanged: (model) async {
                 final current = await repository.loadSettings();
@@ -550,6 +563,8 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
           context,
         ).showSnackBar(SnackBar(content: LText('$error')));
       }
+    } finally {
+      service.close();
     }
   }
 }

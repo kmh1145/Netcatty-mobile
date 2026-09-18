@@ -7,9 +7,119 @@ import 'package:http/testing.dart';
 import 'package:netcatty_mobile/domain/models/host.dart';
 import 'package:netcatty_mobile/domain/models/settings.dart';
 import 'package:netcatty_mobile/infrastructure/ai/ai_service.dart';
+import 'package:netcatty_mobile/infrastructure/ai/ai_workspace.dart';
+import 'package:netcatty_mobile/infrastructure/ai/ai_command_executor.dart';
 import 'package:netcatty_mobile/presentation/widgets/ai_chat_sheet.dart';
 
 void main() {
+  testWidgets('declining result upload never sends output to the model',
+      (tester) async {
+    var requests = 0, executions = 0;
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: _testSheet(
+      initialMessages: const [
+        AiChatMessage(role: AiChatRole.assistant, content: '检查', command: 'pwd')
+      ],
+      executeCommand: (cmd, token) async {
+        executions++;
+        return const AiCommandResult(
+            stdout: 'private output', stderr: '', exitCode: 0);
+      },
+      service: AiService(client: MockClient((_) async {
+        requests++;
+        return _chatResponse('done');
+      })),
+    ))));
+    await tester.tap(find.byKey(const ValueKey('ai-command-execute')));
+    await tester.pumpAndSettle();
+    expect(executions, 0);
+    await tester.tap(find.widgetWithText(FilledButton, '执行').last);
+    await tester.pumpAndSettle();
+    expect(executions, 1);
+    expect(find.textContaining('private output'), findsOneWidget);
+    await tester.tap(find.text('仅查看，不上传'));
+    await tester.pumpAndSettle();
+    expect(requests, 0);
+  });
+  testWidgets('approved command results are analyzed with redaction',
+      (tester) async {
+    String? sent;
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: _testSheet(
+      initialMessages: const [
+        AiChatMessage(role: AiChatRole.assistant, content: '检查', command: 'pwd')
+      ],
+      executeCommand: (_, __) async => const AiCommandResult(
+          stdout: 'token=supersecret', stderr: 'failed', exitCode: 1),
+      service: AiService(client: MockClient((r) async {
+        sent = r.body;
+        return _chatResponse('analysis');
+      })),
+    ))));
+    await tester.tap(find.byKey(const ValueKey('ai-command-execute')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, '执行').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('发送结果并分析'));
+    await tester.pumpAndSettle();
+    expect(sent, contains('Exit code: 1'));
+    expect(sent, contains('failed'));
+    expect(sent, isNot(contains('supersecret')));
+    expect(find.text('analysis'), findsOneWidget);
+  });
+  testWidgets('summary failure does not discard existing conversation',
+      (tester) async {
+    var changes = 0;
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: _testSheet(
+      initialMessages: List.generate(
+          30, (i) => AiChatMessage(role: AiChatRole.user, content: 'old-$i')),
+      onMessagesChanged: (_) => changes++,
+      service:
+          AiService(client: MockClient((_) async => http.Response('', 500))),
+    ))));
+    await tester.enterText(
+        find.byKey(const ValueKey('ai-chat-input')), 'continue');
+    await tester.tap(find.byKey(const ValueKey('ai-chat-send')));
+    await tester.pumpAndSettle();
+    expect(changes, 0);
+    expect(find.textContaining('AI 请求失败'), findsOneWidget);
+    expect(find.text('continue'), findsOneWidget);
+  });
+  testWidgets('selected local provider controls endpoint model and parameters',
+      (tester) async {
+    late http.Request captured;
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: _testSheet(
+      profiles: const [
+        AiProviderProfile(
+            id: 'local',
+            name: 'Local',
+            endpoint: 'http://localhost:1234/v1',
+            models: ['local-model'],
+            reasoning: false)
+      ],
+      initialProfileId: 'local',
+      settings: const AppSettings(aiReasoningEffort: 'high'),
+      service: AiService(client: MockClient((r) async {
+        captured = r;
+        return _chatResponse('ok');
+      })),
+    ))));
+    await tester.enterText(
+        find.byKey(const ValueKey('ai-chat-input')), 'hello');
+    await tester.tap(find.byKey(const ValueKey('ai-chat-send')));
+    await tester.pumpAndSettle();
+    expect(captured.url.host, 'localhost');
+    expect(captured.headers.containsKey('authorization'), false);
+    final payload = jsonDecode(captured.body) as Map;
+    expect(payload['model'], 'local-model');
+    expect(payload.containsKey('reasoning_effort'), false);
+  });
   testWidgets('command actions stay bound to the displayed custom-port host',
       (tester) async {
     await tester.binding.setSurfaceSize(const Size(320, 720));
@@ -232,7 +342,7 @@ void main() {
     expect(requestBody['reasoning_effort'], 'high');
   });
 
-  testWidgets('persisted chat history is capped at 30 messages',
+  testWidgets('older chat history is summarized before the next request',
       (tester) async {
     var persisted = <AiChatMessage>[];
     final initialMessages = List<AiChatMessage>.generate(
@@ -263,8 +373,8 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('ai-chat-send')));
     await tester.pumpAndSettle();
 
-    expect(persisted, hasLength(30));
-    expect(persisted.first.content, 'old-2');
+    expect(persisted, hasLength(12));
+    expect(persisted.first.content, 'old-20');
     expect(persisted.last.content, 'new-reply');
   });
 }
@@ -277,6 +387,9 @@ AiChatSheet _testSheet({
   Future<void> Function(String model)? onModelChanged,
   Future<void> Function(String effort)? onReasoningEffortChanged,
   ValueChanged<List<AiChatMessage>>? onMessagesChanged,
+  List<AiProviderProfile> profiles = const [],
+  String? initialProfileId,
+  Future<AiCommandResult> Function(String, AiCancellation)? executeCommand,
 }) {
   return AiChatSheet(
     host: HostProfile.create(
@@ -287,6 +400,9 @@ AiChatSheet _testSheet({
       port: 2222,
     ),
     settings: settings,
+    profiles: profiles,
+    initialProfileId: initialProfileId,
+    executeCommand: executeCommand,
     apiKey: 'unused',
     service: service ??
         AiService(
