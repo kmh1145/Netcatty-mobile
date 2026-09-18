@@ -84,7 +84,7 @@ class _AiProvidersPageState extends State<AiProvidersPage> {
       ]),
       body: ListView(padding: const EdgeInsets.all(16), children: [
         const LText(
-            '支持 OpenAI Chat Completions 兼容接口。服务商及密钥仅保存在本机安全存储中，不修改或同步 PC 的 Agent 配置。原有 AI 设置作为“默认配置”保留。'),
+            '支持 OpenAI Chat Completions 兼容接口。服务商及密钥仅保存在本机安全存储中，不修改或同步 PC 的 Agent 配置。'),
         if (_error != null)
           LText(_error!,
               style: TextStyle(color: Theme.of(context).colorScheme.error)),
@@ -191,22 +191,33 @@ class _ProviderEditorState extends State<_ProviderEditor> {
       ]),
       body: ListView(padding: const EdgeInsets.all(16), children: [
         TextField(
-            controller: _name, decoration: LInputDecoration(labelText: '名称')),
+            key: const ValueKey('provider-name'),
+            controller: _name,
+            decoration: LInputDecoration(labelText: '名称')),
+        const SizedBox(height: 24),
         TextField(
+            key: const ValueKey('provider-endpoint'),
             controller: _endpoint,
             decoration: LInputDecoration(labelText: 'API 地址（通常以 /v1 结尾）')),
+        const SizedBox(height: 24),
         TextField(
+            key: const ValueKey('provider-key'),
             controller: _key,
             obscureText: true,
             decoration: LInputDecoration(labelText: 'API Key（无鉴权接口可留空）')),
+        const SizedBox(height: 20),
         OutlinedButton(
             onPressed: _busy ? null : _fetch,
             child: LText(_busy ? '正在拉取…' : '自动拉取模型')),
+        const SizedBox(height: 24),
         TextField(
+            key: const ValueKey('provider-models'),
             controller: _models,
-            minLines: 3,
-            maxLines: 8,
+            minLines: 1,
+            maxLines: null,
+            keyboardType: TextInputType.multiline,
             decoration: LInputDecoration(labelText: '模型列表（每行一个）')),
+        const SizedBox(height: 20),
         SwitchListTile(
             title: const LText('发送 JSON 模式参数'),
             subtitle: const LText('默认关闭；仍会通过提示词请求结构化命令'),

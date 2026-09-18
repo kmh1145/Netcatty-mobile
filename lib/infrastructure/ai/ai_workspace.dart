@@ -95,6 +95,59 @@ class AiWorkspace {
         .toList();
   }
 
+  /// Import legacy mobile configuration once without changing the shared vault.
+  /// The marker prevents a deleted imported provider from being resurrected.
+  Future<void> migrateLegacyProvider(AppSettings settings, String apiKey) {
+    final next = _pending.then((_) async {
+      if (await read('legacyMigrated') == 'true') return;
+      final configured = apiKey.trim().isNotEmpty ||
+          settings.aiEndpoint != const AppSettings().aiEndpoint ||
+          settings.aiModel != defaultAiModel ||
+          settings.aiModels.any((model) => model != defaultAiModel);
+      if (configured) {
+        final raw = await read('profiles');
+        final entries = raw == null
+            ? <AiProviderProfile>[]
+            : (jsonDecode(raw) as List)
+                .map((v) => AiProviderProfile.fromJson(
+                    Map<String, dynamic>.from(v as Map)))
+                .toList();
+        var migrated = entries
+            .where((p) =>
+                p.id == 'legacy-mobile' ||
+                (p.endpoint == settings.aiEndpoint &&
+                    p.apiKey == apiKey &&
+                    p.models.contains(settings.aiModel)))
+            .firstOrNull;
+        if (migrated == null) {
+          migrated = AiProviderProfile(
+              id: 'legacy-mobile',
+              name: '原有配置',
+              endpoint: settings.aiEndpoint,
+              apiKey: apiKey,
+              models: {settings.aiModel, ...settings.aiModels}.toList());
+          entries.add(migrated);
+          await write(
+              'profiles', jsonEncode(entries.map((p) => p.toJson()).toList()));
+        }
+        if (await read('activeProfile') == null) {
+          await write('activeProfile', migrated.id);
+        }
+        await write('model.${migrated.id}', settings.aiModel);
+      }
+      await write('legacyMigrated', 'true');
+    });
+    _pending = next.catchError((Object _) {});
+    return next;
+  }
+
+  Future<bool> riskAcknowledged() async {
+    await _pending;
+    return await read('riskAcknowledged') == 'true';
+  }
+
+  Future<void> acknowledgeRisk() => _save('riskAcknowledged', 'true');
+
   Future<void> saveProfiles(List<AiProviderProfile> profiles) =>
       _save('profiles', jsonEncode(profiles.map((p) => p.toJson()).toList()));
   Future<String?> activeProfile() async {

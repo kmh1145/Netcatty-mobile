@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 
 import '../../domain/models/settings.dart';
+import 'ai_reply_parser.dart';
 
 enum AiChatRole { user, assistant }
 
@@ -144,8 +145,8 @@ class AiService {
               'Reply naturally and keep context across turns. Return one JSON object with '
               'a required "message" string and an optional "command" string. The terminal '
               'is already connected to the target below. Commands may be pasted into '
-              'that shell or run after confirmation on a separate non-interactive SSH '
-              'exec channel, which does NOT inherit the terminal cwd, environment or tmux state. '
+              'that same interactive shell after explicit confirmation, with its current '
+              'directory, environment and tmux pane. Do not assume it is at a shell prompt. '
               'Use explicit paths when needed. Never generate an ssh command to reconnect to the '
               'current target and never assume port 22. Do not claim a command ran. Prefer '
               'read-only diagnostics and explain risky operations before suggesting them.',
@@ -380,32 +381,11 @@ class AiService {
   }
 
   static AiChatMessage _parseReply(String content) {
-    final normalized = content
-        .replaceFirst(RegExp(r'^\s*```(?:json)?\s*'), '')
-        .replaceFirst(RegExp(r'\s*```\s*$'), '')
-        .trim();
-    try {
-      final result = jsonDecode(normalized);
-      if (result is Map) {
-        final message =
-            (result['message'] ?? result['explanation'])?.toString().trim();
-        final command = result['command']?.toString().trim();
-        if (message?.isNotEmpty == true || command?.isNotEmpty == true) {
-          return AiChatMessage(
-            role: AiChatRole.assistant,
-            content: message?.isNotEmpty == true ? message! : '可以使用以下命令：',
-            command: command?.isNotEmpty == true ? command : null,
-          );
-        }
-      }
-    } on FormatException {
-      // Some OpenAI-compatible providers ignore response_format. Their plain
-      // text response is still useful as a conversational answer.
-    }
+    final parsed = parseAiReply(content);
     return AiChatMessage(
-      role: AiChatRole.assistant,
-      content: content.trim(),
-    );
+        role: AiChatRole.assistant,
+        content: parsed.message,
+        command: parsed.command);
   }
 
   void close() {

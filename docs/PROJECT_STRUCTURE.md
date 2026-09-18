@@ -103,7 +103,7 @@ Netcatty-mobile/
 | 文件 | 职责 |
 | --- | --- |
 | `ai/ai_service.dart` | OpenAI 兼容聊天、流式解析/取消、参数降级、摘要请求、命令建议解析 |
-| `ai/ai_command_executor.dart` | 复用 SSH 客户端的独立执行通道、限额输出、退出状态与取消 |
+| `ai/ai_reply_parser.dart` | 完整回复的 JSON / Markdown 命令识别，始终经用户确认后发往当前终端 |
 | `ai/ai_workspace.dart` | 本机安全存储的多服务商配置、近期历史/摘要和脱敏，不进入云同步 |
 
 基础设施层处理外部输入时要先验证类型和边界。Shell 参数必须转义，HTTP 错误不能把 Authorization Header 写入日志。

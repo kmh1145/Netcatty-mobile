@@ -570,6 +570,44 @@ const englishTranslations = <String, String>{
 /// Ordered fragments cover dynamic values and infrastructure errors that are
 /// ultimately rendered by a localized text widget.
 const englishReplacements = <(String, String)>[
+  (
+    '终端输出上传已关闭，可通过输入框上方的按钮开启。',
+    'Terminal sharing is off. Enable it using the button above the input.'
+  ),
+  (
+    '命令包含不可见控制字符，请复制后人工检查',
+    'Command contains invisible control characters. Copy and inspect it manually.'
+  ),
+  ('原有配置', 'Imported configuration'),
+  ('使用 AI Agent 前请了解风险', 'Before using AI Agent'),
+  ('了解了', 'I understand'),
+  (
+    'AI 可能生成错误或危险命令，造成数据丢失、服务中断或安全问题。执行前请检查完整命令并做好备份。命令会发送到当前终端，请确认终端处于可输入命令的状态。',
+    'AI may generate incorrect or dangerous commands that cause data loss, outages or security problems. Review the full command and back up your data. Commands are sent to the current terminal; ensure it is ready for input.'
+  ),
+  (
+    '对话会发送给你配置的 AI 服务商；开启终端输出上传后，近期终端内容也会被发送。脱敏无法保证移除所有敏感信息，请勿上传密码、密钥或隐私数据。',
+    'Conversations are sent to your configured AI provider. Enabling terminal sharing also sends recent output. Redaction cannot remove all secrets. Do not upload passwords, keys or private data.'
+  ),
+  (
+    '命令将在当前终端执行，输出保留在终端。请确认当前没有其他程序正在等待输入，并检查多行命令。',
+    'Commands run in the current terminal and output stays there. Ensure no other program is awaiting input and review multiline commands.'
+  ),
+  ('读取终端并分析', 'Read terminal and analyze'),
+  (
+    '将把以下终端快照发送给当前 AI 服务商。它可能包含其他命令的输出，不能代表命令已经完成。',
+    'This snapshot will be sent to your current AI provider. It may contain other commands and does not prove completion.'
+  ),
+  ('发送并分析', 'Send and analyze'),
+  ('开启终端输出上传', 'Enable terminal sharing'),
+  ('关闭终端输出上传', 'Disable terminal sharing'),
+  ('终端输出上传', 'Terminal sharing'),
+  ('上传：开', 'Share: on'),
+  ('上传：关', 'Share: off'),
+  (
+    '支持 OpenAI Chat Completions 兼容接口。服务商及密钥仅保存在本机安全存储中，不修改或同步 PC 的 Agent 配置。',
+    'Supports OpenAI Chat Completions compatible APIs. Providers and keys stay in local secure storage and do not change or sync desktop Agent configuration.'
+  ),
   ('管理多个 AI 服务商', 'Manage AI providers'),
   (
     '独立地址、密钥、模型与兼容参数，仅保存在本机',

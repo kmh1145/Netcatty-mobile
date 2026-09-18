@@ -12,7 +12,8 @@ import '../../application/home_navigation.dart';
 import '../../application/settings_controller.dart';
 import '../../application/vault_controller.dart';
 import '../../infrastructure/ai/ai_service.dart';
-import '../../infrastructure/ai/ai_command_executor.dart';
+import '../widgets/ai_panel.dart';
+import '../widgets/ai_providers_page.dart';
 import '../../infrastructure/ssh/ssh_service.dart';
 import '../../infrastructure/ssh/terminal_picture_in_picture_service.dart';
 import '../../infrastructure/storage/vault_repository.dart';
@@ -490,7 +491,11 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
     }
   }
 
+  bool _openingAi = false;
+
   Future<void> _openAi(ActiveTerminalSession session) async {
+    if (_openingAi) return;
+    _openingAi = true;
     // Chat needs its own idle/connect timeouts; the shared sync HTTP client
     // intentionally imposes a shorter header timeout.
     final service = AiService();
@@ -499,8 +504,20 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
       final settings = await repository.loadSettings();
       final apiKey = await repository.readAiApiKey() ?? '';
       final workspace = repository.aiWorkspace;
-      final profiles = await workspace.profiles();
-      final activeProfile = await workspace.activeProfile();
+      if (!mounted || !await confirmAiRisk(context, workspace)) return;
+      await workspace.migrateLegacyProvider(settings, apiKey);
+      var profiles = await workspace.profiles();
+      if (profiles.isEmpty) {
+        if (!mounted) return;
+        await Navigator.of(context).push(MaterialPageRoute<void>(
+            builder: (_) => AiProvidersPage(workspace: workspace)));
+        profiles = await workspace.profiles();
+        if (profiles.isEmpty) return;
+      }
+      final savedProfile = await workspace.activeProfile();
+      final activeProfile = profiles.any((p) => p.id == savedProfile)
+          ? savedProfile
+          : profiles.first.id;
       final preferredModel = activeProfile == null
           ? null
           : await workspace.preferredModel(activeProfile);
@@ -512,48 +529,49 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
         useSafeArea: true,
         isScrollControlled: true,
         backgroundColor: Colors.transparent,
-        builder: (context) => FractionallySizedBox(
-          heightFactor: .92,
-          child: ClipRRect(
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-            child: AiChatSheet(
-              host: session.host,
-              settings: settings,
-              apiKey: apiKey,
-              service: service,
-              initialMessages: remember ? history.messages : const [],
-              initialSummary: remember ? history.summary : '',
-              workspace: workspace,
-              profiles: profiles,
-              initialProfileId: activeProfile,
-              initialProfileModel: preferredModel,
-              rememberHistory: remember,
-              onMessagesChanged: (_) {},
-              executeCommand: session.isSsh
-                  ? (command, token) =>
-                      executeAiCommand(session, command, token)
-                  : null,
-              terminalContext: () => terminalAiContextText(session.terminal),
-              onModelChanged: (model) async {
-                final current = await repository.loadSettings();
-                await ref.read(settingsControllerProvider.notifier).update(
-                      current.copyWith(aiModel: model),
-                    );
-              },
-              onReasoningEffortChanged: (effort) async {
-                final current = await repository.loadSettings();
-                await ref.read(settingsControllerProvider.notifier).update(
-                      current.copyWith(aiReasoningEffort: effort),
-                    );
-              },
-              onCommand: (command, execute) async {
-                ref.read(sessionControllerProvider.notifier).sendToSession(
-                      session.id,
-                      command,
-                      enter: execute,
-                    );
-              },
-            ),
+        enableDrag: false,
+        builder: (context) => ResizableAiPanel(
+          builder: (onResize) => AiChatSheet(
+            onResize: onResize,
+            handleKeyboardInsets: false,
+            host: session.host,
+            settings: settings,
+            apiKey: apiKey,
+            service: service,
+            initialMessages: remember ? history.messages : const [],
+            initialSummary: remember ? history.summary : '',
+            workspace: workspace,
+            profiles: profiles,
+            initialProfileId: activeProfile,
+            initialProfileModel: preferredModel,
+            rememberHistory: remember,
+            onMessagesChanged: (_) {},
+            onTerminalContextChanged: (enabled) async {
+              final current = await repository.loadSettings();
+              await ref
+                  .read(settingsControllerProvider.notifier)
+                  .update(current.copyWith(aiIncludeTerminalContext: enabled));
+            },
+            terminalContext: () => terminalAiContextText(session.terminal),
+            onModelChanged: (model) async {
+              final current = await repository.loadSettings();
+              await ref.read(settingsControllerProvider.notifier).update(
+                    current.copyWith(aiModel: model),
+                  );
+            },
+            onReasoningEffortChanged: (effort) async {
+              final current = await repository.loadSettings();
+              await ref.read(settingsControllerProvider.notifier).update(
+                    current.copyWith(aiReasoningEffort: effort),
+                  );
+            },
+            onCommand: (command, execute) async {
+              ref.read(sessionControllerProvider.notifier).sendToSession(
+                    session.id,
+                    command,
+                    enter: execute,
+                  );
+            },
           ),
         ),
       );
@@ -565,6 +583,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
       }
     } finally {
       service.close();
+      _openingAi = false;
     }
   }
 }
