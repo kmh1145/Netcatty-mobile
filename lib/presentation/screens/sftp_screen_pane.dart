@@ -836,53 +836,13 @@ class _SftpPaneState extends State<_SftpPane> {
     );
   }
 
-  Future<int?> _askPermissions(RemoteEntry entry) {
-    final formKey = GlobalKey<FormState>();
-    final controller = TextEditingController(
-      text: formatUnixPermissions(entry.unixMode) ??
-          (entry.isDirectory ? '755' : '644'),
-    );
-    return showDialog<int>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: LText('修改 ${entry.name} 的权限'),
-        content: Form(
-          key: formKey,
-          child: TextFormField(
-            key: const ValueKey('sftp-permissions-input'),
-            controller: controller,
-            autofocus: true,
-            keyboardType: TextInputType.number,
-            maxLength: 4,
-            decoration: LInputDecoration(
-              labelText: 'Unix 权限',
-              hintText: '例如 644 或 0755',
-              helperText: '依次表示所有者、用户组和其他用户的读写执行权限',
-            ),
-            validator: (value) => parseUnixPermissions(value ?? '') == null
-                ? localized('请输入 3 或 4 位八进制权限（0-7）')
-                : null,
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const LText('取消'),
-          ),
-          FilledButton(
-            onPressed: () {
-              if (formKey.currentState?.validate() != true) return;
-              Navigator.pop(
-                context,
-                parseUnixPermissions(controller.text),
-              );
-            },
-            child: const LText('应用'),
-          ),
-        ],
-      ),
-    );
-  }
+  Future<int?> _askPermissions(RemoteEntry entry) => showDialog<int>(
+        context: context,
+        builder: (_) => SftpPermissionsDialog(
+            name: entry.name,
+            initialMode: formatUnixPermissions(entry.unixMode) ??
+                (entry.isDirectory ? '755' : '644')),
+      );
 
   void _message(String value) {
     if (mounted) {

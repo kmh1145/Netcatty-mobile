@@ -10,6 +10,7 @@ import '../../domain/models/host.dart';
 import '../../domain/models/settings.dart';
 import '../../domain/models/vault.dart';
 import 'background_image_service.dart';
+import '../ai/ai_workspace.dart';
 
 final vaultRepositoryProvider = Provider<VaultRepository>(
   (ref) => throw StateError('VaultRepository has not been initialized'),
@@ -44,6 +45,14 @@ class VaultRepository {
   final FlutterSecureStorage _secureStorage;
   final BackgroundImageService _backgroundImageService;
   final _changes = StreamController<VaultChange>.broadcast();
+  late final aiWorkspace = AiWorkspace(
+    read: (key) =>
+        _secureStorage.read(key: 'netcatty.mobile.ai.workspace.$key'),
+    write: (key, value) => value == null
+        ? _secureStorage.delete(key: 'netcatty.mobile.ai.workspace.$key')
+        : _secureStorage.write(
+            key: 'netcatty.mobile.ai.workspace.$key', value: value),
+  );
   VaultData? _cachedVault;
   Future<VaultData>? _vaultLoad;
   bool _vaultSecretsLoaded = false;

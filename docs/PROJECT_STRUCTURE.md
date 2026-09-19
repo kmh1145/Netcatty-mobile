@@ -102,7 +102,9 @@ Netcatty-mobile/
 
 | 文件 | 职责 |
 | --- | --- |
-| `ai/ai_service.dart` | OpenAI 兼容聊天请求、最近 30 条多轮上下文、可选终端输出、普通文本/命令建议解析 |
+| `ai/ai_service.dart` | OpenAI 兼容聊天、流式解析/取消、参数降级、摘要请求、命令建议解析 |
+| `ai/ai_reply_parser.dart` | 完整回复的 JSON / Markdown 命令识别，始终经用户确认后发往当前终端 |
+| `ai/ai_workspace.dart` | 本机安全存储的多服务商配置、近期历史/摘要和脱敏，不进入云同步 |
 
 基础设施层处理外部输入时要先验证类型和边界。Shell 参数必须转义，HTTP 错误不能把 Authorization Header 写入日志。
 
@@ -126,7 +128,8 @@ Netcatty-mobile/
 | `widgets/keychain_sheet.dart` | SSH 密钥管理 |
 | `widgets/host_system_icon.dart` | 根据系统识别信息选择图标 |
 | `widgets/terminal_special_keys.dart` | 默认/自定义快捷键、修饰键状态、自动换行与编辑器 |
-| `widgets/ai_chat_sheet.dart` | Catty 多轮聊天、模型切换、终端输出共享状态、会话独立历史、命令复制/定向粘贴与执行确认 |
+| `widgets/ai_chat_sheet.dart` | 流式对话、摘要、隐私预览、服务商/模型切换、命令执行与结果上传确认 |
+| `widgets/ai_providers_page.dart` | 多服务商配置、模型拉取与兼容参数；详见 `docs/AI_ASSISTANT.md` |
 | `widgets/server_monitor_sheet.dart` | 性能监控面板、资源详情展开动画与累计流量 |
 | `widgets/server_network_chart.dart` | 吞吐折线图、三分钟时间轴、触摸采样浮窗与拖动交互 |
 | `widgets/sftp_editor.dart` | 远程文本编辑、自适应行号、自动换行、双指字体缩放、代码高亮及普通/全词/正则文件内搜索 |

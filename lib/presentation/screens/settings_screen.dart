@@ -14,7 +14,6 @@ import '../../application/settings_controller.dart';
 import '../../application/vault_controller.dart';
 import '../../domain/models/settings.dart';
 import '../../domain/models/vault.dart';
-import '../../infrastructure/ai/ai_service.dart';
 import '../../infrastructure/storage/background_image_service.dart';
 import '../../infrastructure/storage/vault_repository.dart';
 import '../../infrastructure/storage/vault_export_service.dart';
@@ -27,6 +26,8 @@ import '../theme.dart';
 import '../localization/localized_widgets.dart';
 import '../widgets/keychain_sheet.dart';
 import '../widgets/custom_background.dart';
+import '../widgets/ai_providers_page.dart';
+import '../widgets/github_manual_config.dart';
 
 part 'settings_screen_dialogs.dart';
 
@@ -52,9 +53,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   final s3SessionToken = TextEditingController();
   final s3Prefix = TextEditingController();
   final masterPassword = TextEditingController();
-  final aiEndpoint = TextEditingController();
-  final aiModel = TextEditingController();
-  final aiKey = TextEditingController();
   var provider = SyncProviderType.webdav;
   var s3ForcePathStyle = true;
   var s3AllowInsecure = false;
@@ -70,11 +68,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   var customBackgroundScope = 'global';
   var _persistedBackgroundPath = '';
   var _savingTerminalSecureKeyboard = false;
-  var aiModels = <String>[defaultAiModel];
-  var selectedAiModel = defaultAiModel;
-  var aiReasoningEffort = defaultAiReasoningEffort;
-  var aiIncludeTerminalContext = false;
-  var _fetchingAiModels = false;
   var autoSyncEnabled = false;
   var _savingAutoSync = false;
   var language = 'zh-CN';
@@ -121,9 +114,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     s3SessionToken.dispose();
     s3Prefix.dispose();
     masterPassword.dispose();
-    aiEndpoint.dispose();
-    aiModel.dispose();
-    aiKey.dispose();
     super.dispose();
   }
 
@@ -144,11 +134,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     s3ForcePathStyle = sync?.forcePathStyle ?? true;
     s3AllowInsecure = sync?.allowInsecure ?? false;
     masterPassword.text = await repository.readMasterPassword() ?? '';
-    aiEndpoint.text = settings.aiEndpoint;
-    aiModels = [...settings.aiModels];
-    selectedAiModel = settings.aiModel;
-    aiReasoningEffort = settings.aiReasoningEffort;
-    aiIncludeTerminalContext = settings.aiIncludeTerminalContext;
     autoSyncEnabled = settings.autoSyncEnabled;
     themeMode = settings.themeMode;
     uiThemeId = settings.uiThemeId;
@@ -162,7 +147,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     customBackgroundScope = settings.customBackgroundScope;
     _persistedBackgroundPath = settings.customBackgroundPath;
     language = settings.language;
-    aiKey.text = await repository.readAiApiKey() ?? '';
     _githubUser =
         sync?.type == SyncProviderType.githubGist ? sync?.username : null;
     if (mounted) {
@@ -632,28 +616,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         ),
                         const SizedBox(height: 10),
                         _syncVersionsCard(),
-                        ExpansionTile(
-                          tilePadding: EdgeInsets.zero,
-                          title: const LText('高级 / 手动配置'),
-                          subtitle: const LText('仅用于迁移或登录故障排查'),
-                          children: [
-                            TextField(
-                              controller: resourceId,
-                              decoration: LInputDecoration(
-                                labelText: 'Gist ID（通常自动识别）',
-                              ),
-                            ),
-                            const SizedBox(height: 10),
-                            TextField(
-                              controller: providerSecret,
-                              obscureText: true,
-                              onChanged: (_) => setState(() {}),
-                              decoration: LInputDecoration(
-                                labelText: 'GitHub Token（备用）',
-                              ),
-                            ),
-                          ],
-                        ),
+                        GitHubManualConfig(
+                            resourceId: resourceId,
+                            secret: providerSecret,
+                            onSecretChanged: (_) => setState(() {})),
                       ],
                       const SizedBox(height: 10),
                       TextField(
@@ -701,145 +667,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
               ),
               _header('Catty Agent', '使用 OpenAI 兼容接口连续对话，命令执行前始终确认'),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(14),
-                  child: Column(
-                    children: [
-                      TextField(
-                        controller: aiEndpoint,
-                        decoration: LInputDecoration(labelText: 'API 地址'),
-                      ),
-                      const SizedBox(height: 10),
-                      TextField(
-                        controller: aiKey,
-                        obscureText: true,
-                        decoration: LInputDecoration(labelText: 'API Key'),
-                      ),
-                      const SizedBox(height: 10),
-                      SizedBox(
-                        width: double.infinity,
-                        child: OutlinedButton.icon(
-                          key: const ValueKey('ai-model-fetch'),
-                          onPressed: _fetchingAiModels ? null : _fetchAiModels,
-                          icon: _fetchingAiModels
-                              ? const SizedBox.square(
-                                  dimension: 18,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : const Icon(Icons.cloud_download_outlined),
-                          label: LText(
-                            _fetchingAiModels ? '正在拉取模型…' : '自动拉取模型',
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      DropdownButtonFormField<String>(
-                        key: ValueKey(
-                          'ai-model-$selectedAiModel-${aiModels.join('|')}',
-                        ),
-                        initialValue: selectedAiModel,
-                        isExpanded: true,
-                        decoration: LInputDecoration(labelText: '当前模型'),
-                        items: [
-                          for (final model in aiModels)
-                            DropdownMenuItem(
-                              value: model,
-                              child: Text(
-                                model,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                        ],
-                        onChanged: (value) {
-                          if (value != null) {
-                            setState(() => selectedAiModel = value);
-                          }
-                        },
-                      ),
-                      const SizedBox(height: 10),
-                      DropdownButtonFormField<String>(
-                        key: ValueKey(
-                          'ai-reasoning-effort-$aiReasoningEffort',
-                        ),
-                        initialValue: aiReasoningEffort,
-                        isExpanded: true,
-                        decoration: LInputDecoration(labelText: '默认思考强度'),
-                        items: [
-                          for (final effort in supportedAiReasoningEfforts)
-                            DropdownMenuItem(
-                              value: effort,
-                              child: LText(_reasoningEffortLabel(effort)),
-                            ),
-                        ],
-                        onChanged: (value) {
-                          if (value != null) {
-                            setState(() => aiReasoningEffort = value);
-                          }
-                        },
-                      ),
-                      const SizedBox(height: 10),
-                      TextField(
-                        key: const ValueKey('ai-model-input'),
-                        controller: aiModel,
-                        textInputAction: TextInputAction.done,
-                        onSubmitted: (_) => _addAiModel(),
-                        decoration: LInputDecoration(
-                          labelText: '添加模型',
-                          hintText: '例如：gpt-4.1-mini',
-                          suffixIcon: IconButton(
-                            key: const ValueKey('ai-model-add'),
-                            tooltip: localized('添加'),
-                            onPressed: _addAiModel,
-                            icon: const Icon(Icons.add),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            for (final model in aiModels)
-                              InputChip(
-                                label: Text(model),
-                                selected: model == selectedAiModel,
-                                onSelected: (_) =>
-                                    setState(() => selectedAiModel = model),
-                                onDeleted: aiModels.length <= 1
-                                    ? null
-                                    : () => _removeAiModel(model),
-                              ),
-                          ],
-                        ),
-                      ),
-                      SwitchListTile.adaptive(
-                        contentPadding: EdgeInsets.zero,
-                        title: const LText('向 AI 发送近期终端输出'),
-                        subtitle: const LText(
-                          '关闭后只发送服务器基本信息和对话内容',
-                        ),
-                        value: aiIncludeTerminalContext,
-                        onChanged: (value) => setState(
-                          () => aiIncludeTerminalContext = value,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      SizedBox(
-                        width: double.infinity,
-                        child: OutlinedButton(
-                          onPressed: _saveAi,
-                          child: const LText('保存 AI 设置'),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+              ListTile(
+                leading: const Icon(Icons.dns_outlined),
+                title: const LText('管理多个 AI 服务商'),
+                subtitle: const LText('独立地址、密钥、模型与兼容参数，仅保存在本机'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: _openAiProviders,
               ),
               _header('数据管理', '导入导出会保留桌面端未知字段和插件数据'),
               Card(
@@ -1353,71 +1186,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 
-  Future<void> _saveAi() async {
-    final repository = ref.read(vaultRepositoryProvider);
-    final current = await repository.loadSettings();
-    await ref.read(settingsControllerProvider.notifier).update(
-          current.copyWith(
-            aiEndpoint: aiEndpoint.text.trim(),
-            aiModel: selectedAiModel,
-            aiModels: List<String>.unmodifiable(aiModels),
-            aiReasoningEffort: aiReasoningEffort,
-            aiIncludeTerminalContext: aiIncludeTerminalContext,
-          ),
-        );
-    await repository.saveAiApiKey(aiKey.text);
-    _message('AI 设置已保存');
-  }
-
-  Future<void> _fetchAiModels() async {
-    if (_fetchingAiModels) return;
-    setState(() => _fetchingAiModels = true);
+  Future<void> _openAiProviders() async {
     try {
-      final models =
-          await AiService(client: ref.read(httpClientProvider)).fetchModels(
-        endpoint: aiEndpoint.text,
-        apiKey: aiKey.text,
-      );
+      final repository = ref.read(vaultRepositoryProvider);
+      await repository.aiWorkspace.migrateLegacyProvider(
+          await repository.loadSettings(),
+          await repository.readAiApiKey() ?? '');
       if (!mounted) return;
-      setState(() {
-        aiModels = [...models];
-        if (!aiModels.contains(selectedAiModel)) {
-          selectedAiModel = aiModels.first;
-        }
-      });
-      _message('已拉取 ${models.length} 个模型');
+      await Navigator.of(context).push(MaterialPageRoute<void>(
+          builder: (_) => AiProvidersPage(workspace: repository.aiWorkspace)));
     } catch (error) {
-      _message('$error');
-    } finally {
-      if (mounted) setState(() => _fetchingAiModels = false);
+      if (mounted) _message('$error');
     }
   }
-
-  void _addAiModel() {
-    final value = aiModel.text.trim();
-    if (value.isEmpty) return;
-    setState(() {
-      if (!aiModels.contains(value)) aiModels.add(value);
-      selectedAiModel = value;
-      aiModel.clear();
-    });
-  }
-
-  void _removeAiModel(String model) {
-    if (aiModels.length <= 1) return;
-    setState(() {
-      aiModels.remove(model);
-      if (selectedAiModel == model) selectedAiModel = aiModels.first;
-    });
-  }
-
-  String _reasoningEffortLabel(String effort) => switch (effort) {
-        'minimal' => '极低',
-        'low' => '低',
-        'medium' => '中',
-        'high' => '高',
-        _ => '模型默认',
-      };
 
   Widget _backgroundPreview() {
     if (customBackgroundPath.isEmpty) return const SizedBox.shrink();
