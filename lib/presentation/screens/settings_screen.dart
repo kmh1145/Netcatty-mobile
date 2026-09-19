@@ -27,6 +27,7 @@ import '../localization/localized_widgets.dart';
 import '../widgets/keychain_sheet.dart';
 import '../widgets/custom_background.dart';
 import '../widgets/ai_providers_page.dart';
+import '../widgets/github_manual_config.dart';
 
 part 'settings_screen_dialogs.dart';
 
@@ -615,28 +616,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         ),
                         const SizedBox(height: 10),
                         _syncVersionsCard(),
-                        ExpansionTile(
-                          tilePadding: EdgeInsets.zero,
-                          title: const LText('高级 / 手动配置'),
-                          subtitle: const LText('仅用于迁移或登录故障排查'),
-                          children: [
-                            TextField(
-                              controller: resourceId,
-                              decoration: LInputDecoration(
-                                labelText: 'Gist ID（通常自动识别）',
-                              ),
-                            ),
-                            const SizedBox(height: 10),
-                            TextField(
-                              controller: providerSecret,
-                              obscureText: true,
-                              onChanged: (_) => setState(() {}),
-                              decoration: LInputDecoration(
-                                labelText: 'GitHub Token（备用）',
-                              ),
-                            ),
-                          ],
-                        ),
+                        GitHubManualConfig(
+                            resourceId: resourceId,
+                            secret: providerSecret,
+                            onSecretChanged: (_) => setState(() {})),
                       ],
                       const SizedBox(height: 10),
                       TextField(

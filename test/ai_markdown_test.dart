@@ -5,6 +5,40 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:netcatty_mobile/presentation/widgets/ai_markdown.dart';
 
 void main() {
+  testWidgets('inline code has rounded fill and wraps in narrow lists',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(320, 740));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(
+            body: SingleChildScrollView(
+                child: Padding(
+                    padding: EdgeInsets.all(20),
+                    child: AiMarkdown(
+                        '1. `journalctl -p err -b --no-pager | tail -30` then inspect the log.'))))));
+    await tester.pumpAndSettle();
+    final inline = find.byType(AiInlineCode);
+    expect(inline, findsOneWidget);
+    final container = tester.widget<Container>(
+        find.descendant(of: inline, matching: find.byType(Container)).first);
+    expect((container.decoration as BoxDecoration).borderRadius,
+        BorderRadius.circular(5));
+    expect(tester.getBottomRight(inline).dx, lessThanOrEqualTo(320));
+    final text = tester.widget<SelectableText>(
+        find.descendant(of: inline, matching: find.byType(SelectableText)));
+    expect(text.data, 'journalctl -p err -b --no-pager | tail -30');
+    expect(text.contextMenuBuilder, isNotNull);
+    final selectable =
+        find.descendant(of: inline, matching: find.byType(SelectableText));
+    await tester
+        .longPressAt(tester.getTopLeft(selectable) + const Offset(16, 8));
+    await tester.pumpAndSettle();
+    expect(find.text('Copy'), findsOneWidget);
+    await tester.tap(find.text('Copy'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('highlighted code uses the standard selection copy menu',
       (tester) async {
     String? copied;

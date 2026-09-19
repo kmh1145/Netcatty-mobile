@@ -18,6 +18,7 @@ import '../../infrastructure/ssh/android_document_tree_service.dart';
 import '../../infrastructure/ssh/sftp_service.dart';
 import '../widgets/custom_background.dart';
 import '../widgets/sftp_editor.dart';
+import '../widgets/sftp_permissions_dialog.dart';
 
 part 'sftp_screen_pane.dart';
 

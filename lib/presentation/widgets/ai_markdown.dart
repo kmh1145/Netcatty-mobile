@@ -36,13 +36,11 @@ class AiMarkdown extends StatelessWidget {
         styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
           code: TextStyle(
               fontFamily: 'monospace',
-              color: Theme.of(context).colorScheme.onSurface,
-              backgroundColor:
-                  Theme.of(context).colorScheme.surfaceContainerHighest),
+              color: Theme.of(context).colorScheme.onSurface),
           codeblockPadding: EdgeInsets.zero,
           tableColumnWidth: const FlexColumnWidth(),
         ),
-        builders: {'pre': _CodeBuilder()},
+        builders: {'pre': _CodeBuilder(), 'code': _InlineCodeBuilder()},
         // Image URLs in model output can be tracking URLs. Do not load them.
         imageBuilder: (_, __, alt) => SelectableText(alt ?? '[image]'),
         onTapLink: (_, href, __) => _openLink(context, href),
@@ -82,6 +80,35 @@ class AiMarkdown extends StatelessWidget {
       }
     }
   }
+}
+
+class _InlineCodeBuilder extends MarkdownElementBuilder {
+  @override
+  Widget visitElementAfterWithContext(BuildContext context, md.Element element,
+          TextStyle? preferredStyle, TextStyle? parentStyle) =>
+      AiInlineCode(element.textContent);
+}
+
+class AiInlineCode extends StatelessWidget {
+  const AiInlineCode(this.code, {super.key});
+  final String code;
+
+  @override
+  Widget build(BuildContext context) => IntrinsicWidth(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(5),
+          ),
+          child: SelectableText(code,
+              style: TextStyle(
+                fontFamily: 'monospace',
+                color: Theme.of(context).colorScheme.onSurface,
+                fontSize: Theme.of(context).textTheme.bodyMedium?.fontSize,
+              )),
+        ),
+      );
 }
 
 class _CodeBuilder extends MarkdownElementBuilder {
