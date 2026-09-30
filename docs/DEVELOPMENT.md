@@ -123,6 +123,7 @@ flutter test test/cloud_sync_service_test.dart test/netcatty_crypto_test.dart te
 | `vault_export_service_test.dart` | JSON 导出与取消路径 |
 | `host_editor_layout_test.dart` | 键盘弹出、滚动和窄屏表单布局 |
 | `terminal_connection_dialog_test.dart` | Pending 标签、连接弹窗和会话隔离 |
+| `terminal_input_controller_test.dart` | 软键盘输入、iOS 回车重复上报折叠与工具栏修饰键 |
 | `sftp_terminal_usability_test.dart` | SFTP 递归传输、进度、零拷贝、快捷键与 PiP 文本 |
 | `system_management_service_test.dart` | 进程、Docker、Compose、服务、Caddy、tmux 命令与解析 |
 | `mobile_v1_features_test.dart` | 关键移动端功能回归 |
@@ -136,6 +137,7 @@ flutter test test/cloud_sync_service_test.dart test/netcatty_crypto_test.dart te
 - 密码、私钥、跳板机和代理连接
 - 同一主机打开两个以上标签，关闭确认和分屏
 - 中文输入、文本选择、拖动选区、复制与粘贴
+- 软键盘回车只提交一次命令，长按/连按回车仍逐条提交
 - 性能面板与系统识别
 - 进程、Docker/Compose、Caddy 和 tmux 操作的确认弹窗
 - WebDAV、GitHub Gist 与 S3 的统一立即同步及条件写入
@@ -160,10 +162,11 @@ flutter test test/cloud_sync_service_test.dart test/netcatty_crypto_test.dart te
 - PiP 文字方向、颜色、更新和停止
 - 大文件 SFTP 时界面保持响应，进度平稳更新
 - 前后台切换后的 SSH 状态和系统回收提示
+- 系统键盘与第三方输入法的回车键各提交一次，不出现重复执行
 
 ## 分支与提交
 
-- 新功能和较大的 Bug 修复使用独立分支，例如 `codex/sftp-progress`，通过 PR 和 CI 合并。
+- 新功能和较大的 Bug 修复使用独立分支，通过 PR 和 CI 合并。由 DSH Agent 创建的仓库分支统一使用 `dsh/` 前缀，例如 `dsh/ios-terminal-enter-fix`；`codex/` 是历史遗留前缀，不要继续使用。
 - 很小且边界明确的文档、版本或维护修改，可按维护者要求直接在 `main` 完成，避免为每个微小改动积累分支。
 - 一个 PR 只包含一个可解释的目标；不要使用 `git add -A` 把附件、构建产物或用户未提交修改一并加入。
 - PR 合并后删除远端功能分支。

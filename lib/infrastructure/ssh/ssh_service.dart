@@ -9,6 +9,7 @@ import 'package:xterm2/xterm.dart';
 import '../../domain/models/host.dart';
 import '../../domain/models/server_stats.dart';
 import 'server_monitor_service.dart';
+import 'terminal_input_filter.dart';
 
 typedef HostKeyVerifier = Future<bool> Function(
   HostProfile host,
@@ -222,9 +223,11 @@ class SshService {
         );
         final output = terminal ?? Terminal(maxLines: 10000);
         final input = TerminalInputController();
-        output.onOutput = (value) => session.write(
-              Uint8List.fromList(utf8.encode(input.consume(value))),
-            );
+        final sink = bindTerminalOutput(
+          input,
+          (value) => session.write(Uint8List.fromList(utf8.encode(value))),
+        );
+        output.onOutput = sink.write;
         output.onResize = (width, height, pixelWidth, pixelHeight) {
           session.resizeTerminal(width, height, pixelWidth, pixelHeight);
         };
@@ -485,8 +488,11 @@ class SshService {
     pending.throwIfCancelled();
     final terminal = existingTerminal ?? Terminal(maxLines: 10000);
     final input = TerminalInputController();
-    terminal.onOutput =
-        (value) => socket.add(utf8.encode(input.consume(value)));
+    final sink = bindTerminalOutput(
+      input,
+      (value) => socket.add(utf8.encode(value)),
+    );
+    terminal.onOutput = sink.write;
     socket.listen((bytes) {
       final visible = <int>[];
       for (var i = 0; i < bytes.length; i++) {

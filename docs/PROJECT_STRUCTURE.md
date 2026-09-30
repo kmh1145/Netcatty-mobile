@@ -70,6 +70,7 @@ Netcatty-mobile/
 | 文件 | 职责 |
 | --- | --- |
 | `ssh/ssh_service.dart` | SSH/Telnet 连接、认证、主机指纹、代理、跳板机、Shell 和端口转发底层 |
+| `ssh/terminal_input_filter.dart` | 终端输出管线：工具栏一次性修饰状态与 iOS 软键盘回车重复上报的折叠 |
 | `ssh/server_monitor_service.dart` | 系统识别与 CPU/内存/磁盘/网络/负载采集 |
 | `ssh/sftp_service.dart` | `FileTransferService`、远程/本地文件实现、递归传输、进度和 iOS 有界并发 |
 | `ssh/file_selection.dart` | 多选剪贴板、内部/直传/中转路由、临时目录发布、冲突检查和移动前验证 |
@@ -208,6 +209,7 @@ assets/
 - 系统管理命令与解析
 - Vault 导出
 - Vault 多设备合并、删除墓碑与终端软键盘修饰键
+- 终端软键盘输入、iOS 回车重复上报折叠与工具栏修饰键
 - 中英文文案覆盖
 
 新增远程命令解析器或数据迁移时，应先加入纯 Dart 测试；新增布局修复时加入固定屏幕尺寸的 Widget Test。
