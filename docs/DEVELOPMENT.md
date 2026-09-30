@@ -166,7 +166,7 @@ flutter test test/cloud_sync_service_test.dart test/netcatty_crypto_test.dart te
 
 ## 分支与提交
 
-- 新功能和较大的 Bug 修复使用独立分支，例如 `codex/sftp-progress`，通过 PR 和 CI 合并。
+- 新功能和较大的 Bug 修复使用独立分支，通过 PR 和 CI 合并。由 DSH Agent 创建的仓库分支统一使用 `dsh/` 前缀，例如 `dsh/ios-terminal-enter-fix`；`codex/` 是历史遗留前缀，不要继续使用。
 - 很小且边界明确的文档、版本或维护修改，可按维护者要求直接在 `main` 完成，避免为每个微小改动积累分支。
 - 一个 PR 只包含一个可解释的目标；不要使用 `git add -A` 把附件、构建产物或用户未提交修改一并加入。
 - PR 合并后删除远端功能分支。
