@@ -16,6 +16,7 @@ import 'package:netcatty_mobile/infrastructure/ssh/ssh_service.dart';
 import 'package:netcatty_mobile/infrastructure/ssh/terminal_picture_in_picture_service.dart';
 import 'package:netcatty_mobile/presentation/home_shell.dart';
 import 'package:netcatty_mobile/presentation/screens/sftp_screen.dart';
+import 'package:netcatty_mobile/presentation/widgets/terminal_keyboard_toggle.dart';
 import 'package:netcatty_mobile/presentation/widgets/terminal_special_keys.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xterm2/xterm.dart';
@@ -464,6 +465,7 @@ void main() {
                   order: defaultTerminalQuickKeys,
                   customKeys: [],
                   inputController: TerminalInputController(),
+                  keyboardToggle: TerminalKeyboardToggle(),
                   onSend: _ignoreSend,
                   onAi: _ignore,
                   onPortForward: null,
@@ -562,6 +564,7 @@ void main() {
               order: defaultTerminalQuickKeys,
               customKeys: const [],
               inputController: TerminalInputController(),
+              keyboardToggle: TerminalKeyboardToggle(),
               onSend: (value, {bool enter = false}) => sent.add(value),
               onAi: _ignore,
               onPortForward: null,

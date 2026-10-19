@@ -130,6 +130,7 @@ Netcatty-mobile/
 | `widgets/keychain_sheet.dart` | SSH 密钥管理 |
 | `widgets/host_system_icon.dart` | 根据系统识别信息选择图标 |
 | `widgets/terminal_special_keys.dart` | 默认/自定义快捷键、修饰键状态、自动换行与编辑器 |
+| `widgets/terminal_keyboard_toggle.dart` | 键盘按钮与终端窗格之间的软键盘请求桥接 |
 | `widgets/ai_chat_sheet.dart` | 流式对话、摘要、隐私预览、服务商/模型切换、命令执行与结果上传确认 |
 | `widgets/ai_providers_page.dart` | 多服务商配置、模型拉取与兼容参数；详见 `docs/AI_ASSISTANT.md` |
 | `widgets/server_monitor_sheet.dart` | 性能监控面板、资源详情展开动画与累计流量 |
@@ -212,6 +213,7 @@ assets/
 - Vault 导出
 - Vault 多设备合并、删除墓碑与终端软键盘修饰键
 - 终端软键盘输入、iOS 回车重复上报折叠与工具栏修饰键
+- 终端软键盘只由键盘按钮打开、点击与滚动不弹键盘
 - 中英文文案覆盖
 
 新增远程命令解析器或数据迁移时，应先加入纯 Dart 测试；新增布局修复时加入固定屏幕尺寸的 Widget Test。
