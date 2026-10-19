@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../application/settings_controller.dart';
 import '../../domain/models/settings.dart';
 import '../../infrastructure/ssh/ssh_service.dart';
+import 'terminal_keyboard_toggle.dart';
 
 class TerminalSpecialKeys extends ConsumerStatefulWidget {
   const TerminalSpecialKeys({
@@ -16,6 +17,7 @@ class TerminalSpecialKeys extends ConsumerStatefulWidget {
     required this.customKeys,
     required this.onSend,
     required this.inputController,
+    required this.keyboardToggle,
     required this.onAi,
     required this.onPortForward,
     required this.onSystemManagement,
@@ -32,6 +34,11 @@ class TerminalSpecialKeys extends ConsumerStatefulWidget {
   final List<TerminalCustomKey> customKeys;
   final void Function(String, {bool enter}) onSend;
   final TerminalInputController inputController;
+
+  /// Owns the soft keyboard request. Only this toolbar's keyboard button opens
+  /// the keyboard, so tapping the terminal stays reserved for scrolling and
+  /// selecting text.
+  final TerminalKeyboardToggle keyboardToggle;
   final VoidCallback onAi;
   final VoidCallback? onPortForward;
   final VoidCallback? onSystemManagement;
@@ -74,7 +81,10 @@ class _TerminalSpecialKeysState extends ConsumerState<TerminalSpecialKeys> {
       ),
     ];
     return AnimatedBuilder(
-      animation: widget.inputController,
+      animation: Listenable.merge([
+        widget.inputController,
+        widget.keyboardToggle,
+      ]),
       builder: (context, _) => Material(
         key: const ValueKey('terminal-special-keys-surface'),
         color: widget.transparentBackground
@@ -157,10 +167,16 @@ class _TerminalSpecialKeysState extends ConsumerState<TerminalSpecialKeys> {
                   IconButton(
                     key: const ValueKey('terminal-action-hide-keyboard'),
                     visualDensity: VisualDensity.compact,
-                    tooltip: localized('收起键盘'),
-                    onPressed: () =>
-                        FocusManager.instance.primaryFocus?.unfocus(),
-                    icon: const Icon(Icons.keyboard_hide_outlined),
+                    tooltip: widget.keyboardToggle.isOpen
+                        ? localized('收起键盘')
+                        : localized('显示键盘'),
+                    onPressed: widget.keyboardToggle.toggle,
+                    icon: Icon(
+                      widget.keyboardToggle.isOpen
+                          ? Icons.keyboard_hide_outlined
+                          : Icons.keyboard_outlined,
+                    ),
+                    isSelected: widget.keyboardToggle.isOpen,
                   ),
                 ]
                     .map((button) => Expanded(child: button))

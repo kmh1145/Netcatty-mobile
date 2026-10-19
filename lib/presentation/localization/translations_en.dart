@@ -497,6 +497,7 @@ const englishTranslations = <String, String>{
   '发送内容': 'Sent content',
   '恢复默认': 'Restore defaults',
   '收起键盘': 'Hide keyboard',
+  '显示键盘': 'Show keyboard',
   '粘贴': 'Paste',
   '复制': 'Copy',
   '已复制终端文本': 'Terminal text copied',

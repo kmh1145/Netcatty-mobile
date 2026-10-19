@@ -78,11 +78,12 @@ sequenceDiagram
 ```
 
 `ActiveTerminalSession` 拥有认证后的 `SSHClient`、Shell Channel、xterm2 `Terminal` 和 `TerminalInputController`。后者把底部 Ctrl/Alt/Shift 的一次性修饰状态应用到下一次系统软键盘输入；移动端 TerminalView 启用删除检测以兼容 iOS 输入法的退格事件。SSH 和 Telnet 都通过 `terminal_input_filter.dart` 的 `bindTerminalOutput` 把 `Terminal.onOutput` 接到 socket：同一个 sink 先应用工具栏修饰状态，再折叠 iOS 软键盘回车键的重复上报——一次点击会同时走 `updateEditingValue`（xterm2 送出裸 LF）和 `performAction(newline)`（经按键表送出 CR），不去重会让远程 shell 把命令执行两次。只有「整块内容恰好是一个行结束符」的输入参与去重，带文本的粘贴和输入不受影响；去重窗口短于按住回车开始重复的延迟，因此双击或长按回车仍会逐条送达。SFTP、端口转发、服务器监控和系统管理复用这个 SSH Client，避免重复认证。因此：
-
 - 关闭标签时必须先二次确认，再由 `SessionController` 统一释放资源。
 - 同一主机可以建立多个独立 `ActiveTerminalSession`，不能按主机 ID 去重。
 - 第二个连接的 Pending/失败状态只属于新标签，不能覆盖当前正在操作的终端。
 - 会话关闭后，借用其 SSH Client 的 SFTP、转发或监控操作应停止或报出可理解的错误。
+
+软键盘只由终端工具栏右下角的键盘按钮打开，由 `presentation/widgets/terminal_keyboard_toggle.dart` 串起工具栏与窗格。窗格把 `TerminalView` 包在 `Focus(canRequestFocus: false, descendantsAreFocusable: isOpen)` 里：按钮未开启时点击终端只会滚动或选择文本，输入连接不会建立，因此也不会触发 xterm 在键盘弹出时自动把回滚区跳到底部。系统自行收起键盘（例如 Android 返回手势）时，窗格通过 `didChangeMetrics` 复位状态，避免下一次误触重新弹出。硬件键盘同样需要先按该按钮让终端获得焦点。
 
 连接能力包括密码、私钥、keyboard-interactive、跳板机、HTTP/SOCKS5 代理、主机指纹确认、启动命令和环境变量。Telnet 使用独立的 option 协商路径。Mosh 目前只有保留入口，没有移动端 UDP 原生运行时。
 

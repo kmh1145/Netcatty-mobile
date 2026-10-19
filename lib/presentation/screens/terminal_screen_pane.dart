@@ -167,18 +167,21 @@ class _TerminalPane extends StatefulWidget {
     required this.secureKeyboard,
     required this.pictureInPicture,
     required this.transparentBackground,
+    required this.keyboardToggle,
   });
   final ActiveTerminalSession session;
   final double fontSize;
   final bool secureKeyboard;
   final bool pictureInPicture;
   final bool transparentBackground;
+  final TerminalKeyboardToggle keyboardToggle;
 
   @override
   State<_TerminalPane> createState() => _TerminalPaneState();
 }
 
-class _TerminalPaneState extends State<_TerminalPane> {
+class _TerminalPaneState extends State<_TerminalPane>
+    with WidgetsBindingObserver {
   final _controller = TerminalController(
     pointerInputs: const PointerInputs({PointerInput.scroll}),
   );
@@ -197,6 +200,12 @@ class _TerminalPaneState extends State<_TerminalPane> {
     super.initState();
     _alternateScreen = widget.session.terminal.isUsingAltBuffer;
     widget.session.terminal.addListener(_onTerminalChanged);
+    widget.keyboardToggle.addListener(_onKeyboardToggleChanged);
+    widget.keyboardToggle.attach(
+      onOpen: _openKeyboard,
+      onClose: _closeKeyboard,
+    );
+    WidgetsBinding.instance.addObserver(this);
     if (widget.pictureInPicture) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _sendPipUpdate());
     }
@@ -209,6 +218,15 @@ class _TerminalPaneState extends State<_TerminalPane> {
       // xterm keeps the platform TextInputConnection alive while the view is
       // mounted. Recreate it so Android and iOS receive the new input type.
       _terminalViewKey = GlobalKey<TerminalViewState>();
+    }
+    if (oldWidget.keyboardToggle != widget.keyboardToggle) {
+      oldWidget.keyboardToggle.removeListener(_onKeyboardToggleChanged);
+      oldWidget.keyboardToggle.detach();
+      widget.keyboardToggle.addListener(_onKeyboardToggleChanged);
+      widget.keyboardToggle.attach(
+        onOpen: _openKeyboard,
+        onClose: _closeKeyboard,
+      );
     }
     if (oldWidget.session.terminal != widget.session.terminal) {
       oldWidget.session.terminal.removeListener(_onTerminalChanged);
@@ -224,12 +242,47 @@ class _TerminalPaneState extends State<_TerminalPane> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    widget.keyboardToggle.removeListener(_onKeyboardToggleChanged);
+    widget.keyboardToggle.detach();
     widget.session.terminal.removeListener(_onTerminalChanged);
     _pictureInPictureUpdateTimer?.cancel();
     _copyHoldTimer?.cancel();
     _controller.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  void _onKeyboardToggleChanged() {
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  /// Opens the soft keyboard. Runs after the frame that makes the terminal
+  /// focusable again, otherwise the focus request would be ignored.
+  void _openKeyboard() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _terminalViewKey.currentState?.requestKeyboard();
+    });
+  }
+
+  void _closeKeyboard() {
+    _terminalViewKey.currentState?.closeKeyboard();
+    FocusManager.instance.primaryFocus?.unfocus();
+  }
+
+  @override
+  void didChangeMetrics() {
+    super.didChangeMetrics();
+    if (!mounted) return;
+    // The keyboard can go away without our button being pressed, for example
+    // with the Android back gesture. Make the terminal unfocusable again so a
+    // later tap cannot silently reopen it.
+    final keyboardHidden = View.of(context).viewInsets.bottom == 0;
+    if (keyboardHidden && widget.keyboardToggle.isOpen) {
+      widget.keyboardToggle.markClosed();
+    }
   }
 
   void _onTerminalChanged() {
@@ -303,7 +356,10 @@ class _TerminalPaneState extends State<_TerminalPane> {
       color: paneBackground,
       child: AnimatedBuilder(
         animation: Listenable.merge([_controller, _scrollController]),
-        child: _terminalContent(terminalTheme),
+        child: _terminalContent(
+          terminalTheme,
+          keyboardEnabled: widget.keyboardToggle.isOpen,
+        ),
         builder: (context, terminalContent) {
           final selection = _controller
               .selectionFor(widget.session.terminal.buffer)
@@ -359,7 +415,11 @@ class _TerminalPaneState extends State<_TerminalPane> {
     );
   }
 
-  Widget _terminalContent(TerminalTheme theme) => Listener(
+  Widget _terminalContent(
+    TerminalTheme theme, {
+    required bool keyboardEnabled,
+  }) =>
+      Listener(
         onPointerDown: (event) {
           final mouse = event.kind == PointerDeviceKind.mouse;
           // Switching input devices changes policy; repeated finger gestures do not.
@@ -390,23 +450,31 @@ class _TerminalPaneState extends State<_TerminalPane> {
         onPointerUp: (_) => _copyHoldTimer?.cancel(),
         onPointerCancel: (_) => _copyHoldTimer?.cancel(),
         child: RepaintBoundary(
-          child: TerminalView(
-            widget.session.terminal,
-            simulateScroll: false,
-            key: _terminalViewKey,
-            controller: _controller,
-            scrollController: _scrollController,
-            theme: theme,
-            backgroundOpacity: widget.transparentBackground ? 0 : 1,
-            keyboardAppearance: Theme.of(context).brightness,
-            keyboardType: widget.secureKeyboard
-                ? TextInputType.visiblePassword
-                : TextInputType.emailAddress,
-            deleteDetection: true,
-            autofocus: !widget.pictureInPicture,
-            padding: const EdgeInsets.all(8),
-            textStyle: TerminalStyle(
-                fontSize: widget.fontSize, fontFamily: 'monospace'),
+          // Tapping the terminal must never raise the soft keyboard: doing so
+          // also makes xterm jump the scrollback to the bottom, which ruined
+          // selecting text after scrolling up. The keyboard is only focusable
+          // while the toolbar's keyboard button asked for it.
+          child: Focus(
+            canRequestFocus: false,
+            descendantsAreFocusable: keyboardEnabled,
+            child: TerminalView(
+              widget.session.terminal,
+              simulateScroll: false,
+              key: _terminalViewKey,
+              controller: _controller,
+              scrollController: _scrollController,
+              theme: theme,
+              backgroundOpacity: widget.transparentBackground ? 0 : 1,
+              keyboardAppearance: Theme.of(context).brightness,
+              keyboardType: widget.secureKeyboard
+                  ? TextInputType.visiblePassword
+                  : TextInputType.emailAddress,
+              deleteDetection: true,
+              autofocus: false,
+              padding: const EdgeInsets.all(8),
+              textStyle: TerminalStyle(
+                  fontSize: widget.fontSize, fontFamily: 'monospace'),
+            ),
           ),
         ),
       );
