@@ -23,6 +23,7 @@ import '../widgets/ai_chat_sheet.dart';
 import '../widgets/host_system_icon.dart';
 import '../widgets/port_forward_sheet.dart';
 import '../widgets/server_monitor_sheet.dart';
+import '../widgets/terminal_keyboard_toggle.dart';
 import '../widgets/terminal_special_keys.dart';
 import '../widgets/system_management/system_management_sheet.dart';
 
@@ -41,6 +42,13 @@ class TerminalScreen extends ConsumerStatefulWidget {
 class _TerminalScreenState extends ConsumerState<TerminalScreen> {
   var _split = false;
   StreamSubscription<bool>? _pictureInPictureSubscription;
+  final Map<String, TerminalKeyboardToggle> _keyboardToggles = {};
+
+  TerminalKeyboardToggle _keyboardToggleFor(String sessionId) =>
+      _keyboardToggles.putIfAbsent(
+        sessionId,
+        TerminalKeyboardToggle.new,
+      );
 
   @override
   void initState() {
@@ -64,6 +72,9 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
     final settings = ref.watch(settingsControllerProvider);
     final snippets =
         ref.watch(vaultControllerProvider).data?.snippets ?? const [];
+    // Drop keyboard state for sessions that were closed.
+    final liveSessionIds = {for (final session in state.sessions) session.id};
+    _keyboardToggles.removeWhere((id, _) => !liveSessionIds.contains(id));
     final selectedPending = state.selectedPending;
     final visibleSession = selectedPending == null ? state.active : null;
     final fullscreen = ref.watch(terminalFullscreenProvider);
@@ -276,6 +287,8 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
                                     pictureInPicture: pictureInPicture,
                                     transparentBackground:
                                         customBackground && !pictureInPicture,
+                                    keyboardToggle:
+                                        _keyboardToggleFor(state.active!.id),
                                   );
                                 }
                                 final secondIndex = (state.activeIndex + 1) %
@@ -290,6 +303,8 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
                                           settings.terminalSecureKeyboard,
                                       pictureInPicture: false,
                                       transparentBackground: customBackground,
+                                      keyboardToggle:
+                                          _keyboardToggleFor(state.active!.id),
                                     ),
                                   ),
                                   const Divider(height: 1, thickness: 1),
@@ -303,6 +318,9 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
                                           settings.terminalSecureKeyboard,
                                       pictureInPicture: false,
                                       transparentBackground: customBackground,
+                                      keyboardToggle: _keyboardToggleFor(
+                                        state.sessions[secondIndex].id,
+                                      ),
                                     ),
                                   ),
                                 ];
@@ -318,6 +336,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
                     order: settings.terminalQuickKeys,
                     customKeys: settings.terminalCustomKeys,
                     inputController: visibleSession.input,
+                    keyboardToggle: _keyboardToggleFor(visibleSession.id),
                     onSend: ref.read(sessionControllerProvider.notifier).send,
                     onAi: () => _openAi(visibleSession),
                     onPortForward: visibleSession.isSsh

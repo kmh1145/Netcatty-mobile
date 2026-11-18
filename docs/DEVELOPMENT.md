@@ -124,6 +124,7 @@ flutter test test/cloud_sync_service_test.dart test/netcatty_crypto_test.dart te
 | `host_editor_layout_test.dart` | 键盘弹出、滚动和窄屏表单布局 |
 | `terminal_connection_dialog_test.dart` | Pending 标签、连接弹窗和会话隔离 |
 | `terminal_input_controller_test.dart` | 软键盘输入、iOS 回车重复上报折叠与工具栏修饰键 |
+| `terminal_keyboard_test.dart` | 键盘按钮开关软键盘、点击与滚动不弹键盘 |
 | `ssh_identity_test.dart` | 主机私钥装配、空口令归一化与私钥类型识别 |
 | `sftp_terminal_usability_test.dart` | SFTP 递归传输、进度、零拷贝、快捷键与 PiP 文本 |
 | `system_management_service_test.dart` | 进程、Docker、Compose、服务、Caddy、tmux 命令与解析 |
@@ -138,6 +139,7 @@ flutter test test/cloud_sync_service_test.dart test/netcatty_crypto_test.dart te
 - 密码、私钥、跳板机和代理连接
 - 同一主机打开两个以上标签，关闭确认和分屏
 - 中文输入、文本选择、拖动选区、复制与粘贴
+- 点击/滚动终端不弹出键盘也不跳到底部，只有右下角键盘按钮开关软键盘
 - 软键盘回车只提交一次命令，长按/连按回车仍逐条提交
 - 性能面板与系统识别
 - 进程、Docker/Compose、Caddy 和 tmux 操作的确认弹窗
